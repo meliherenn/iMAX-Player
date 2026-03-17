@@ -1,0 +1,77 @@
+package com.imax.player.ui.home
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.imax.player.core.model.*
+import com.imax.player.data.repository.ContentRepository
+import com.imax.player.data.repository.PlaylistRepository
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+data class HomeState(
+    val playlist: Playlist? = null,
+    val recentMovies: List<Movie> = emptyList(),
+    val continueWatching: List<WatchHistoryItem> = emptyList(),
+    val recentChannels: List<Channel> = emptyList(),
+    val favoriteMovies: List<Movie> = emptyList(),
+    val allMovies: List<Movie> = emptyList(),
+    val allSeries: List<Series> = emptyList(),
+    val selectedContent: Any? = null,
+    val isLoading: Boolean = true
+)
+
+@HiltViewModel
+class HomeViewModel @Inject constructor(
+    private val playlistRepository: PlaylistRepository,
+    private val contentRepository: ContentRepository
+) : ViewModel() {
+
+    private val _state = MutableStateFlow(HomeState())
+    val state: StateFlow<HomeState> = _state.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            playlistRepository.getActivePlaylist().collectLatest { playlist ->
+                _state.update { it.copy(playlist = playlist, isLoading = playlist == null) }
+                if (playlist != null) loadContent(playlist.id)
+            }
+        }
+    }
+
+    private fun loadContent(playlistId: Long) {
+        viewModelScope.launch {
+            contentRepository.getRecentMovies(playlistId).collect { movies ->
+                _state.update { it.copy(recentMovies = movies) }
+            }
+        }
+        viewModelScope.launch {
+            contentRepository.getContinueWatching().collect { items ->
+                _state.update { it.copy(continueWatching = items) }
+            }
+        }
+        viewModelScope.launch {
+            contentRepository.getFavoriteMovies(playlistId).collect { movies ->
+                _state.update { it.copy(favoriteMovies = movies) }
+            }
+        }
+        viewModelScope.launch {
+            contentRepository.getMovies(playlistId).collect { movies ->
+                _state.update { it.copy(allMovies = movies.take(50), isLoading = false) }
+            }
+        }
+        viewModelScope.launch {
+            contentRepository.getSeries(playlistId).collect { series ->
+                _state.update { it.copy(allSeries = series.take(50)) }
+            }
+        }
+        viewModelScope.launch {
+            contentRepository.getChannels(playlistId).collect { channels ->
+                _state.update { it.copy(recentChannels = channels.take(20)) }
+            }
+        }
+    }
+
+    fun selectContent(content: Any?) = _state.update { it.copy(selectedContent = content) }
+}

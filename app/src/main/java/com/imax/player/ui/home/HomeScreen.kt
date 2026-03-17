@@ -1,0 +1,503 @@
+package com.imax.player.ui.home
+
+import androidx.compose.foundation.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.style.TextOverflow
+import com.imax.player.R
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.imax.player.core.designsystem.theme.ImaxColors
+import com.imax.player.core.designsystem.theme.LocalImaxDimens
+import com.imax.player.core.model.*
+import com.imax.player.ui.components.*
+import com.imax.player.ui.navigation.Routes
+
+@Composable
+fun HomeScreen(
+    isTv: Boolean,
+    onNavigate: (String) -> Unit,
+    onContentClick: (Long, String) -> Unit,
+    onPlayContent: (String, String, Long, String, Long) -> Unit,
+    viewModel: HomeViewModel = hiltViewModel()
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    var isDrawerExpanded by remember { mutableStateOf(false) }
+
+    if (isTv) {
+        ImaxDrawer(
+            isExpanded = isDrawerExpanded,
+            selectedRoute = Routes.HOME,
+            isTv = true,
+            onToggle = { isDrawerExpanded = !isDrawerExpanded },
+            onNavigate = { route ->
+                if (route == "exit") onNavigate(Routes.ONBOARDING) else onNavigate(route)
+            }
+        ) {
+            if (state.isLoading) {
+                LoadingScreen()
+            } else {
+                TvHomeContent(state, onContentClick, onPlayContent) { viewModel.selectContent(it) }
+            }
+        }
+    } else {
+        if (state.isLoading) {
+            LoadingScreen()
+        } else {
+            MobileHomeContent(state, onContentClick, onPlayContent) { viewModel.selectContent(it) }
+        }
+    }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TV Home — rail-based landscape layout
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@Composable
+private fun TvHomeContent(
+    state: HomeState,
+    onContentClick: (Long, String) -> Unit,
+    onPlayContent: (String, String, Long, String, Long) -> Unit,
+    onFocusChange: (Any?) -> Unit
+) {
+    val dimens = LocalImaxDimens.current
+    val scrollState = rememberScrollState()
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Dynamic backdrop
+        val backdropUrl = when (val selected = state.selectedContent) {
+            is Movie -> selected.backdropUrl.ifBlank { selected.posterUrl }
+            is Series -> selected.backdropUrl.ifBlank { selected.posterUrl }
+            else -> state.allMovies.firstOrNull()?.posterUrl ?: ""
+        }
+        if (backdropUrl.isNotBlank()) {
+            PosterImage(
+                url = backdropUrl,
+                contentDescription = "Backdrop",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxWidth().height(400.dp).blur(20.dp)
+            )
+            Box(
+                modifier = Modifier.fillMaxWidth().height(400.dp)
+                    .background(Brush.verticalGradient(listOf(ImaxColors.OverlayDark, ImaxColors.Background)))
+            )
+        }
+
+        Column(
+            modifier = Modifier.fillMaxSize().verticalScroll(scrollState)
+                .padding(vertical = dimens.screenPadding)
+        ) {
+            TvHeroBanner(state, onPlayContent, onContentClick)
+            Spacer(modifier = Modifier.height(dimens.sectionSpacing))
+            if (state.continueWatching.isNotEmpty()) {
+                ContentRail(stringResource(R.string.section_continue_watching), dimens.screenPadding) {
+                    items(state.continueWatching) { item ->
+                        ContinueWatchingCard(item, true,
+                            onClick = { onPlayContent(item.streamUrl, item.title, item.contentId, item.contentType.name, item.position) },
+                            onFocus = { onFocusChange(item) })
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+            if (state.recentChannels.isNotEmpty()) {
+                ContentRail(stringResource(R.string.section_recent_channels), dimens.screenPadding) {
+                    items(state.recentChannels) { ch ->
+                        ChannelCard(ch, true,
+                            onClick = { onPlayContent(ch.streamUrl, ch.name, ch.id, "LIVE", 0) },
+                            onFocus = { onFocusChange(ch) })
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+            if (state.allMovies.isNotEmpty()) {
+                ContentRail(stringResource(R.string.nav_movies), dimens.screenPadding) {
+                    items(state.allMovies) { movie ->
+                        ContentPosterCard(title = movie.name, posterUrl = movie.posterUrl, rating = movie.rating, year = movie.year, isTv = true,
+                            onClick = { onContentClick(movie.id, "MOVIE") })
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+            if (state.favoriteMovies.isNotEmpty()) {
+                ContentRail(stringResource(R.string.section_favorites), dimens.screenPadding) {
+                    items(state.favoriteMovies) { movie ->
+                        ContentPosterCard(title = movie.name, posterUrl = movie.posterUrl, rating = movie.rating, year = movie.year, isTv = true,
+                            onClick = { onContentClick(movie.id, "MOVIE") })
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+            if (state.allSeries.isNotEmpty()) {
+                ContentRail(stringResource(R.string.nav_series), dimens.screenPadding) {
+                    items(state.allSeries) { series ->
+                        ContentPosterCard(title = series.name, posterUrl = series.posterUrl, rating = series.rating, year = series.year, isTv = true,
+                            onClick = { onContentClick(series.id, "SERIES") })
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(32.dp))
+        }
+    }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Mobile Home — portrait-first vertical layout
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@Composable
+private fun MobileHomeContent(
+    state: HomeState,
+    onContentClick: (Long, String) -> Unit,
+    onPlayContent: (String, String, Long, String, Long) -> Unit,
+    onFocusChange: (Any?) -> Unit
+) {
+    val dimens = LocalImaxDimens.current
+    val scrollState = rememberScrollState()
+    val config = LocalConfiguration.current
+    val isLandscape = config.screenWidthDp > config.screenHeightDp
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Dynamic backdrop
+        val backdropUrl = when (val selected = state.selectedContent) {
+            is Movie -> selected.backdropUrl.ifBlank { selected.posterUrl }
+            is Series -> selected.backdropUrl.ifBlank { selected.posterUrl }
+            else -> state.allMovies.firstOrNull()?.posterUrl ?: ""
+        }
+        if (backdropUrl.isNotBlank()) {
+            PosterImage(
+                url = backdropUrl,
+                contentDescription = "Backdrop",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxWidth().height(300.dp).blur(20.dp)
+            )
+            Box(
+                modifier = Modifier.fillMaxWidth().height(300.dp)
+                    .background(Brush.verticalGradient(listOf(ImaxColors.OverlayDark, ImaxColors.Background)))
+            )
+        }
+
+        Column(
+            modifier = Modifier.fillMaxSize().verticalScroll(scrollState)
+                .padding(top = dimens.screenPadding, bottom = 8.dp)
+        ) {
+            // Mobile hero banner — stacked layout for portrait
+            MobileHeroBanner(state, isLandscape, onPlayContent, onContentClick)
+            Spacer(modifier = Modifier.height(dimens.sectionSpacing))
+
+            if (state.continueWatching.isNotEmpty()) {
+                ContentRail(stringResource(R.string.section_continue_watching), dimens.screenPadding) {
+                    items(state.continueWatching) { item ->
+                        ContinueWatchingCard(item, false,
+                            onClick = { onPlayContent(item.streamUrl, item.title, item.contentId, item.contentType.name, item.position) },
+                            onFocus = { onFocusChange(item) })
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+            if (state.recentChannels.isNotEmpty()) {
+                ContentRail(stringResource(R.string.section_recent_channels), dimens.screenPadding) {
+                    items(state.recentChannels) { ch ->
+                        ChannelCard(ch, false,
+                            onClick = { onPlayContent(ch.streamUrl, ch.name, ch.id, "LIVE", 0) },
+                            onFocus = { onFocusChange(ch) })
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+            if (state.allMovies.isNotEmpty()) {
+                ContentRail(stringResource(R.string.nav_movies), dimens.screenPadding) {
+                    items(state.allMovies) { movie ->
+                        ContentPosterCard(title = movie.name, posterUrl = movie.posterUrl, rating = movie.rating, year = movie.year, isTv = false,
+                            onClick = { onContentClick(movie.id, "MOVIE") })
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+            if (state.favoriteMovies.isNotEmpty()) {
+                ContentRail(stringResource(R.string.section_favorites), dimens.screenPadding) {
+                    items(state.favoriteMovies) { movie ->
+                        ContentPosterCard(title = movie.name, posterUrl = movie.posterUrl, rating = movie.rating, year = movie.year, isTv = false,
+                            onClick = { onContentClick(movie.id, "MOVIE") })
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+            if (state.allSeries.isNotEmpty()) {
+                ContentRail(stringResource(R.string.nav_series), dimens.screenPadding) {
+                    items(state.allSeries) { series ->
+                        ContentPosterCard(title = series.name, posterUrl = series.posterUrl, rating = series.rating, year = series.year, isTv = false,
+                            onClick = { onContentClick(series.id, "SERIES") })
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TV Hero Banner — horizontal Row layout (landscape-first)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@Composable
+private fun TvHeroBanner(
+    state: HomeState,
+    onPlay: (String, String, Long, String, Long) -> Unit,
+    onDetail: (Long, String) -> Unit
+) {
+    val featured = state.allMovies.firstOrNull() ?: return
+    val dimens = LocalImaxDimens.current
+
+    Box(
+        modifier = Modifier.fillMaxWidth().height(dimens.bannerHeight)
+            .padding(horizontal = dimens.screenPadding)
+    ) {
+        GlassCard(modifier = Modifier.fillMaxSize()) {
+            Row(modifier = Modifier.fillMaxSize()) {
+                PosterImage(
+                    url = featured.posterUrl,
+                    contentDescription = featured.name,
+                    modifier = Modifier.width(dimens.posterWidth).fillMaxHeight()
+                        .clip(RoundedCornerShape(12.dp))
+                )
+                Column(
+                    modifier = Modifier.weight(1f).padding(start = 16.dp).fillMaxHeight(),
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(text = featured.name, style = MaterialTheme.typography.headlineMedium,
+                        color = ImaxColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (featured.year > 0) Text(featured.year.toString(), style = MaterialTheme.typography.bodyMedium, color = ImaxColors.TextSecondary)
+                        if (featured.rating > 0) Text("⭐ ${String.format("%.1f", featured.rating)}", style = MaterialTheme.typography.bodyMedium, color = ImaxColors.RatingStarColor)
+                        if (featured.genre.isNotBlank()) Text(featured.genre.take(30), style = MaterialTheme.typography.bodyMedium, color = ImaxColors.TextSecondary)
+                    }
+                    if (featured.plot.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(featured.plot, style = MaterialTheme.typography.bodySmall, color = ImaxColors.TextTertiary, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        GradientButton(text = stringResource(R.string.action_play), icon = Icons.Filled.PlayArrow,
+                            onClick = { onPlay(featured.streamUrl, featured.name, featured.id, "MOVIE", featured.lastPosition) })
+                        OutlinedButton(
+                            onClick = { onDetail(featured.id, "MOVIE") },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = ImaxColors.TextPrimary),
+                            border = BorderStroke(1.dp, ImaxColors.GlassBorder)
+                        ) {
+                            Icon(Icons.Filled.Info, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(stringResource(R.string.action_details))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Mobile Hero Banner — stacked Column for portrait, Row for landscape
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@Composable
+private fun MobileHeroBanner(
+    state: HomeState,
+    isLandscape: Boolean,
+    onPlay: (String, String, Long, String, Long) -> Unit,
+    onDetail: (Long, String) -> Unit
+) {
+    val featured = state.allMovies.firstOrNull() ?: return
+    val dimens = LocalImaxDimens.current
+
+    Box(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = dimens.screenPadding)
+    ) {
+        GlassCard(modifier = Modifier.fillMaxWidth()) {
+            if (isLandscape) {
+                // Landscape: horizontal layout
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    PosterImage(
+                        url = featured.posterUrl,
+                        contentDescription = featured.name,
+                        modifier = Modifier.width(140.dp).aspectRatio(2f / 3f)
+                            .clip(RoundedCornerShape(12.dp))
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    MobileHeroBannerInfo(featured, onPlay, onDetail)
+                }
+            } else {
+                // Portrait: stacked vertical layout
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // Backdrop image
+                    PosterImage(
+                        url = featured.backdropUrl.ifBlank { featured.posterUrl },
+                        contentDescription = featured.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxWidth().height(160.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    MobileHeroBannerInfo(featured, onPlay, onDetail)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MobileHeroBannerInfo(
+    featured: Movie,
+    onPlay: (String, String, Long, String, Long) -> Unit,
+    onDetail: (Long, String) -> Unit
+) {
+    Column {
+        Text(text = featured.name, style = MaterialTheme.typography.titleLarge,
+            color = ImaxColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Spacer(modifier = Modifier.height(4.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (featured.year > 0) Text(featured.year.toString(), style = MaterialTheme.typography.bodySmall, color = ImaxColors.TextSecondary)
+            if (featured.rating > 0) Text("⭐ ${String.format("%.1f", featured.rating)}", style = MaterialTheme.typography.bodySmall, color = ImaxColors.RatingStarColor)
+        }
+        if (featured.plot.isNotBlank()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(featured.plot, style = MaterialTheme.typography.bodySmall, color = ImaxColors.TextTertiary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            GradientButton(text = stringResource(R.string.action_play), icon = Icons.Filled.PlayArrow,
+                onClick = { onPlay(featured.streamUrl, featured.name, featured.id, "MOVIE", featured.lastPosition) })
+            OutlinedButton(
+                onClick = { onDetail(featured.id, "MOVIE") },
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = ImaxColors.TextPrimary),
+                border = BorderStroke(1.dp, ImaxColors.GlassBorder)
+            ) {
+                Icon(Icons.Filled.Info, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(stringResource(R.string.action_details), style = MaterialTheme.typography.labelMedium)
+            }
+        }
+    }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Shared composables
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@Composable
+private fun ContentRail(
+    title: String,
+    horizontalPad: androidx.compose.ui.unit.Dp,
+    itemContent: androidx.compose.foundation.lazy.LazyListScope.() -> Unit
+) {
+    val dimens = LocalImaxDimens.current
+    SectionHeader(title = title, modifier = Modifier.padding(horizontal = horizontalPad))
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = horizontalPad),
+        horizontalArrangement = Arrangement.spacedBy(dimens.cardSpacing),
+        content = { itemContent() }
+    )
+}
+
+@Composable
+private fun ContinueWatchingCard(
+    item: WatchHistoryItem,
+    isTv: Boolean,
+    onClick: () -> Unit,
+    onFocus: () -> Unit
+) {
+    val dimens = LocalImaxDimens.current
+    var isFocused by remember { mutableStateOf(false) }
+    val width = if (isTv) 220.dp else 160.dp
+
+    Column(
+        modifier = Modifier
+            .width(width)
+            .clip(RoundedCornerShape(dimens.borderRadius))
+            .background(ImaxColors.CardBackground)
+            .border(
+                width = if (isFocused) dimens.focusBorderWidth else 0.dp,
+                color = ImaxColors.FocusBorder,
+                shape = RoundedCornerShape(dimens.borderRadius)
+            )
+            .clickable(onClick = onClick)
+            .onFocusChanged { fs ->
+                isFocused = fs.isFocused
+                if (fs.isFocused) onFocus()
+            }
+            .focusable()
+    ) {
+        Box(modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+            PosterImage(url = item.posterUrl, contentDescription = item.title, modifier = Modifier.fillMaxSize())
+            Box(
+                modifier = Modifier.fillMaxWidth().height(4.dp)
+                    .align(Alignment.BottomCenter).background(ImaxColors.SurfaceVariant)
+            ) {
+                Box(modifier = Modifier.fillMaxWidth(item.progress).fillMaxHeight().background(ImaxColors.Primary))
+            }
+        }
+        Text(text = item.title, style = MaterialTheme.typography.titleSmall,
+            color = ImaxColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(8.dp))
+    }
+}
+
+@Composable
+private fun ChannelCard(
+    channel: Channel,
+    isTv: Boolean,
+    onClick: () -> Unit,
+    onFocus: () -> Unit
+) {
+    val dimens = LocalImaxDimens.current
+    var isFocused by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .width(if (isTv) 160.dp else 110.dp)
+            .clip(RoundedCornerShape(dimens.borderRadius))
+            .background(ImaxColors.CardBackground)
+            .border(
+                width = if (isFocused) dimens.focusBorderWidth else 0.dp,
+                color = ImaxColors.FocusBorder,
+                shape = RoundedCornerShape(dimens.borderRadius)
+            )
+            .clickable(onClick = onClick)
+            .onFocusChanged { fs ->
+                isFocused = fs.isFocused
+                if (fs.isFocused) onFocus()
+            }
+            .focusable()
+            .padding(12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        PosterImage(
+            url = channel.logoUrl,
+            contentDescription = channel.name,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.size(if (isTv) 64.dp else 48.dp)
+                .clip(RoundedCornerShape(8.dp))
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(text = channel.name, style = MaterialTheme.typography.titleSmall,
+            color = ImaxColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+    }
+}
