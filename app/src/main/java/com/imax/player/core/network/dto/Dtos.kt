@@ -182,7 +182,6 @@ data class TmdbDetailResponse(
     @SerialName("genres") val genres: List<TmdbGenre> = emptyList(),
     @SerialName("credits") val credits: TmdbCredits? = null,
     @SerialName("imdb_id") val imdbId: String? = null,
-    @SerialName("imdb_id") val imdbId: String? = null,
     @SerialName("external_ids") val externalIds: TmdbExternalIds? = null,
     @SerialName("translations") val translations: TmdbTranslations? = null
 )
