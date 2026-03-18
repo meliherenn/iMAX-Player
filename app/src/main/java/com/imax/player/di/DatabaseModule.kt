@@ -21,7 +21,10 @@ object DatabaseModule {
             context,
             ImaxDatabase::class.java,
             "imax_player.db"
-        ).fallbackToDestructiveMigration().build()
+        )
+            .addMigrations(ImaxDatabase.MIGRATION_1_2)
+            .fallbackToDestructiveMigration()
+            .build()
     }
 
     @Provides fun providePlaylistDao(db: ImaxDatabase): PlaylistDao = db.playlistDao()

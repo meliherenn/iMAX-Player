@@ -37,7 +37,7 @@ interface TmdbApi {
     suspend fun getMovieDetails(
         @Path("movie_id") movieId: Int,
         @Query("api_key") apiKey: String,
-        @Query("append_to_response") appendToResponse: String = "credits,external_ids,translations",
+        @Query("append_to_response") appendToResponse: String = "credits,external_ids,translations,videos",
         @Query("language") language: String? = null
     ): TmdbDetailResponse
 
@@ -45,7 +45,7 @@ interface TmdbApi {
     suspend fun getTvDetails(
         @Path("tv_id") tvId: Int,
         @Query("api_key") apiKey: String,
-        @Query("append_to_response") appendToResponse: String = "credits,external_ids,translations",
+        @Query("append_to_response") appendToResponse: String = "credits,external_ids,translations,videos,aggregate_credits",
         @Query("language") language: String? = null
     ): TmdbDetailResponse
 }

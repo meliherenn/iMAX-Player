@@ -118,20 +118,16 @@ class ContentRepository @Inject constructor(
     }
 
     /**
-     * FIX: Fetch episodes from Xtream API if not already in DB.
-     * Called from DetailViewModel when viewing a series detail.
-     * Returns true if episodes were fetched and inserted.
+     * Fetch episodes from Xtream API if not already in DB.
      */
     suspend fun syncSeriesEpisodes(series: Series): Boolean = withContext(Dispatchers.IO) {
         try {
-            // Check if we already have episodes for this series
             val existingCount = episodeDao.getBySeries(series.id).first().size
             if (existingCount > 0) {
                 Timber.d("Episodes already cached for series ${series.id} (${series.name}), count=$existingCount")
                 return@withContext false
             }
 
-            // We need the playlist credentials to call the Xtream API
             val playlist = playlistDao.getById(series.playlistId)?.toModel()
             if (playlist == null || playlist.type != PlaylistType.XTREAM_CODES) {
                 Timber.w("Cannot fetch episodes: playlist ${series.playlistId} not found or not Xtream")
@@ -165,13 +161,16 @@ class ContentRepository @Inject constructor(
     }
 
     /**
-     * FIX: Fetch metadata from TMDB for a movie or series with missing details.
-     * Returns the MetadataResult if successful, null otherwise.
+     * Fetch metadata from TMDB for a movie or series with missing details.
+     * Returns the MetadataResult if successful and confidence is sufficient, null otherwise.
      */
     suspend fun enrichMetadata(title: String, year: Int, contentType: ContentType): MetadataResult? {
         return withContext(Dispatchers.IO) {
             try {
-                metadataProvider.fetchMetadata(title, year, contentType)
+                val result = metadataProvider.fetchMetadata(title, year, contentType)
+                // MetadataProvider already handles confidence thresholds
+                // A null return means no confident match was found
+                result
             } catch (e: Exception) {
                 Timber.e(e, "Metadata enrichment failed for: $title")
                 null
@@ -181,6 +180,7 @@ class ContentRepository @Inject constructor(
 
     /**
      * Update a movie entity with enriched metadata from TMDB.
+     * Prefers TMDB data when provider data is empty/generic.
      */
     suspend fun updateMovieWithMetadata(movieId: Long, metadata: MetadataResult) {
         withContext(Dispatchers.IO) {

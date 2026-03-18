@@ -475,15 +475,56 @@ class VlcPlayerEngine @Inject constructor(
     override fun setAspectRatio(mode: AspectRatioMode) {
         val mp = mediaPlayer ?: return
         when (mode) {
-            AspectRatioMode.AUTO, AspectRatioMode.FIT -> { mp.aspectRatio = null; mp.scale = 0f }
-            AspectRatioMode.FILL -> { mp.aspectRatio = null; mp.scale = 0f }
-            AspectRatioMode.ZOOM -> { mp.scale = 1.2f }
-            AspectRatioMode.STRETCH -> { mp.aspectRatio = null; mp.scale = 0f }
-            AspectRatioMode.ORIGINAL -> { mp.scale = 1f }
-            AspectRatioMode.FORCE_16_9 -> { mp.aspectRatio = "16:9" }
-            AspectRatioMode.FORCE_4_3 -> { mp.aspectRatio = "4:3" }
+            AspectRatioMode.AUTO -> {
+                mp.aspectRatio = null
+                mp.scale = 0f
+            }
+            AspectRatioMode.FIT -> {
+                mp.aspectRatio = null
+                mp.scale = 0f
+            }
+            AspectRatioMode.FILL -> {
+                // Force VLC to use the window's own aspect ratio → fills viewport
+                val sv = currentSurfaceView
+                if (sv != null && sv.width > 0 && sv.height > 0) {
+                    mp.aspectRatio = "${sv.width}:${sv.height}"
+                    mp.scale = 0f
+                } else {
+                    // Fallback: use scale to zoom
+                    mp.aspectRatio = null
+                    mp.scale = 0f
+                }
+            }
+            AspectRatioMode.ZOOM -> {
+                mp.aspectRatio = null
+                mp.scale = 1.2f
+            }
+            AspectRatioMode.STRETCH -> {
+                // Force the window ratio which stretches video to fill entire screen
+                val sv = currentSurfaceView
+                if (sv != null && sv.width > 0 && sv.height > 0) {
+                    mp.aspectRatio = "${sv.width}:${sv.height}"
+                    mp.scale = 0f
+                } else {
+                    mp.aspectRatio = null
+                    mp.scale = 0f
+                }
+            }
+            AspectRatioMode.ORIGINAL -> {
+                mp.aspectRatio = null
+                mp.scale = 1f
+            }
+            AspectRatioMode.FORCE_16_9 -> {
+                mp.aspectRatio = "16:9"
+                mp.scale = 0f
+            }
+            AspectRatioMode.FORCE_4_3 -> {
+                mp.aspectRatio = "4:3"
+                mp.scale = 0f
+            }
         }
         _state.value = _state.value.copy(aspectRatioMode = mode)
+        Timber.d("VLC aspect ratio set: mode=$mode, aspectRatio=${mp.aspectRatio}, scale=${mp.scale}")
     }
 
     override fun getView(): Any? = mediaPlayer

@@ -157,12 +157,15 @@ data class TmdbSearchResult(
     @SerialName("title") val title: String? = null,
     @SerialName("name") val name: String? = null,
     @SerialName("original_title") val originalTitle: String? = null,
+    @SerialName("original_name") val originalName: String? = null,
+    @SerialName("original_language") val originalLanguage: String? = null,
     @SerialName("poster_path") val posterPath: String? = null,
     @SerialName("backdrop_path") val backdropPath: String? = null,
     @SerialName("overview") val overview: String = "",
     @SerialName("release_date") val releaseDate: String? = null,
     @SerialName("first_air_date") val firstAirDate: String? = null,
     @SerialName("vote_average") val voteAverage: Double = 0.0,
+    @SerialName("popularity") val popularity: Double = 0.0,
     @SerialName("genre_ids") val genreIds: List<Int> = emptyList(),
     @SerialName("media_type") val mediaType: String = ""
 )
@@ -172,6 +175,10 @@ data class TmdbDetailResponse(
     @SerialName("id") val id: Int = 0,
     @SerialName("title") val title: String? = null,
     @SerialName("name") val name: String? = null,
+    @SerialName("original_title") val originalTitle: String? = null,
+    @SerialName("original_name") val originalName: String? = null,
+    @SerialName("original_language") val originalLanguage: String? = null,
+    @SerialName("tagline") val tagline: String? = null,
     @SerialName("poster_path") val posterPath: String? = null,
     @SerialName("backdrop_path") val backdropPath: String? = null,
     @SerialName("overview") val overview: String = "",
@@ -179,11 +186,16 @@ data class TmdbDetailResponse(
     @SerialName("first_air_date") val firstAirDate: String? = null,
     @SerialName("vote_average") val voteAverage: Double = 0.0,
     @SerialName("runtime") val runtime: Int? = null,
+    @SerialName("episode_run_time") val episodeRunTime: List<Int>? = null,
+    @SerialName("number_of_seasons") val numberOfSeasons: Int? = null,
+    @SerialName("number_of_episodes") val numberOfEpisodes: Int? = null,
     @SerialName("genres") val genres: List<TmdbGenre> = emptyList(),
     @SerialName("credits") val credits: TmdbCredits? = null,
     @SerialName("imdb_id") val imdbId: String? = null,
     @SerialName("external_ids") val externalIds: TmdbExternalIds? = null,
-    @SerialName("translations") val translations: TmdbTranslations? = null
+    @SerialName("translations") val translations: TmdbTranslations? = null,
+    @SerialName("videos") val videos: TmdbVideos? = null,
+    @SerialName("created_by") val createdBy: List<TmdbCreator>? = null
 )
 
 @Serializable
@@ -238,4 +250,25 @@ data class TmdbTranslationData(
     @SerialName("name") val name: String? = null,
     @SerialName("overview") val overview: String = "",
     @SerialName("tagline") val tagline: String = ""
+)
+
+@Serializable
+data class TmdbVideos(
+    @SerialName("results") val results: List<TmdbVideo> = emptyList()
+)
+
+@Serializable
+data class TmdbVideo(
+    @SerialName("key") val key: String = "",
+    @SerialName("site") val site: String = "",
+    @SerialName("type") val type: String = "",
+    @SerialName("name") val name: String = "",
+    @SerialName("official") val official: Boolean = false
+)
+
+@Serializable
+data class TmdbCreator(
+    @SerialName("id") val id: Int = 0,
+    @SerialName("name") val name: String = "",
+    @SerialName("profile_path") val profilePath: String? = null
 )

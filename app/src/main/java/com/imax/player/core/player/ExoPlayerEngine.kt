@@ -2,9 +2,12 @@ package com.imax.player.core.player
 
 import android.content.Context
 import android.view.SurfaceView
+import android.view.View
 import androidx.annotation.OptIn
 import androidx.media3.common.*
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
@@ -37,6 +40,9 @@ class ExoPlayerEngine @Inject constructor(
 
     private var scope: CoroutineScope? = null
     private var progressJob: Job? = null
+
+    // PlayerView reference for applying resizeMode
+    private var playerView: PlayerView? = null
 
     override fun initialize() {
         if (player != null) return
@@ -197,9 +203,41 @@ class ExoPlayerEngine @Inject constructor(
     }
 
     override fun setAspectRatio(mode: AspectRatioMode) {
-        // Aspect ratio is applied via Compose layout in PlayerScreen
-        // Store the mode so UI can read it
         _state.value = _state.value.copy(aspectRatioMode = mode)
+        applyResizeModeToView(mode)
+    }
+
+    /**
+     * Store a reference to the PlayerView so we can apply resizeMode.
+     * Called from PlayerScreen when the AndroidView is created.
+     */
+    fun setPlayerView(view: PlayerView) {
+        playerView = view
+        // Apply current mode immediately
+        applyResizeModeToView(_state.value.aspectRatioMode)
+    }
+
+    fun clearPlayerView() {
+        playerView = null
+    }
+
+    /**
+     * Map AspectRatioMode to ExoPlayer's PlayerView.resizeMode.
+     */
+    private fun applyResizeModeToView(mode: AspectRatioMode) {
+        val pv = playerView ?: return
+        val resizeMode = when (mode) {
+            AspectRatioMode.AUTO -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+            AspectRatioMode.FIT -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+            AspectRatioMode.FILL -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            AspectRatioMode.ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            AspectRatioMode.STRETCH -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+            AspectRatioMode.ORIGINAL -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+            AspectRatioMode.FORCE_16_9 -> AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH
+            AspectRatioMode.FORCE_4_3 -> AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH
+        }
+        pv.resizeMode = resizeMode
+        Timber.d("ExoPlayer resizeMode set to $resizeMode for mode $mode")
     }
 
     /**

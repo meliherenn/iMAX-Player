@@ -1,7 +1,9 @@
 package com.imax.player.ui.player
 
+import android.app.Activity
 import android.view.SurfaceView
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
@@ -29,17 +31,22 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.imax.player.R
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.imax.player.core.common.StringUtils
 import com.imax.player.core.datastore.AppSettings
@@ -177,6 +184,57 @@ fun PlayerScreen(
     var showSettingsSheet by remember { mutableStateOf(false) }
     val playPauseFocusRequester = remember { FocusRequester() }
 
+    // Get activity for window flags
+    val context = LocalContext.current
+    val activity = context as? Activity
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // KEEP SCREEN ON — prevents screen from turning off during playback
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    DisposableEffect(playerState.isPlaying) {
+        if (playerState.isPlaying) {
+            activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        onDispose {
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // IMMERSIVE MODE — hides system bars during video playback
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    val insetsController = remember(activity) {
+        activity?.window?.let { window ->
+            WindowCompat.getInsetsController(window, window.decorView)
+        }
+    }
+
+    // Enter immersive on first composition, exit on dispose
+    DisposableEffect(Unit) {
+        insetsController?.let { controller ->
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        }
+        onDispose {
+            // Restore system bars when leaving player
+            insetsController?.show(WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    // Sync system bars with controls visibility
+    LaunchedEffect(controlsVisible) {
+        insetsController?.let { controller ->
+            if (controlsVisible) {
+                controller.show(WindowInsetsCompat.Type.systemBars())
+            } else {
+                controller.hide(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
+
     // Initialize player
     LaunchedEffect(url) {
         viewModel.init(url, startPosition, contentId, contentType)
@@ -250,23 +308,45 @@ fun PlayerScreen(
                 when (engine) {
                 is ExoPlayerEngine -> {
                     val exoPlayer = engine.getExoPlayer()
+                    val currentAspectMode = playerState.aspectRatioMode
                     if (exoPlayer != null) {
                         AndroidView(
                             factory = { ctx ->
                                 PlayerView(ctx).apply {
                                     player = exoPlayer
                                     useController = false
+                                    keepScreenOn = true
                                     layoutParams = FrameLayout.LayoutParams(
                                         ViewGroup.LayoutParams.MATCH_PARENT,
                                         ViewGroup.LayoutParams.MATCH_PARENT
                                     )
+                                    // Give the engine a reference so it can apply resizeMode
+                                    engine.setPlayerView(this)
                                 }
                             },
-                            update = { playerView ->
-                                playerView.player = exoPlayer
+                            update = { pv ->
+                                pv.player = exoPlayer
+                                // Apply resizeMode on every recomposition when aspect mode changes
+                                val resizeMode = when (currentAspectMode) {
+                                    AspectRatioMode.AUTO -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                    AspectRatioMode.FIT -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                    AspectRatioMode.FILL -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                    AspectRatioMode.ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                                    AspectRatioMode.STRETCH -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                                    AspectRatioMode.ORIGINAL -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                                    AspectRatioMode.FORCE_16_9 -> AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH
+                                    AspectRatioMode.FORCE_4_3 -> AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH
+                                }
+                                pv.resizeMode = resizeMode
                             },
                             modifier = Modifier.fillMaxSize()
                         )
+                        // Clean up PlayerView reference on dispose
+                        DisposableEffect(engine.engineName) {
+                            onDispose {
+                                engine.clearPlayerView()
+                            }
+                        }
                     }
                 }
                 is VlcPlayerEngine -> {

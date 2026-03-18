@@ -187,22 +187,25 @@ data class FavoriteEntity(
 
 @Entity(
     tableName = "metadata_cache",
-    indices = [Index(value = ["title", "year"])]
+    indices = [Index(value = ["title", "year", "language"])]
 )
 data class MetadataCacheEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val title: String,
     val year: Int = 0,
+    val language: String = "",
     val tmdbId: Int = 0,
     val imdbId: String = "",
     val posterUrl: String = "",
     val backdropUrl: String = "",
     val overview: String = "",
+    val tagline: String = "",
     val genre: String = "",
     val cast: String = "",
     val director: String = "",
     val runtime: Int = 0,
     val rating: Double = 0.0,
+    val trailerUrl: String = "",
     val contentType: String = "",
     val cachedAt: Long = System.currentTimeMillis()
 )
