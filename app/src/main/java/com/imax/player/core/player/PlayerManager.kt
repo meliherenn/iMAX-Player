@@ -50,6 +50,8 @@ class PlayerManager @Inject constructor(
     private var defaultAudioLang: String = "eng"
     private var defaultSubtitleLang: String = "eng"
     private var autoEnableSubtitles: Boolean = false
+    private var preferredAspectRatio: AspectRatioMode = AspectRatioMode.FIT
+    private var preferredVideoQualityMode: VideoQualityMode = VideoQualityMode.AUTO
 
     fun getEngine(): PlayerEngine = currentEngine
 
@@ -68,6 +70,12 @@ class PlayerManager @Inject constructor(
         defaultAudioLang = settings.defaultAudioLanguage
         defaultSubtitleLang = settings.defaultSubtitleLanguage
         autoEnableSubtitles = settings.autoEnableSubtitles
+        preferredAspectRatio = AspectRatioMode.entries.firstOrNull {
+            it.name.equals(settings.aspectRatio, ignoreCase = true)
+        } ?: AspectRatioMode.FIT
+        preferredVideoQualityMode = VideoQualityMode.entries.firstOrNull {
+            it.name.equals(settings.videoQualityMode, ignoreCase = true)
+        } ?: VideoQualityMode.AUTO
 
         currentEngine = when (settings.playerEngine) {
             PlayerEngineType.EXOPLAYER -> exoPlayerEngine
@@ -87,6 +95,8 @@ class PlayerManager @Inject constructor(
                 currentEngine.initialize()
             }
         }
+        currentEngine.setAspectRatio(preferredAspectRatio)
+        currentEngine.setVideoQualityMode(preferredVideoQualityMode)
         startCollectingState()
 
         if (currentEngine is ExoPlayerEngine) {
@@ -155,6 +165,7 @@ class PlayerManager @Inject constructor(
         val savedPosition = try { oldEngine.state.value.currentPosition } catch (_: Exception) { 0L }
         val savedSpeed = try { oldEngine.state.value.playbackSpeed } catch (_: Exception) { 1f }
         val savedAspect = try { oldEngine.state.value.aspectRatioMode } catch (_: Exception) { AspectRatioMode.FIT }
+        val savedQualityMode = preferredVideoQualityMode
 
         managerScope.launch {
             try {
@@ -221,6 +232,7 @@ class PlayerManager @Inject constructor(
                     newEngine.play(currentUrl, savedPosition)
                     if (savedSpeed != 1f) newEngine.setPlaybackSpeed(savedSpeed)
                     newEngine.setAspectRatio(savedAspect)
+                    newEngine.setVideoQualityMode(savedQualityMode)
 
                     if (newEngine is VlcPlayerEngine) {
                         launch {
@@ -245,8 +257,13 @@ class PlayerManager @Inject constructor(
                 try {
                     currentEngine = oldEngine
                     oldEngine.initialize()
+                    oldEngine.setAspectRatio(savedAspect)
+                    oldEngine.setVideoQualityMode(savedQualityMode)
                     startCollectingState()
-                    if (currentUrl.isNotEmpty()) oldEngine.play(currentUrl, savedPosition)
+                    if (currentUrl.isNotEmpty()) {
+                        oldEngine.play(currentUrl, savedPosition)
+                        if (savedSpeed != 1f) oldEngine.setPlaybackSpeed(savedSpeed)
+                    }
                 } catch (rollbackError: Exception) {
                     Timber.e(rollbackError, "Rollback also failed")
                 }
@@ -261,11 +278,13 @@ class PlayerManager @Inject constructor(
     }
 
     fun setAspectRatio(mode: AspectRatioMode) {
+        preferredAspectRatio = mode
         currentEngine.setAspectRatio(mode)
         managerScope.launch { settingsDataStore.updateAspectRatio(mode.name.lowercase()) }
     }
 
     fun setVideoQualityMode(mode: VideoQualityMode) {
+        preferredVideoQualityMode = mode
         currentEngine.setVideoQualityMode(mode)
         managerScope.launch { settingsDataStore.updateVideoQualityMode(mode.name) }
     }

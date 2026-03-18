@@ -224,18 +224,39 @@ class ExoPlayerEngine @Inject constructor(
     /**
      * Map AspectRatioMode to ExoPlayer's PlayerView.resizeMode.
      */
-    private fun applyResizeModeToView(mode: AspectRatioMode) {
-        val pv = playerView ?: return
-        val resizeMode = when (mode) {
+    fun getResizeModeFor(mode: AspectRatioMode = _state.value.aspectRatioMode): Int {
+        return when (mode) {
             AspectRatioMode.AUTO -> AspectRatioFrameLayout.RESIZE_MODE_FIT
             AspectRatioMode.FIT -> AspectRatioFrameLayout.RESIZE_MODE_FIT
             AspectRatioMode.FILL -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
             AspectRatioMode.ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
             AspectRatioMode.STRETCH -> AspectRatioFrameLayout.RESIZE_MODE_FILL
             AspectRatioMode.ORIGINAL -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-            AspectRatioMode.FORCE_16_9 -> AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH
-            AspectRatioMode.FORCE_4_3 -> AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH
+            AspectRatioMode.FORCE_16_9 -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+            AspectRatioMode.FORCE_4_3 -> AspectRatioFrameLayout.RESIZE_MODE_FIT
         }
+    }
+
+    /**
+     * Some screen modes need the viewport itself constrained, not just resizeMode.
+     * PlayerScreen uses this to size the AndroidView for force-ratio modes.
+     */
+    fun getViewportAspectRatio(mode: AspectRatioMode = _state.value.aspectRatioMode): Float? {
+        return when (mode) {
+            AspectRatioMode.FORCE_16_9 -> 16f / 9f
+            AspectRatioMode.FORCE_4_3 -> 4f / 3f
+            AspectRatioMode.ORIGINAL -> {
+                val width = _state.value.videoWidth
+                val height = _state.value.videoHeight
+                if (width > 0 && height > 0) width.toFloat() / height.toFloat() else null
+            }
+            else -> null
+        }
+    }
+
+    private fun applyResizeModeToView(mode: AspectRatioMode) {
+        val pv = playerView ?: return
+        val resizeMode = getResizeModeFor(mode)
         pv.resizeMode = resizeMode
         Timber.d("ExoPlayer resizeMode set to $resizeMode for mode $mode")
     }

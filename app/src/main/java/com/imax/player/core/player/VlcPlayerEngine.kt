@@ -49,6 +49,7 @@ class VlcPlayerEngine @Inject constructor(
     // Pending playback — queued until surface is ready
     private var pendingUrl: String? = null
     private var pendingStartPos: Long = 0
+    private var currentAspectMode: AspectRatioMode = AspectRatioMode.FIT
 
     override fun isAvailable(): Boolean {
         if (vlcAvailable != null) return vlcAvailable!!
@@ -114,6 +115,7 @@ class VlcPlayerEngine @Inject constructor(
         scope = null
         pendingUrl = null
         pendingStartPos = 0
+        currentAspectMode = AspectRatioMode.FIT
 
         // Remove surface callback and detach
         cleanupSurface()
@@ -238,6 +240,7 @@ class VlcPlayerEngine @Inject constructor(
             if (vout.areViewsAttached()) {
                 vout.setWindowSize(width, height)
             }
+            applyAspectRatioMode()
         } catch (e: Exception) {
             Timber.w(e, "Error updating surface size")
         }
@@ -259,6 +262,7 @@ class VlcPlayerEngine @Inject constructor(
             if (width > 0 && height > 0) {
                 try {
                     mediaPlayer?.vlcVout?.setWindowSize(width, height)
+                    applyAspectRatioMode()
                 } catch (e: Exception) {
                     Timber.w(e, "Error on surfaceChanged")
                 }
@@ -308,6 +312,7 @@ class VlcPlayerEngine @Inject constructor(
             vout.addCallback(vlcVoutCallback)
             vout.attachViews()
             surfaceReady = true
+            applyAspectRatioMode()
 
             Timber.d("VLC vout attached successfully")
 
@@ -473,8 +478,22 @@ class VlcPlayerEngine @Inject constructor(
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     override fun setAspectRatio(mode: AspectRatioMode) {
+        currentAspectMode = mode
+        _state.value = _state.value.copy(aspectRatioMode = mode)
+        applyAspectRatioMode()
+    }
+
+    private fun applyAspectRatioMode() {
         val mp = mediaPlayer ?: return
-        when (mode) {
+        val surfaceView = currentSurfaceView
+        val surfaceWidth = surfaceView?.width?.takeIf { it > 0 }
+            ?: surfaceView?.holder?.surfaceFrame?.width()?.takeIf { it > 0 }
+            ?: 0
+        val surfaceHeight = surfaceView?.height?.takeIf { it > 0 }
+            ?: surfaceView?.holder?.surfaceFrame?.height()?.takeIf { it > 0 }
+            ?: 0
+
+        when (currentAspectMode) {
             AspectRatioMode.AUTO -> {
                 mp.aspectRatio = null
                 mp.scale = 0f
@@ -484,26 +503,16 @@ class VlcPlayerEngine @Inject constructor(
                 mp.scale = 0f
             }
             AspectRatioMode.FILL -> {
-                // Force VLC to use the window's own aspect ratio → fills viewport
-                val sv = currentSurfaceView
-                if (sv != null && sv.width > 0 && sv.height > 0) {
-                    mp.aspectRatio = "${sv.width}:${sv.height}"
-                    mp.scale = 0f
-                } else {
-                    // Fallback: use scale to zoom
-                    mp.aspectRatio = null
-                    mp.scale = 0f
-                }
+                mp.aspectRatio = null
+                mp.scale = calculateFillScale(surfaceWidth, surfaceHeight) ?: 0f
             }
             AspectRatioMode.ZOOM -> {
                 mp.aspectRatio = null
-                mp.scale = 1.2f
+                mp.scale = calculateFillScale(surfaceWidth, surfaceHeight)?.times(1.1f) ?: 1.2f
             }
             AspectRatioMode.STRETCH -> {
-                // Force the window ratio which stretches video to fill entire screen
-                val sv = currentSurfaceView
-                if (sv != null && sv.width > 0 && sv.height > 0) {
-                    mp.aspectRatio = "${sv.width}:${sv.height}"
+                if (surfaceWidth > 0 && surfaceHeight > 0) {
+                    mp.aspectRatio = "${surfaceWidth}:${surfaceHeight}"
                     mp.scale = 0f
                 } else {
                     mp.aspectRatio = null
@@ -523,8 +532,21 @@ class VlcPlayerEngine @Inject constructor(
                 mp.scale = 0f
             }
         }
-        _state.value = _state.value.copy(aspectRatioMode = mode)
-        Timber.d("VLC aspect ratio set: mode=$mode, aspectRatio=${mp.aspectRatio}, scale=${mp.scale}")
+        Timber.d(
+            "VLC aspect ratio set: mode=$currentAspectMode, aspectRatio=${mp.aspectRatio}, " +
+                "scale=${mp.scale}, surface=${surfaceWidth}x${surfaceHeight}"
+        )
+    }
+
+    private fun calculateFillScale(surfaceWidth: Int, surfaceHeight: Int): Float? {
+        val videoWidth = _state.value.videoWidth
+        val videoHeight = _state.value.videoHeight
+        if (surfaceWidth <= 0 || surfaceHeight <= 0 || videoWidth <= 0 || videoHeight <= 0) {
+            return null
+        }
+        val widthScale = surfaceWidth.toFloat() / videoWidth.toFloat()
+        val heightScale = surfaceHeight.toFloat() / videoHeight.toFloat()
+        return maxOf(widthScale, heightScale)
     }
 
     override fun getView(): Any? = mediaPlayer
@@ -595,6 +617,7 @@ class VlcPlayerEngine @Inject constructor(
                         }
                     }
                 }
+                applyAspectRatioMode()
             }
             MediaPlayer.Event.TimeChanged -> {
                 val mp = mediaPlayer ?: return

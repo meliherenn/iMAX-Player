@@ -187,12 +187,17 @@ fun PlayerScreen(
     // Get activity for window flags
     val context = LocalContext.current
     val activity = context as? Activity
+    val playbackActive = remember(playerState.playbackState, switchState) {
+        playerState.playbackState == PlaybackState.PLAYING ||
+            playerState.playbackState == PlaybackState.BUFFERING ||
+            switchState == EngineSwitchState.SWITCHING
+    }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // KEEP SCREEN ON — prevents screen from turning off during playback
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    DisposableEffect(playerState.isPlaying) {
-        if (playerState.isPlaying) {
+    DisposableEffect(activity, playbackActive) {
+        if (playbackActive) {
             activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         } else {
             activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -212,25 +217,41 @@ fun PlayerScreen(
     }
 
     // Enter immersive on first composition, exit on dispose
-    DisposableEffect(Unit) {
-        insetsController?.let { controller ->
-            controller.systemBarsBehavior =
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            controller.hide(WindowInsetsCompat.Type.systemBars())
+    DisposableEffect(activity) {
+        activity?.window?.let { window ->
+            WindowCompat.setDecorFitsSystemWindows(window, false)
         }
         onDispose {
-            // Restore system bars when leaving player
+            activity?.window?.let { window ->
+                WindowCompat.setDecorFitsSystemWindows(window, true)
+            }
             insetsController?.show(WindowInsetsCompat.Type.systemBars())
         }
     }
 
-    // Sync system bars with controls visibility
-    LaunchedEffect(controlsVisible) {
+    LaunchedEffect(insetsController, playbackActive, controlsVisible, showSettingsSheet) {
         insetsController?.let { controller ->
-            if (controlsVisible) {
-                controller.show(WindowInsetsCompat.Type.systemBars())
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            if (playbackActive) {
+                controller.hide(WindowInsetsCompat.Type.statusBars())
+                if (controlsVisible || showSettingsSheet) {
+                    controller.show(WindowInsetsCompat.Type.navigationBars())
+                } else {
+                    controller.hide(WindowInsetsCompat.Type.navigationBars())
+                }
             } else {
-                controller.hide(WindowInsetsCompat.Type.systemBars())
+                controller.show(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+    }
+
+    // Keep fullscreen sticky when playback state changes
+    DisposableEffect(insetsController) {
+        insetsController?.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        onDispose {
+            insetsController?.let { controller ->
+                controller.show(WindowInsetsCompat.Type.systemBars())
             }
         }
     }
@@ -310,37 +331,44 @@ fun PlayerScreen(
                     val exoPlayer = engine.getExoPlayer()
                     val currentAspectMode = playerState.aspectRatioMode
                     if (exoPlayer != null) {
-                        AndroidView(
-                            factory = { ctx ->
-                                PlayerView(ctx).apply {
-                                    player = exoPlayer
-                                    useController = false
-                                    keepScreenOn = true
-                                    layoutParams = FrameLayout.LayoutParams(
-                                        ViewGroup.LayoutParams.MATCH_PARENT,
-                                        ViewGroup.LayoutParams.MATCH_PARENT
-                                    )
-                                    // Give the engine a reference so it can apply resizeMode
-                                    engine.setPlayerView(this)
-                                }
-                            },
-                            update = { pv ->
-                                pv.player = exoPlayer
-                                // Apply resizeMode on every recomposition when aspect mode changes
-                                val resizeMode = when (currentAspectMode) {
-                                    AspectRatioMode.AUTO -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                                    AspectRatioMode.FIT -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                                    AspectRatioMode.FILL -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                                    AspectRatioMode.ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
-                                    AspectRatioMode.STRETCH -> AspectRatioFrameLayout.RESIZE_MODE_FILL
-                                    AspectRatioMode.ORIGINAL -> AspectRatioFrameLayout.RESIZE_MODE_FIT
-                                    AspectRatioMode.FORCE_16_9 -> AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH
-                                    AspectRatioMode.FORCE_4_3 -> AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH
-                                }
-                                pv.resizeMode = resizeMode
-                            },
-                            modifier = Modifier.fillMaxSize()
-                        )
+                        BoxWithConstraints(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            val viewportAspectRatio = if (maxHeight > 0.dp) {
+                                maxWidth.value / maxHeight.value
+                            } else {
+                                null
+                            }
+                            val viewportModifier = playerViewportModifier(
+                                targetAspectRatio = engine.getViewportAspectRatio(currentAspectMode),
+                                viewportAspectRatio = viewportAspectRatio
+                            )
+
+                            AndroidView(
+                                factory = { ctx ->
+                                    PlayerView(ctx).apply {
+                                        player = exoPlayer
+                                        useController = false
+                                        setKeepContentOnPlayerReset(true)
+                                        keepScreenOn = playbackActive
+                                        layoutParams = FrameLayout.LayoutParams(
+                                            ViewGroup.LayoutParams.MATCH_PARENT,
+                                            ViewGroup.LayoutParams.MATCH_PARENT
+                                        )
+                                        // Give the engine a reference so it can apply resizeMode
+                                        engine.setPlayerView(this)
+                                    }
+                                },
+                                update = { pv ->
+                                    pv.player = exoPlayer
+                                    pv.keepScreenOn = playbackActive
+                                    pv.resizeMode = engine.getResizeModeFor(currentAspectMode)
+                                    pv.videoSurfaceView?.keepScreenOn = playbackActive
+                                },
+                                modifier = viewportModifier
+                            )
+                        }
                         // Clean up PlayerView reference on dispose
                         DisposableEffect(engine.engineName) {
                             onDispose {
@@ -352,28 +380,49 @@ fun PlayerScreen(
                 is VlcPlayerEngine -> {
                     // Surface-first VLC rendering:
                     // Create SurfaceView → call engine.setSurface() → VLC starts playback
-                    AndroidView(
-                        factory = { ctx ->
-                            SurfaceView(ctx).apply {
-                                layoutParams = FrameLayout.LayoutParams(
-                                    ViewGroup.LayoutParams.MATCH_PARENT,
-                                    ViewGroup.LayoutParams.MATCH_PARENT
-                                )
-                                // Ensure surface is on top (VLC needs this for proper z-order)
-                                setZOrderMediaOverlay(false)
-                            }.also { surfaceView ->
-                                // Attach surface to VLC — this triggers pending playback if queued
-                                engine.setSurface(surfaceView)
-                            }
-                        },
-                        update = { surfaceView ->
-                            // Update surface size on recomposition/layout change
-                            if (surfaceView.width > 0 && surfaceView.height > 0) {
-                                engine.updateSurfaceSize(surfaceView.width, surfaceView.height)
-                            }
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    BoxWithConstraints(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val viewportAspectRatio = if (maxHeight > 0.dp) {
+                            maxWidth.value / maxHeight.value
+                        } else {
+                            null
+                        }
+                        val viewportModifier = playerViewportModifier(
+                            targetAspectRatio = forcedViewportAspectRatio(
+                                mode = playerState.aspectRatioMode,
+                                videoWidth = playerState.videoWidth,
+                                videoHeight = playerState.videoHeight
+                            ),
+                            viewportAspectRatio = viewportAspectRatio
+                        )
+
+                        AndroidView(
+                            factory = { ctx ->
+                                SurfaceView(ctx).apply {
+                                    layoutParams = FrameLayout.LayoutParams(
+                                        ViewGroup.LayoutParams.MATCH_PARENT,
+                                        ViewGroup.LayoutParams.MATCH_PARENT
+                                    )
+                                    keepScreenOn = playbackActive
+                                    // Ensure surface is on top (VLC needs this for proper z-order)
+                                    setZOrderMediaOverlay(false)
+                                }.also { surfaceView ->
+                                    // Attach surface to VLC — this triggers pending playback if queued
+                                    engine.setSurface(surfaceView)
+                                }
+                            },
+                            update = { surfaceView ->
+                                surfaceView.keepScreenOn = playbackActive
+                                // Update surface size on recomposition/layout change
+                                if (surfaceView.width > 0 && surfaceView.height > 0) {
+                                    engine.updateSurfaceSize(surfaceView.width, surfaceView.height)
+                                }
+                            },
+                            modifier = viewportModifier
+                        )
+                    }
                     // Detach surface on dispose to prevent leaks and stale references
                     DisposableEffect(engine.engineName) {
                         onDispose {
@@ -608,10 +657,6 @@ fun PlayerScreen(
             }
         }
     }
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // SETTINGS BOTTOM SHEET
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     if (showSettingsSheet) {
         PlayerSettingsSheet(
             playerState = playerState,
@@ -626,6 +671,49 @@ fun PlayerScreen(
             onDisableSubtitles = { viewModel.disableSubtitles() },
             onSwitchEngine = { viewModel.switchEngine(); showSettingsSheet = false }
         )
+    }
+}
+
+private fun forcedViewportAspectRatio(
+    mode: AspectRatioMode,
+    videoWidth: Int,
+    videoHeight: Int
+): Float? {
+    return when (mode) {
+        AspectRatioMode.FORCE_16_9 -> 16f / 9f
+        AspectRatioMode.FORCE_4_3 -> 4f / 3f
+        AspectRatioMode.ORIGINAL -> {
+            if (videoWidth > 0 && videoHeight > 0) {
+                videoWidth.toFloat() / videoHeight.toFloat()
+            } else {
+                null
+            }
+        }
+        else -> null
+    }
+}
+
+private fun playerViewportModifier(
+    targetAspectRatio: Float?,
+    viewportAspectRatio: Float?
+): Modifier {
+    if (
+        targetAspectRatio == null ||
+        viewportAspectRatio == null ||
+        targetAspectRatio <= 0f ||
+        viewportAspectRatio <= 0f
+    ) {
+        return Modifier.fillMaxSize()
+    }
+
+    return if (viewportAspectRatio > targetAspectRatio) {
+        Modifier
+            .fillMaxHeight()
+            .aspectRatio(targetAspectRatio, matchHeightConstraintsFirst = true)
+    } else {
+        Modifier
+            .fillMaxWidth()
+            .aspectRatio(targetAspectRatio)
     }
 }
 
