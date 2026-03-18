@@ -103,6 +103,12 @@ class ContentRepository @Inject constructor(
     fun getSeasons(seriesId: Long): Flow<List<Int>> =
         episodeDao.getSeasons(seriesId)
 
+    suspend fun getAllEpisodes(seriesId: Long): List<Episode> =
+        episodeDao.getBySeries(seriesId).first().map { it.toModel() }
+
+    suspend fun getEpisodesForSeason(seriesId: Long, season: Int): List<Episode> =
+        episodeDao.getBySeason(seriesId, season).first().map { it.toModel() }
+
     suspend fun getEpisode(id: Long): Episode? = episodeDao.getById(id)?.toModel()
 
     suspend fun updateEpisodeProgress(id: Long, position: Long, total: Long) =
@@ -115,6 +121,23 @@ class ContentRepository @Inject constructor(
         val next = episodeDao.getEpisode(seriesId, season, episode + 1)
         if (next != null) return next.toModel()
         return episodeDao.getEpisode(seriesId, season + 1, 1)?.toModel()
+    }
+
+    suspend fun getSeriesResumeEpisode(seriesId: Long): Episode? {
+        val series = seriesDao.getById(seriesId)
+        val lastWatchedEpisodeId = series?.lastWatchedEpisodeId ?: 0L
+        if (lastWatchedEpisodeId > 0) {
+            episodeDao.getById(lastWatchedEpisodeId)?.toModel()?.let { return it }
+        }
+
+        episodeDao.getLastWatched(seriesId)?.toModel()?.let { return it }
+        return getAllEpisodes(seriesId).firstOrNull()
+    }
+
+    suspend fun updateSeriesLastWatchedEpisode(seriesId: Long, episodeId: Long) {
+        val series = seriesDao.getById(seriesId) ?: return
+        if (series.lastWatchedEpisodeId == episodeId) return
+        seriesDao.insertAll(listOf(series.copy(lastWatchedEpisodeId = episodeId)))
     }
 
     /**
@@ -178,6 +201,17 @@ class ContentRepository @Inject constructor(
         }
     }
 
+    suspend fun getCachedMetadata(title: String, year: Int, contentType: ContentType): MetadataResult? {
+        return withContext(Dispatchers.IO) {
+            try {
+                metadataProvider.getCachedMetadata(title, year, contentType)
+            } catch (e: Exception) {
+                Timber.e(e, "Metadata cache lookup failed for: $title")
+                null
+            }
+        }
+    }
+
     /**
      * Update a movie entity with enriched metadata from TMDB.
      * Prefers TMDB data when provider data is empty/generic.
@@ -229,7 +263,9 @@ class ContentRepository @Inject constructor(
         watchHistoryDao.getRecent().map { list -> list.map { it.toModel() } }
 
     fun getContinueWatching(): Flow<List<WatchHistoryItem>> =
-        watchHistoryDao.getContinueWatching().map { list -> list.map { it.toModel() } }
+        watchHistoryDao.getContinueWatching().map { list ->
+            dedupeContinueWatching(list.map { it.toModel() })
+        }
 
     suspend fun addWatchHistory(item: WatchHistoryItem) {
         val existing = watchHistoryDao.getByContent(item.contentId, item.contentType.name)
@@ -260,4 +296,21 @@ class ContentRepository @Inject constructor(
 
     fun searchSeries(playlistId: Long, query: String): Flow<List<Series>> =
         seriesDao.search(playlistId, query).map { list -> list.map { it.toModel() } }
+
+    private fun dedupeContinueWatching(items: List<WatchHistoryItem>): List<WatchHistoryItem> {
+        val seenKeys = LinkedHashSet<String>()
+
+        return items.filter { item ->
+            val key = when (item.contentType) {
+                ContentType.SERIES -> {
+                    val seriesKey = item.seriesName.ifBlank { item.title }
+                    "SERIES:${seriesKey.lowercase()}"
+                }
+                ContentType.MOVIE -> "MOVIE:${item.contentId}"
+                ContentType.LIVE -> "LIVE:${item.contentId}"
+            }
+
+            seenKeys.add(key)
+        }
+    }
 }

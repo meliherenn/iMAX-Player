@@ -18,6 +18,27 @@ class XtreamClient @Inject constructor(
         return "$base${Constants.XTREAM_API_PATH}"
     }
 
+    private fun buildStreamUrl(
+        serverUrl: String,
+        pathSegment: String,
+        username: String,
+        password: String,
+        streamId: String,
+        extension: String? = null
+    ): String {
+        val base = serverUrl.trimEnd('/')
+        val normalizedExtension = extension
+            ?.trim()
+            ?.trimStart('.')
+            ?.takeIf { it.isNotBlank() }
+
+        return if (normalizedExtension != null) {
+            "$base/$pathSegment/$username/$password/$streamId.$normalizedExtension"
+        } else {
+            "$base/$pathSegment/$username/$password/$streamId"
+        }
+    }
+
     suspend fun authenticate(serverUrl: String, username: String, password: String): Result<XtreamAuthResponse> {
         return try {
             val url = buildApiUrl(serverUrl)
@@ -66,7 +87,7 @@ class XtreamClient @Inject constructor(
                     name = stream.name,
                     logoUrl = stream.streamIcon,
                     groupTitle = categoryName,
-                    streamUrl = "$serverUrl/live/$username/$password/${stream.streamId}.m3u8",
+                    streamUrl = buildStreamUrl(serverUrl, "live", username, password, stream.streamId.toString(), "m3u8"),
                     epgChannelId = stream.epgChannelId ?: "",
                     sortOrder = index
                 )
@@ -95,7 +116,14 @@ class XtreamClient @Inject constructor(
                     streamId = stream.streamId,
                     name = stream.name,
                     posterUrl = stream.streamIcon,
-                    streamUrl = "$serverUrl/movie/$username/$password/${stream.streamId}.${stream.containerExtension}",
+                    streamUrl = buildStreamUrl(
+                        serverUrl = serverUrl,
+                        pathSegment = "movie",
+                        username = username,
+                        password = password,
+                        streamId = stream.streamId.toString(),
+                        extension = stream.containerExtension
+                    ),
                     genre = stream.genre,
                     plot = stream.plot,
                     cast = stream.cast,
@@ -171,8 +199,11 @@ class XtreamClient @Inject constructor(
             val info = api.getSeriesInfo(url, username, password, seriesId = seriesId)
             val episodes = mutableListOf<EpisodeEntity>()
             info.episodes?.forEach { (seasonKey, episodeList) ->
-                val seasonNum = seasonKey.toIntOrNull() ?: 0
+                val seasonNum = seasonKey.toIntOrNull()
+                    ?: Regex("""\d+""").find(seasonKey)?.value?.toIntOrNull()
+                    ?: 1
                 episodeList.forEach { episode ->
+                    val streamId = episode.id.ifBlank { episode.episodeNum.toString() }
                     episodes.add(
                         EpisodeEntity(
                             seriesId = dbSeriesId,
@@ -181,7 +212,14 @@ class XtreamClient @Inject constructor(
                             name = episode.title,
                             plot = episode.info?.plot ?: "",
                             posterUrl = episode.info?.movieImage ?: "",
-                            streamUrl = "$serverUrl/series/$username/$password/${episode.id}.${episode.containerExtension}",
+                            streamUrl = buildStreamUrl(
+                                serverUrl = serverUrl,
+                                pathSegment = "series",
+                                username = username,
+                                password = password,
+                                streamId = streamId,
+                                extension = episode.containerExtension
+                            ),
                             duration = episode.info?.durationSecs ?: 0,
                             rating = episode.info?.rating ?: 0.0,
                             containerExtension = episode.containerExtension

@@ -29,12 +29,21 @@ object Routes {
     const val SERIES = "series"
     const val SEARCH = "search"
     const val SETTINGS = "settings"
-    const val PLAYER = "player/{url}?title={title}&contentId={contentId}&contentType={contentType}&startPos={startPos}"
+    const val PLAYER = "player/{url}?title={title}&contentId={contentId}&contentType={contentType}&startPos={startPos}&group={group}"
     const val DETAIL = "detail/{contentId}/{contentType}"
 
-    fun player(url: String, title: String = "", contentId: Long = 0, contentType: String = "", startPos: Long = 0): String {
-        val encoded = java.net.URLEncoder.encode(url, "UTF-8")
-        return "player/$encoded?title=$title&contentId=$contentId&contentType=$contentType&startPos=$startPos"
+    fun player(
+        url: String,
+        title: String = "",
+        contentId: Long = 0,
+        contentType: String = "",
+        startPos: Long = 0,
+        group: String = ""
+    ): String {
+        val encodedUrl = java.net.URLEncoder.encode(url, "UTF-8")
+        val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8")
+        val encodedGroup = java.net.URLEncoder.encode(group, "UTF-8")
+        return "player/$encodedUrl?title=$encodedTitle&contentId=$contentId&contentType=$contentType&startPos=$startPos&group=$encodedGroup"
     }
 
     fun detail(contentId: Long, contentType: String): String = "detail/$contentId/$contentType"
@@ -132,8 +141,8 @@ private fun NavHostContent(
             LiveTvScreen(
                 isTv = isTv,
                 onNavigate = navigateToTab,
-                onPlayChannel = { url, title, id ->
-                    navController.navigate(Routes.player(url, title, id, "LIVE"))
+                onPlayChannel = { url, title, id, group ->
+                    navController.navigate(Routes.player(url, title, id, "LIVE", group = group.orEmpty()))
                 }
             )
         }
@@ -210,16 +219,16 @@ private fun NavHostContent(
                 navArgument("title") { type = NavType.StringType; defaultValue = "" },
                 navArgument("contentId") { type = NavType.LongType; defaultValue = 0L },
                 navArgument("contentType") { type = NavType.StringType; defaultValue = "" },
-                navArgument("startPos") { type = NavType.LongType; defaultValue = 0L }
+                navArgument("startPos") { type = NavType.LongType; defaultValue = 0L },
+                navArgument("group") { type = NavType.StringType; defaultValue = "" }
             )
         ) { backStackEntry ->
-            val url = java.net.URLDecoder.decode(
-                backStackEntry.arguments?.getString("url") ?: "", "UTF-8"
-            )
-            val title = backStackEntry.arguments?.getString("title") ?: ""
+            val url = java.net.URLDecoder.decode(backStackEntry.arguments?.getString("url") ?: "", "UTF-8")
+            val title = java.net.URLDecoder.decode(backStackEntry.arguments?.getString("title") ?: "", "UTF-8")
             val contentId = backStackEntry.arguments?.getLong("contentId") ?: 0
             val contentType = backStackEntry.arguments?.getString("contentType") ?: ""
             val startPos = backStackEntry.arguments?.getLong("startPos") ?: 0
+            val group = java.net.URLDecoder.decode(backStackEntry.arguments?.getString("group") ?: "", "UTF-8")
 
             PlayerScreen(
                 url = url,
@@ -227,6 +236,7 @@ private fun NavHostContent(
                 contentId = contentId,
                 contentType = contentType,
                 startPosition = startPos,
+                groupContext = group,
                 isTv = isTv,
                 onBack = { navController.popBackStack() }
             )

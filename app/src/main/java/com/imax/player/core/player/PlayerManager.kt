@@ -35,6 +35,9 @@ class PlayerManager @Inject constructor(
     private val _playerState = MutableStateFlow(PlayerState())
     val state: StateFlow<PlayerState> = _playerState.asStateFlow()
 
+    private val _activeEngineName = MutableStateFlow(currentEngine.engineName)
+    val activeEngineName: StateFlow<String> = _activeEngineName.asStateFlow()
+
     private val _switchState = MutableStateFlow(EngineSwitchState.IDLE)
     val switchState: StateFlow<EngineSwitchState> = _switchState.asStateFlow()
 
@@ -87,6 +90,7 @@ class PlayerManager @Inject constructor(
                 }
             }
         }
+        _activeEngineName.value = currentEngine.engineName
         
         if (currentEngine is ExoPlayerEngine) {
             currentEngine.initialize()
@@ -210,6 +214,7 @@ class PlayerManager @Inject constructor(
 
                 // Step 4: Initialize new engine (VLC on IO, Exo on Main)
                 currentEngine = newEngine
+                _activeEngineName.value = currentEngine.engineName
                 if (newEngine is ExoPlayerEngine) {
                     newEngine.initialize()
                 } else {
@@ -256,6 +261,7 @@ class PlayerManager @Inject constructor(
                 Timber.e(e, "Engine switch failed, attempting rollback")
                 try {
                     currentEngine = oldEngine
+                    _activeEngineName.value = currentEngine.engineName
                     oldEngine.initialize()
                     oldEngine.setAspectRatio(savedAspect)
                     oldEngine.setVideoQualityMode(savedQualityMode)
@@ -294,8 +300,8 @@ class PlayerManager @Inject constructor(
     }
 
     fun tryFallback(): Boolean {
-        if (currentEngine is ExoPlayerEngine && vlcPlayerEngine.isAvailable()) {
-            Timber.d("ExoPlayer failed, attempting VLC fallback")
+        if ((currentEngine is ExoPlayerEngine && vlcPlayerEngine.isAvailable()) || currentEngine is VlcPlayerEngine) {
+            Timber.d("Attempting player engine fallback from ${currentEngine.engineName}")
             switchEngine()
             return true
         }

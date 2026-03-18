@@ -157,12 +157,18 @@ class VlcPlayerEngine @Inject constructor(
 
         try {
             _state.value = _state.value.copy(playbackState = PlaybackState.BUFFERING)
+            try {
+                mp.stop()
+            } catch (_: Exception) {
+            }
 
             val media = Media(vlc, Uri.parse(url))
             media.setHWDecoderEnabled(true, false)
             media.addOption(":network-caching=1500")
             media.addOption(":clock-jitter=0")
             media.addOption(":clock-synchro=0")
+            media.addOption(":http-user-agent=iMAX Player/Android")
+            media.addOption(":input-repeat=0")
 
             mp.media = media
             media.release()
@@ -563,6 +569,7 @@ class VlcPlayerEngine @Inject constructor(
                 _state.value = _state.value.copy(playbackState = PlaybackState.BUFFERING)
             }
             MediaPlayer.Event.Playing -> {
+                ensureDefaultAudioTrackSelected()
                 _state.value = _state.value.copy(
                     playbackState = PlaybackState.PLAYING,
                     isPlaying = true,
@@ -650,6 +657,18 @@ class VlcPlayerEngine @Inject constructor(
             currentVideoResolution = resolution,
             currentVideoCodec = codec
         )
+    }
+
+    private fun ensureDefaultAudioTrackSelected() {
+        val mp = mediaPlayer ?: return
+        val tracks = mp.audioTracks ?: return
+        if (tracks.isEmpty()) return
+
+        val selectedTrackId = mp.audioTrack
+        if (tracks.none { it.id == selectedTrackId }) {
+            mp.audioTrack = tracks.first().id
+            Timber.d("VLC applied default audio track fallback")
+        }
     }
 
     private fun startProgressTracking() {

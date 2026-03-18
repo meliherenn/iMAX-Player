@@ -51,6 +51,8 @@ data class DetailState(
     val episodes: List<Episode> = emptyList(),
     val seasons: List<Int> = emptyList(),
     val selectedSeason: Int = 1,
+    val resumeEpisode: Episode? = null,
+    val nextEpisode: Episode? = null,
     val isLoading: Boolean = true,
     val isFavorite: Boolean = false,
     val isLoadingEpisodes: Boolean = false,
@@ -71,41 +73,87 @@ class DetailViewModel @Inject constructor(
 
     fun loadContent(id: Long, type: String) {
         viewModelScope.launch {
-            _state.update { it.copy(isLoading = true) }
+            _state.value = DetailState(isLoading = true)
             when (type) {
-                "MOVIE" -> {
-                    val movie = contentRepository.getMovie(id)
-                    _state.update { it.copy(movie = movie, isFavorite = movie?.isFavorite == true, isLoading = false) }
-                    if (movie != null && needsMetadataEnrichment(movie)) {
-                        enrichMovieMetadata(movie)
-                    }
-                }
-                "SERIES" -> {
-                    val series = contentRepository.getSeriesById(id)
-                    _state.update { it.copy(series = series, isFavorite = series?.isFavorite == true) }
-                    if (series != null) {
-                        fetchSeriesEpisodes(series)
-                        if (needsSeriesMetadataEnrichment(series)) {
-                            enrichSeriesMetadata(series)
-                        }
-                        contentRepository.getSeasons(series.id).collect { seasons ->
-                            _state.update { it.copy(seasons = seasons, isLoading = false) }
-                            if (seasons.isNotEmpty()) loadEpisodes(series.id, seasons.first())
-                        }
-                    } else {
-                        _state.update { it.copy(isLoading = false) }
-                    }
-                }
+                "MOVIE" -> loadMovie(id)
+                "SERIES" -> loadSeries(id)
+                else -> _state.update { it.copy(isLoading = false) }
             }
         }
     }
 
+    private suspend fun loadMovie(id: Long) {
+        val movie = contentRepository.getMovie(id)
+        if (movie == null) {
+            _state.update { it.copy(isLoading = false) }
+            return
+        }
+
+        val cachedMetadata = contentRepository.getCachedMetadata(movie.name, movie.year, ContentType.MOVIE)
+        val hydratedMovie = movie.mergeWith(cachedMetadata)
+
+        _state.value = DetailState(
+            movie = hydratedMovie,
+            isFavorite = hydratedMovie.isFavorite,
+            isLoading = false,
+            tagline = cachedMetadata?.tagline.orEmpty(),
+            trailerUrl = cachedMetadata?.trailerUrl.orEmpty()
+        )
+
+        if (needsMetadataEnrichment(hydratedMovie)) {
+            enrichMovieMetadata(movie)
+        }
+    }
+
+    private suspend fun loadSeries(id: Long) {
+        val series = contentRepository.getSeriesById(id)
+        if (series == null) {
+            _state.update { it.copy(isLoading = false) }
+            return
+        }
+
+        val cachedMetadata = contentRepository.getCachedMetadata(series.name, series.year, ContentType.SERIES)
+        val hydratedSeries = series.mergeWith(cachedMetadata)
+        val allEpisodes = contentRepository.getAllEpisodes(series.id)
+        val resumeEpisode = contentRepository.getSeriesResumeEpisode(series.id)
+        val seasons = allEpisodes.map { it.seasonNumber }.distinct().sorted()
+        val selectedSeason = resumeEpisode?.seasonNumber ?: seasons.firstOrNull() ?: 1
+        val seasonEpisodes = allEpisodes.filter { it.seasonNumber == selectedSeason }
+
+        _state.value = DetailState(
+            series = hydratedSeries,
+            episodes = seasonEpisodes,
+            seasons = seasons,
+            selectedSeason = selectedSeason,
+            resumeEpisode = resumeEpisode,
+            nextEpisode = findAdjacentEpisode(allEpisodes, resumeEpisode, direction = 1),
+            isLoading = false,
+            isFavorite = hydratedSeries.isFavorite,
+            isLoadingEpisodes = allEpisodes.isEmpty(),
+            tagline = cachedMetadata?.tagline.orEmpty(),
+            trailerUrl = cachedMetadata?.trailerUrl.orEmpty()
+        )
+
+        if (needsSeriesMetadataEnrichment(hydratedSeries)) {
+            enrichSeriesMetadata(series)
+        }
+
+        refreshSeriesEpisodes(series, showLoader = allEpisodes.isEmpty())
+    }
+
     private fun needsMetadataEnrichment(movie: Movie): Boolean {
-        return movie.plot.isBlank() || movie.cast.isBlank() || movie.backdropUrl.isBlank()
+        return movie.plot.isBlank() ||
+            movie.cast.isBlank() ||
+            movie.backdropUrl.isBlank() ||
+            movie.genre.isBlank() ||
+            movie.duration == 0
     }
 
     private fun needsSeriesMetadataEnrichment(series: Series): Boolean {
-        return series.plot.isBlank() || series.cast.isBlank() || series.backdropUrl.isBlank()
+        return series.plot.isBlank() ||
+            series.cast.isBlank() ||
+            series.backdropUrl.isBlank() ||
+            series.genre.isBlank()
     }
 
     private fun enrichMovieMetadata(movie: Movie) {
@@ -114,7 +162,7 @@ class DetailViewModel @Inject constructor(
             val metadata = contentRepository.enrichMetadata(movie.name, movie.year, ContentType.MOVIE)
             if (metadata != null) {
                 contentRepository.updateMovieWithMetadata(movie.id, metadata)
-                val updated = contentRepository.getMovie(movie.id)
+                val updated = contentRepository.getMovie(movie.id)?.mergeWith(metadata)
                 _state.update { 
                     it.copy(
                         movie = updated, 
@@ -136,7 +184,7 @@ class DetailViewModel @Inject constructor(
             val metadata = contentRepository.enrichMetadata(series.name, series.year, ContentType.SERIES)
             if (metadata != null) {
                 contentRepository.updateSeriesWithMetadata(series.id, metadata)
-                val updated = contentRepository.getSeriesById(series.id)
+                val updated = contentRepository.getSeriesById(series.id)?.mergeWith(metadata)
                 _state.update { 
                     it.copy(
                         series = updated, 
@@ -152,12 +200,33 @@ class DetailViewModel @Inject constructor(
         }
     }
 
-    private fun fetchSeriesEpisodes(series: Series) {
+    private fun refreshSeriesEpisodes(series: Series, showLoader: Boolean) {
         viewModelScope.launch {
-            _state.update { it.copy(isLoadingEpisodes = true, episodeError = null) }
+            if (showLoader) {
+                _state.update { it.copy(isLoadingEpisodes = true, episodeError = null) }
+            }
             try {
                 contentRepository.syncSeriesEpisodes(series)
-                _state.update { it.copy(isLoadingEpisodes = false) }
+                val allEpisodes = contentRepository.getAllEpisodes(series.id)
+                val resumeEpisode = contentRepository.getSeriesResumeEpisode(series.id)
+                val seasons = allEpisodes.map { it.seasonNumber }.distinct().sorted()
+                val selectedSeason = _state.value.selectedSeason
+                    .takeIf { season -> allEpisodes.any { it.seasonNumber == season } }
+                    ?: resumeEpisode?.seasonNumber
+                    ?: seasons.firstOrNull()
+                    ?: 1
+
+                _state.update {
+                    it.copy(
+                        episodes = allEpisodes.filter { episode -> episode.seasonNumber == selectedSeason },
+                        seasons = seasons,
+                        selectedSeason = selectedSeason,
+                        resumeEpisode = resumeEpisode,
+                        nextEpisode = findAdjacentEpisode(allEpisodes, resumeEpisode, direction = 1),
+                        isLoadingEpisodes = false,
+                        episodeError = null
+                    )
+                }
             } catch (e: Exception) {
                 _state.update { it.copy(isLoadingEpisodes = false, episodeError = "Failed to load episodes: ${e.localizedMessage}") }
             }
@@ -166,20 +235,14 @@ class DetailViewModel @Inject constructor(
 
     fun retryEpisodes() {
         val series = _state.value.series ?: return
-        fetchSeriesEpisodes(series)
+        refreshSeriesEpisodes(series, showLoader = true)
     }
 
     fun selectSeason(season: Int) {
-        _state.update { it.copy(selectedSeason = season) }
         val seriesId = _state.value.series?.id ?: return
-        loadEpisodes(seriesId, season)
-    }
-
-    private fun loadEpisodes(seriesId: Long, season: Int) {
         viewModelScope.launch {
-            contentRepository.getEpisodesBySeason(seriesId, season).collect { eps ->
-                _state.update { it.copy(episodes = eps) }
-            }
+            val episodes = contentRepository.getEpisodesForSeason(seriesId, season)
+            _state.update { it.copy(selectedSeason = season, episodes = episodes) }
         }
     }
 
@@ -735,18 +798,68 @@ private fun DetailActionButtons(
     val movie = state.movie
     val series = state.series
     val context = LocalContext.current
+    val resumeEpisode = state.resumeEpisode ?: state.episodes.firstOrNull()
+    val hasMoviePlayback = movie?.streamUrl?.isNotBlank() == true
+    val hasSeriesPlayback = resumeEpisode?.streamUrl?.isNotBlank() == true
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         if (movie != null) {
             GradientButton(
                 text = if (movie.lastPosition > 0) stringResource(R.string.action_resume) else stringResource(R.string.action_play),
                 icon = Icons.Filled.PlayArrow,
+                enabled = hasMoviePlayback,
                 onClick = { onPlay(movie.streamUrl, movie.name, movie.id, "MOVIE", movie.lastPosition) }
             )
-        } else if (series != null && state.episodes.isNotEmpty()) {
-            val ep = state.episodes.first()
-            GradientButton(text = stringResource(R.string.action_play_episode, ep.seasonNumber, ep.episodeNumber), icon = Icons.Filled.PlayArrow,
-                onClick = { onPlay(ep.streamUrl, "${series.name} S${ep.seasonNumber}E${ep.episodeNumber}", ep.id, "SERIES", ep.lastPosition) })
+        } else if (series != null) {
+            GradientButton(
+                text = when {
+                    (resumeEpisode?.lastPosition ?: 0L) > 0L -> stringResource(
+                        R.string.action_resume_episode,
+                        resumeEpisode?.seasonNumber ?: state.selectedSeason,
+                        resumeEpisode?.episodeNumber ?: 1
+                    )
+                    state.isLoadingEpisodes -> stringResource(R.string.loading_episodes)
+                    resumeEpisode != null -> stringResource(
+                        R.string.action_play_episode,
+                        resumeEpisode.seasonNumber,
+                        resumeEpisode.episodeNumber
+                    )
+                    else -> stringResource(R.string.action_play)
+                },
+                icon = Icons.Filled.PlayArrow,
+                enabled = hasSeriesPlayback,
+                onClick = {
+                    val playableEpisode = resumeEpisode ?: return@GradientButton
+                    onPlay(
+                        playableEpisode.streamUrl,
+                        "${series.name} S${playableEpisode.seasonNumber}E${playableEpisode.episodeNumber}",
+                        playableEpisode.id,
+                        "SERIES",
+                        playableEpisode.lastPosition
+                    )
+                }
+            )
+
+            val nextEpisode = state.nextEpisode
+            if (nextEpisode != null) {
+                OutlinedButton(
+                    onClick = {
+                        onPlay(
+                            nextEpisode.streamUrl,
+                            "${series.name} S${nextEpisode.seasonNumber}E${nextEpisode.episodeNumber}",
+                            nextEpisode.id,
+                            "SERIES",
+                            nextEpisode.lastPosition
+                        )
+                    },
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = ImaxColors.TextPrimary),
+                    border = BorderStroke(1.dp, ImaxColors.GlassBorder)
+                ) {
+                    Icon(Icons.Filled.SkipNext, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(stringResource(R.string.next_episode))
+                }
+            }
         }
 
         // Favorite button
@@ -860,4 +973,53 @@ private fun EpisodeRow(
         Spacer(modifier = Modifier.width(8.dp))
         Icon(Icons.Filled.PlayCircle, stringResource(R.string.action_play), tint = ImaxColors.Primary, modifier = Modifier.size(28.dp))
     }
+}
+
+private fun Movie.mergeWith(metadata: MetadataResult?): Movie {
+    metadata ?: return this
+
+    return copy(
+        posterUrl = if (posterUrl.isBlank() && metadata.posterUrl.isNotBlank()) metadata.posterUrl else posterUrl,
+        backdropUrl = if (backdropUrl.isBlank() && metadata.backdropUrl.isNotBlank()) metadata.backdropUrl else backdropUrl,
+        genre = if (genre.isBlank() && metadata.genre.isNotBlank()) metadata.genre else genre,
+        plot = if (plot.isBlank() && metadata.overview.isNotBlank()) metadata.overview else plot,
+        cast = if (cast.isBlank() && metadata.cast.isNotBlank()) metadata.cast else cast,
+        director = if (director.isBlank() && metadata.director.isNotBlank()) metadata.director else director,
+        year = if (year == 0 && metadata.year > 0) metadata.year else year,
+        duration = if (duration == 0 && metadata.runtime > 0) metadata.runtime else duration,
+        rating = if (rating == 0.0 && metadata.rating > 0) metadata.rating else rating,
+        imdbId = if (imdbId.isBlank() && metadata.imdbId.isNotBlank()) metadata.imdbId else imdbId,
+        tmdbId = if (tmdbId == 0 && metadata.tmdbId > 0) metadata.tmdbId else tmdbId
+    )
+}
+
+private fun Series.mergeWith(metadata: MetadataResult?): Series {
+    metadata ?: return this
+
+    return copy(
+        posterUrl = if (posterUrl.isBlank() && metadata.posterUrl.isNotBlank()) metadata.posterUrl else posterUrl,
+        backdropUrl = if (backdropUrl.isBlank() && metadata.backdropUrl.isNotBlank()) metadata.backdropUrl else backdropUrl,
+        genre = if (genre.isBlank() && metadata.genre.isNotBlank()) metadata.genre else genre,
+        plot = if (plot.isBlank() && metadata.overview.isNotBlank()) metadata.overview else plot,
+        cast = if (cast.isBlank() && metadata.cast.isNotBlank()) metadata.cast else cast,
+        director = if (director.isBlank() && metadata.director.isNotBlank()) metadata.director else director,
+        year = if (year == 0 && metadata.year > 0) metadata.year else year,
+        rating = if (rating == 0.0 && metadata.rating > 0) metadata.rating else rating,
+        imdbId = if (imdbId.isBlank() && metadata.imdbId.isNotBlank()) metadata.imdbId else imdbId,
+        tmdbId = if (tmdbId == 0 && metadata.tmdbId > 0) metadata.tmdbId else tmdbId
+    )
+}
+
+private fun findAdjacentEpisode(
+    episodes: List<Episode>,
+    currentEpisode: Episode?,
+    direction: Int
+): Episode? {
+    if (currentEpisode == null || episodes.isEmpty()) return null
+
+    val index = episodes.indexOfFirst { it.id == currentEpisode.id }
+    if (index == -1) return null
+
+    val targetIndex = index + direction
+    return episodes.getOrNull(targetIndex)
 }

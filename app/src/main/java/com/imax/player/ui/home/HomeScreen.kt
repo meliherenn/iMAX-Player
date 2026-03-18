@@ -24,6 +24,7 @@ import com.imax.player.R
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.imax.player.core.common.StringUtils
 import com.imax.player.core.designsystem.theme.ImaxColors
 import com.imax.player.core.designsystem.theme.LocalImaxDimens
 import com.imax.player.core.model.*
@@ -425,7 +426,11 @@ private fun ContinueWatchingCard(
 ) {
     val dimens = LocalImaxDimens.current
     var isFocused by remember { mutableStateOf(false) }
-    val width = if (isTv) 220.dp else 160.dp
+    val width = if (isTv) 240.dp else 184.dp
+    val title = remember(item) { item.seriesName.ifBlank { item.title } }
+    val subtitle = remember(item) { continueWatchingSubtitle(item) }
+    val progressLabel = remember(item) { continueWatchingProgressLabel(item) }
+    val progress = item.progress.coerceIn(0f, 1f)
 
     Column(
         modifier = Modifier
@@ -447,15 +452,123 @@ private fun ContinueWatchingCard(
         Box(modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
             PosterImage(url = item.posterUrl, contentDescription = item.title, modifier = Modifier.fillMaxSize())
             Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.1f),
+                                Color.Black.copy(alpha = 0.72f)
+                            )
+                        )
+                    )
+            )
+            if (item.contentType == ContentType.SERIES && item.seasonNumber > 0) {
+                Surface(
+                    modifier = Modifier.padding(8.dp).align(Alignment.TopStart),
+                    shape = RoundedCornerShape(999.dp),
+                    color = Color.Black.copy(alpha = 0.55f)
+                ) {
+                    Text(
+                        text = "S${item.seasonNumber}:E${item.episodeNumber}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+            Surface(
+                modifier = Modifier.padding(8.dp).align(Alignment.BottomStart),
+                shape = RoundedCornerShape(999.dp),
+                color = ImaxColors.Primary.copy(alpha = 0.92f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Filled.PlayArrow,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = stringResource(R.string.action_resume),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White
+                    )
+                }
+            }
+            Box(
                 modifier = Modifier.fillMaxWidth().height(4.dp)
                     .align(Alignment.BottomCenter).background(ImaxColors.SurfaceVariant)
             ) {
-                Box(modifier = Modifier.fillMaxWidth(item.progress).fillMaxHeight().background(ImaxColors.Primary))
+                Box(modifier = Modifier.fillMaxWidth(progress).fillMaxHeight().background(ImaxColors.Primary))
             }
         }
-        Text(text = item.title, style = MaterialTheme.typography.titleSmall,
-            color = ImaxColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(8.dp))
+        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                color = ImaxColors.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (subtitle.isNotBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ImaxColors.TextTertiary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = progressLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = ImaxColors.TextSecondary
+                )
+                Text(
+                    text = "${(progress * 100).toInt()}%",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = ImaxColors.Primary
+                )
+            }
+        }
+    }
+}
+
+private fun continueWatchingSubtitle(item: WatchHistoryItem): String {
+    return when {
+        item.contentType == ContentType.SERIES && item.seasonNumber > 0 -> {
+            val episodeLabel = "S${item.seasonNumber}:E${item.episodeNumber}"
+            if (item.title.isNotBlank() && item.title != item.seriesName) {
+                "$episodeLabel  •  ${item.title}"
+            } else {
+                episodeLabel
+            }
+        }
+        item.title.isNotBlank() -> item.title
+        else -> ""
+    }
+}
+
+private fun continueWatchingProgressLabel(item: WatchHistoryItem): String {
+    return if (item.totalDuration > 0L) {
+        "${StringUtils.formatDuration(item.position)} / ${StringUtils.formatDuration(item.totalDuration)}"
+    } else if (item.position > 0L) {
+        StringUtils.formatDuration(item.position)
+    } else {
+        ""
     }
 }
 

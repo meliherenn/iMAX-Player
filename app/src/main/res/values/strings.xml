@@ -104,12 +104,17 @@
     
     <string name="action_play">Oynat</string>
     <string name="action_play_episode">Oynat S%1$dE%2$d</string>
+    <string name="action_resume_episode">Devam Et S%1$dE%2$d</string>
     <string name="action_pause">Duraklat</string>
     <string name="action_details">Detaylar</string>
     <string name="action_resume">Devam Et</string>
     <string name="section_continue_watching">İzlemeye Devam Et</string>
     <string name="section_favorites">Favoriler</string>
     <string name="section_recent_channels">Son Kanallar</string>
+    <string name="previous_episode">Önceki Bölüm</string>
+    <string name="previous_channel">Önceki Kanal</string>
+    <string name="next_channel">Sonraki Kanal</string>
+    <string name="channel_list">Kanal Listesi</string>
     
     <string name="settings_app_general">Uygulama / Genel</string>
     <string name="settings_playlist_account">Liste / Hesap</string>

@@ -1,3 +1,6 @@
+iMAX Player mobile live TV in-player channel switching fix - 2026-03-18
+
+===== app/src/main/java/com/imax/player/ui/player/PlayerScreen.kt =====
 package com.imax.player.ui.player
 
 import android.app.Activity
@@ -120,8 +123,6 @@ class PlayerViewModel @Inject constructor(
     private var currentContentType = ""
     private var currentGroupContext = ""
     private var isInitialized = false
-    private var liveChannelSwitchJob: kotlinx.coroutines.Job? = null
-    private var pendingLiveChannel: Channel? = null
 
     init {
         viewModelScope.launch {
@@ -247,18 +248,13 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun playChannel(channel: Channel) {
+        if (_liveChannelSwitch.value.isSwitching) return
         if (session.value.currentChannel?.id == channel.id && currentContentType == ContentType.LIVE.name) {
             return
         }
 
-        if (_liveChannelSwitch.value.isSwitching) {
-            pendingLiveChannel = channel
-            return
-        }
-
-        liveChannelSwitchJob?.cancel()
-        liveChannelSwitchJob = viewModelScope.launch {
-            processLiveChannelSwitchQueue(channel)
+        viewModelScope.launch {
+            switchLiveChannel(channel)
         }
     }
 
@@ -290,19 +286,8 @@ class PlayerViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
-        liveChannelSwitchJob?.cancel()
         saveProgress()
         playerManager.release()
-    }
-
-    private suspend fun processLiveChannelSwitchQueue(initialChannel: Channel) {
-        var nextChannel: Channel? = initialChannel
-
-        while (nextChannel != null) {
-            pendingLiveChannel = null
-            switchLiveChannel(nextChannel)
-            nextChannel = pendingLiveChannel?.takeIf { it.id != currentContentId }
-        }
     }
 
     private suspend fun switchToContent(
@@ -354,6 +339,19 @@ class PlayerViewModel @Inject constructor(
 
         try {
             coroutineScope {
+                val playbackTransition = async {
+                    state
+                        .drop(1)
+                        .map { it.playbackState }
+                        .first { playbackState ->
+                            playbackState == PlaybackState.BUFFERING ||
+                                playbackState == PlaybackState.PLAYING ||
+                                playbackState == PlaybackState.ERROR
+                        }
+                }
+
+                playerManager.getEngine().stop()
+
                 currentOriginalUrl = channel.streamUrl
                 currentUrl = resolvedUrl
                 currentTitle = channel.name
@@ -361,8 +359,13 @@ class PlayerViewModel @Inject constructor(
                 currentContentType = ContentType.LIVE.name
                 currentGroupContext = targetGroupContext
 
-                val started = startLiveChannelPlayback(resolvedUrl)
-                if (!started) {
+                playerManager.play(resolvedUrl, 0L)
+
+                val transitionState = withTimeoutOrNull(6_000) {
+                    playbackTransition.await()
+                }
+
+                if (transitionState == null || transitionState == PlaybackState.ERROR) {
                     throw IllegalStateException("Live channel switch did not reach a stable playback state")
                 }
 
@@ -399,45 +402,6 @@ class PlayerViewModel @Inject constructor(
         } finally {
             _liveChannelSwitch.value = LiveChannelSwitchState()
         }
-    }
-
-    private suspend fun startLiveChannelPlayback(url: String): Boolean {
-        repeat(2) { attempt ->
-            playerManager.getEngine().stop()
-            delay(if (attempt == 0) 140L else 220L)
-            playerManager.play(url, 0L)
-
-            val enteredTransitionState = withTimeoutOrNull(2_500L) {
-                state
-                    .map { it.playbackState }
-                    .drop(1)
-                    .first { playbackState ->
-                        playbackState == PlaybackState.BUFFERING ||
-                            playbackState == PlaybackState.PLAYING ||
-                            playbackState == PlaybackState.ERROR
-                    }
-            }
-
-            when (enteredTransitionState) {
-                PlaybackState.PLAYING -> return true
-                PlaybackState.BUFFERING -> {
-                    val settledState = withTimeoutOrNull(7_000L) {
-                        state
-                            .map { it.playbackState }
-                            .first { playbackState ->
-                                playbackState == PlaybackState.PLAYING ||
-                                    playbackState == PlaybackState.ERROR
-                            }
-                    }
-                    if (settledState == PlaybackState.PLAYING) {
-                        return true
-                    }
-                }
-                else -> Unit
-            }
-        }
-
-        return false
     }
 
     private suspend fun refreshSessionContext(

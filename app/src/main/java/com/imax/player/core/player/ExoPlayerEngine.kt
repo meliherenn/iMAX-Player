@@ -12,9 +12,8 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import com.imax.player.core.common.Constants
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -43,6 +42,7 @@ class ExoPlayerEngine @Inject constructor(
 
     // PlayerView reference for applying resizeMode
     private var playerView: PlayerView? = null
+    private val userAgent = "iMAX Player/Android"
 
     override fun initialize() {
         if (player != null) return
@@ -51,7 +51,11 @@ class ExoPlayerEngine @Inject constructor(
         scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
         trackSelector = DefaultTrackSelector(context).apply {
-            setParameters(buildUponParameters().setMaxVideoSizeSd())
+            setParameters(
+                buildUponParameters()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                    .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
+            )
         }
 
         val loadControl = DefaultLoadControl.Builder()
@@ -64,14 +68,25 @@ class ExoPlayerEngine @Inject constructor(
             .build()
 
         val dataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
+            .setUserAgent(userAgent)
 
         player = ExoPlayer.Builder(context)
             .setTrackSelector(trackSelector!!)
             .setLoadControl(loadControl)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                    .build(),
+                true
+            )
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .build()
+            .apply {
+                volume = 1f
+            }
 
         player?.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -92,6 +107,7 @@ class ExoPlayerEngine @Inject constructor(
             }
 
             override fun onTracksChanged(tracks: Tracks) {
+                ensureDefaultAudioTrackSelected(tracks)
                 updateTrackInfo(tracks)
                 updateQualityInfo(tracks)
             }
@@ -119,11 +135,12 @@ class ExoPlayerEngine @Inject constructor(
     override fun play(url: String, startPosition: Long) {
         initialize()
         player?.let { p ->
-            val uri = android.net.Uri.parse(url)
-            val mediaItem = MediaItem.fromUri(uri)
-            p.setMediaItem(mediaItem)
+            val normalizedUrl = normalizePlaybackUrl(url)
+            val mediaItem = buildMediaItem(normalizedUrl)
+            p.setMediaSource(buildMediaSource(mediaItem))
             p.prepare()
             if (startPosition > 0) p.seekTo(startPosition)
+            p.volume = 1f
             p.playWhenReady = true
         }
     }
@@ -390,6 +407,43 @@ class ExoPlayerEngine @Inject constructor(
 
     fun getExoPlayer(): ExoPlayer? = player
 
+    private fun buildMediaItem(url: String): MediaItem {
+        val mimeType = inferMimeType(url)
+        return MediaItem.Builder()
+            .setUri(android.net.Uri.parse(url))
+            .apply {
+                if (mimeType != null) {
+                    setMimeType(mimeType)
+                }
+            }
+            .build()
+    }
+
+    private fun buildMediaSource(mediaItem: MediaItem): MediaSource {
+        val dataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
+            .setUserAgent(userAgent)
+
+        return DefaultMediaSourceFactory(dataSourceFactory).createMediaSource(mediaItem)
+    }
+
+    private fun inferMimeType(url: String): String? {
+        val normalized = url.substringBefore("?").lowercase()
+        return when {
+            normalized.endsWith(".m3u8") -> MimeTypes.APPLICATION_M3U8
+            normalized.endsWith(".mpd") -> MimeTypes.APPLICATION_MPD
+            normalized.endsWith(".ism") || normalized.endsWith(".isml") -> MimeTypes.APPLICATION_SS
+            normalized.endsWith(".mp4") -> MimeTypes.VIDEO_MP4
+            normalized.endsWith(".mkv") -> MimeTypes.VIDEO_MATROSKA
+            normalized.endsWith(".ts") -> MimeTypes.VIDEO_MP2T
+            normalized.endsWith(".mp3") -> MimeTypes.AUDIO_MPEG
+            else -> null
+        }
+    }
+
+    private fun normalizePlaybackUrl(url: String): String {
+        return url.trim().removeSuffix(".")
+    }
+
     private fun updateState() {
         val p = player ?: return
         val pbState = when (p.playbackState) {
@@ -451,6 +505,24 @@ class ExoPlayerEngine @Inject constructor(
             audioTracks = audioTracks,
             subtitleTracks = subtitleTracks
         )
+    }
+
+    private fun ensureDefaultAudioTrackSelected(tracks: Tracks) {
+        val ts = trackSelector ?: return
+        val hasSelectedAudio = tracks.groups.any { group ->
+            group.type == C.TRACK_TYPE_AUDIO && (0 until group.length).any(group::isTrackSelected)
+        }
+        if (hasSelectedAudio) return
+
+        val firstAudioGroup = tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_AUDIO && it.length > 0 } ?: return
+        ts.setParameters(
+            ts.buildUponParameters()
+                .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                .setOverrideForType(TrackSelectionOverride(firstAudioGroup.mediaTrackGroup, 0))
+        )
+        player?.volume = 1f
+        Timber.d("ExoPlayer applied default audio track fallback")
     }
 
     /**

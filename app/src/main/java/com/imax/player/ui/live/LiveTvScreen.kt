@@ -32,15 +32,20 @@ import com.imax.player.data.repository.PlaylistRepository
 import com.imax.player.ui.components.*
 import com.imax.player.ui.navigation.Routes
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import androidx.compose.ui.res.stringResource
 import com.imax.player.R
 
 data class LiveTvState(
     val channels: List<Channel> = emptyList(),
+    val mobileChannels: List<Channel> = emptyList(),
     val groups: List<String> = emptyList(),
+    val mobileGroups: List<String> = emptyList(),
+    val groupCounts: Map<String, Int> = emptyMap(),
     val selectedGroup: String? = null,
     val isLoading: Boolean = true
 )
@@ -56,15 +61,51 @@ class LiveTvViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             playlistRepository.getActivePlaylist().collectLatest { playlist ->
-                if (playlist != null) {
-                    launch {
-                        contentRepository.getChannelGroups(playlist.id).collect { groups ->
-                            _state.update { it.copy(groups = groups) }
-                        }
+                if (playlist == null) {
+                    _state.value = LiveTvState()
+                } else {
+                    _state.update {
+                        it.copy(
+                            channels = emptyList(),
+                            mobileChannels = emptyList(),
+                            groups = emptyList(),
+                            mobileGroups = emptyList(),
+                            groupCounts = emptyMap(),
+                            selectedGroup = null,
+                            isLoading = true
+                        )
                     }
-                    launch {
-                        contentRepository.getChannels(playlist.id).collect { channels ->
-                            _state.update { it.copy(channels = channels, isLoading = false) }
+
+                    contentRepository.getChannels(playlist.id).collectLatest { channels ->
+                        val processed = withContext(Dispatchers.Default) {
+                            val groups = channels.distinctGroupsInOrder()
+                            val mobileGroups = prioritizeGroupsForMobile(groups)
+                            val mobileChannels = rankChannelsForMobile(channels)
+                            val groupCounts = channels
+                                .groupBy { it.groupTitle }
+                                .mapValues { it.value.size }
+
+                            ProcessedLiveTvContent(
+                                groups = groups,
+                                mobileGroups = mobileGroups,
+                                mobileChannels = mobileChannels,
+                                groupCounts = groupCounts
+                            )
+                        }
+
+                        _state.update { currentState ->
+                            val selectedGroup = currentState.selectedGroup
+                                ?.takeIf { it in processed.groups }
+
+                            currentState.copy(
+                                channels = channels,
+                                mobileChannels = processed.mobileChannels,
+                                groups = processed.groups,
+                                mobileGroups = processed.mobileGroups,
+                                groupCounts = processed.groupCounts,
+                                selectedGroup = selectedGroup,
+                                isLoading = false
+                            )
                         }
                     }
                 }
@@ -85,7 +126,7 @@ class LiveTvViewModel @Inject constructor(
 fun LiveTvScreen(
     isTv: Boolean,
     onNavigate: (String) -> Unit,
-    onPlayChannel: (String, String, Long) -> Unit,
+    onPlayChannel: (String, String, Long, String?) -> Unit,
     viewModel: LiveTvViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -103,8 +144,7 @@ fun LiveTvScreen(
             else TvLiveTvContent(state, viewModel, onPlayChannel)
         }
     } else {
-        if (state.isLoading) LoadingScreen()
-        else MobileLiveTvContent(state, viewModel, onPlayChannel)
+        MobileLiveTvContent(state, viewModel, onPlayChannel)
     }
 }
 
@@ -112,7 +152,7 @@ fun LiveTvScreen(
 private fun TvLiveTvContent(
     state: LiveTvState,
     viewModel: LiveTvViewModel,
-    onPlayChannel: (String, String, Long) -> Unit
+    onPlayChannel: (String, String, Long, String?) -> Unit
 ) {
     val dimens = LocalImaxDimens.current
     Row(modifier = Modifier.fillMaxSize()) {
@@ -146,7 +186,7 @@ private fun TvLiveTvContent(
                     ChannelListItem(
                         channel = channel,
                         isTv = true,
-                        onClick = { onPlayChannel(channel.streamUrl, channel.name, channel.id) },
+                        onClick = { onPlayChannel(channel.streamUrl, channel.name, channel.id, null) },
                         onFavoriteToggle = { viewModel.toggleFavorite(channel) }
                     )
                 }
@@ -159,16 +199,14 @@ private fun TvLiveTvContent(
 private fun MobileLiveTvContent(
     state: LiveTvState,
     viewModel: LiveTvViewModel,
-    onPlayChannel: (String, String, Long) -> Unit
+    onPlayChannel: (String, String, Long, String?) -> Unit
 ) {
     val dimens = LocalImaxDimens.current
     var showCategorySheet by remember { mutableStateOf(false) }
     var recentGroups by remember { mutableStateOf(listOf<String>()) }
     var pinnedGroups by remember { mutableStateOf(listOf<String>()) }
-
-    val groupCounts = remember(state.channels) {
-        state.channels.groupBy { it.groupTitle }.mapValues { it.value.size }
-    }
+    val rankedChannels = state.mobileChannels
+    val mobileGroups = state.mobileGroups
 
     Column(modifier = Modifier.fillMaxSize().padding(top = dimens.screenPadding)) {
         Text(stringResource(R.string.live_tv), style = MaterialTheme.typography.headlineMedium, color = ImaxColors.TextPrimary,
@@ -176,7 +214,7 @@ private fun MobileLiveTvContent(
         Spacer(modifier = Modifier.height(12.dp))
 
         QuickCategoryBar(
-            categories = state.groups,
+            categories = mobileGroups,
             selectedCategory = state.selectedGroup,
             recentCategories = recentGroups,
             onCategorySelected = { group ->
@@ -190,9 +228,15 @@ private fun MobileLiveTvContent(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        val display = if (state.selectedGroup != null) state.channels.filter { it.groupTitle == state.selectedGroup } else state.channels
+        val display = if (state.selectedGroup != null) {
+            rankedChannels.filter { it.groupTitle == state.selectedGroup }
+        } else {
+            rankedChannels
+        }
 
-        if (display.isEmpty()) {
+        if (state.isLoading && display.isEmpty()) {
+            ChannelListLoadingPlaceholder()
+        } else if (display.isEmpty()) {
             EmptyScreen(message = stringResource(R.string.no_content))
         } else {
             LazyColumn(
@@ -200,11 +244,11 @@ private fun MobileLiveTvContent(
                 contentPadding = PaddingValues(horizontal = dimens.screenPadding, vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                items(display) { channel ->
+                items(display, key = { it.id }) { channel ->
                     ChannelListItem(
                         channel = channel,
                         isTv = false,
-                        onClick = { onPlayChannel(channel.streamUrl, channel.name, channel.id) },
+                        onClick = { onPlayChannel(channel.streamUrl, channel.name, channel.id, state.selectedGroup) },
                         onFavoriteToggle = { viewModel.toggleFavorite(channel) }
                     )
                 }
@@ -214,8 +258,8 @@ private fun MobileLiveTvContent(
 
     CategoryBottomSheet(
         isVisible = showCategorySheet,
-        categories = state.groups,
-        categoryCounts = groupCounts,
+        categories = mobileGroups,
+        categoryCounts = state.groupCounts,
         selectedCategory = state.selectedGroup,
         recentCategories = recentGroups,
         pinnedCategories = pinnedGroups,
@@ -230,6 +274,72 @@ private fun MobileLiveTvContent(
             pinnedGroups = if (g in pinnedGroups) pinnedGroups - g else pinnedGroups + g
         }
     )
+}
+
+private data class ProcessedLiveTvContent(
+    val groups: List<String>,
+    val mobileGroups: List<String>,
+    val mobileChannels: List<Channel>,
+    val groupCounts: Map<String, Int>
+)
+
+private fun List<Channel>.distinctGroupsInOrder(): List<String> {
+    if (isEmpty()) return emptyList()
+
+    val seen = LinkedHashSet<String>(size)
+    forEach { channel ->
+        val group = channel.groupTitle
+        if (group.isNotBlank()) {
+            seen += group
+        }
+    }
+    return seen.toList()
+}
+
+@Composable
+private fun ChannelListLoadingPlaceholder() {
+    val dimens = LocalImaxDimens.current
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = dimens.screenPadding, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(8) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(ImaxColors.CardBackground)
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ShimmerBox(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    ShimmerBox(
+                        modifier = Modifier
+                            .fillMaxWidth(0.55f)
+                            .height(16.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    ShimmerBox(
+                        modifier = Modifier
+                            .fillMaxWidth(0.3f)
+                            .height(12.dp)
+                            .clip(RoundedCornerShape(6.dp))
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                ShimmerBox(modifier = Modifier.size(24.dp).clip(CircleShape))
+            }
+        }
+    }
 }
 
 @Composable

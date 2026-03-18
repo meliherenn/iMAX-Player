@@ -49,6 +49,7 @@ class PlaylistRepository @Inject constructor(
     suspend fun deletePlaylist(playlist: Playlist) {
         channelDao.deleteByPlaylist(playlist.id)
         movieDao.deleteByPlaylist(playlist.id)
+        episodeDao.deleteByPlaylist(playlist.id)
         seriesDao.deleteByPlaylist(playlist.id)
         categoryDao.deleteByPlaylist(playlist.id)
         playlistDao.delete(playlist.toEntity())
@@ -85,6 +86,7 @@ class PlaylistRepository @Inject constructor(
         try {
             channelDao.deleteByPlaylist(playlist.id)
             movieDao.deleteByPlaylist(playlist.id)
+            episodeDao.deleteByPlaylist(playlist.id)
             seriesDao.deleteByPlaylist(playlist.id)
             categoryDao.deleteByPlaylist(playlist.id)
 
@@ -134,6 +136,104 @@ class PlaylistRepository @Inject constructor(
     private suspend fun saveParseResult(result: com.imax.player.data.parser.M3uParseResult) {
         channelDao.insertAll(result.channels)
         movieDao.insertAll(result.movies)
+        if (result.series.isEmpty()) return
+
         seriesDao.insertAll(result.series)
+
+        val playlistId = result.series.firstOrNull()?.playlistId
+            ?: result.channels.firstOrNull()?.playlistId
+            ?: result.movies.firstOrNull()?.playlistId
+            ?: return
+
+        val storedSeries = seriesDao.getByPlaylist(playlistId).first().associateBy { it.name }
+        val episodeEntities = buildM3uEpisodes(result.seriesEpisodes, storedSeries)
+
+        if (episodeEntities.isNotEmpty()) {
+            episodeDao.insertAll(episodeEntities)
+
+            val countsBySeriesId = episodeEntities.groupBy { it.seriesId }
+            val updatedSeries = storedSeries.values.mapNotNull { series ->
+                val episodes = countsBySeriesId[series.id] ?: return@mapNotNull null
+                val seasonCount = episodes.map { it.seasonNumber }.distinct().count()
+                series.copy(
+                    seasonCount = seasonCount,
+                    episodeCount = episodes.size
+                )
+            }
+
+            if (updatedSeries.isNotEmpty()) {
+                seriesDao.insertAll(updatedSeries)
+            }
+        }
     }
+
+    private fun buildM3uEpisodes(
+        seriesEpisodes: Map<String, List<com.imax.player.data.parser.M3uEntry>>,
+        storedSeries: Map<String, SeriesEntity>
+    ): List<EpisodeEntity> {
+        return buildList {
+            seriesEpisodes.forEach { (seriesName, entries) ->
+                val seriesEntity = storedSeries[seriesName] ?: return@forEach
+
+                entries.forEachIndexed { index, entry ->
+                    val parsedEpisode = parseEpisode(entry.name, seriesName, index)
+                    add(
+                        EpisodeEntity(
+                            seriesId = seriesEntity.id,
+                            seasonNumber = parsedEpisode.seasonNumber,
+                            episodeNumber = parsedEpisode.episodeNumber,
+                            name = parsedEpisode.displayName,
+                            posterUrl = entry.logoUrl,
+                            streamUrl = entry.url
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    private fun parseEpisode(
+        rawTitle: String,
+        seriesName: String,
+        index: Int
+    ): ParsedEpisode {
+        val normalizedTitle = rawTitle.trim()
+        val patterns = listOf(
+            Regex("""(?i)\bS(\d{1,2})\s*E(\d{1,3})\b"""),
+            Regex("""(?i)\b(\d{1,2})x(\d{1,3})\b"""),
+            Regex("""(?i)\bseason\s*(\d{1,2})\D+episode\s*(\d{1,3})\b""")
+        )
+
+        patterns.forEach { pattern ->
+            val match = pattern.find(normalizedTitle) ?: return@forEach
+            val seasonNumber = match.groupValues.getOrNull(1)?.toIntOrNull() ?: 1
+            val episodeNumber = match.groupValues.getOrNull(2)?.toIntOrNull() ?: (index + 1)
+            val cleanedTitle = normalizedTitle
+                .replace(seriesName, "", ignoreCase = true)
+                .replace(pattern, "")
+                .replace("""^[\s\-_:|]+|[\s\-_:|]+$""".toRegex(), "")
+                .ifBlank { "Episode $episodeNumber" }
+
+            return ParsedEpisode(
+                seasonNumber = seasonNumber,
+                episodeNumber = episodeNumber,
+                displayName = cleanedTitle
+            )
+        }
+
+        return ParsedEpisode(
+            seasonNumber = 1,
+            episodeNumber = index + 1,
+            displayName = normalizedTitle
+                .replace(seriesName, "", ignoreCase = true)
+                .replace("""^[\s\-_:|]+|[\s\-_:|]+$""".toRegex(), "")
+                .ifBlank { "Episode ${index + 1}" }
+        )
+    }
+
+    private data class ParsedEpisode(
+        val seasonNumber: Int,
+        val episodeNumber: Int,
+        val displayName: String
+    )
 }

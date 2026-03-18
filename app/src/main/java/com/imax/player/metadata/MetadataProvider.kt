@@ -45,6 +45,25 @@ class MetadataProvider @Inject constructor(
         private const val MIN_CONFIDENCE_SCORE = 35.0
         private const val SHORT_TITLE_THRESHOLD = 3
         private const val SHORT_TITLE_MIN_CONFIDENCE = 55.0
+        private const val CACHE_TTL_MS = 7 * 24 * 3600 * 1000L
+    }
+
+    suspend fun getCachedMetadata(
+        title: String,
+        year: Int = 0,
+        contentType: ContentType = ContentType.MOVIE
+    ): MetadataResult? {
+        if (contentType == ContentType.LIVE) return null
+
+        val normalizedTitle = StringUtils.normalizeTitle(title)
+        val languageTag = currentLanguageTag()
+        val cached = cacheDao.find(normalizedTitle, year, languageTag) ?: return null
+
+        return if (System.currentTimeMillis() - cached.cachedAt < CACHE_TTL_MS) {
+            cached.toResult()
+        } else {
+            null
+        }
     }
 
     suspend fun fetchMetadata(
@@ -65,16 +84,11 @@ class MetadataProvider @Inject constructor(
             val (_, titleYear) = StringUtils.extractYearFromTitle(title)
             val effectiveYear = if (year > 0) year else (titleYear ?: 0)
 
-            val appLanguage = settingsDataStore.settings.first().appLanguage
-            val languageTag = when (appLanguage.lowercase()) {
-                "tr" -> "tr-TR"
-                "en" -> "en-US"
-                else -> Locale.getDefault().toLanguageTag()
-            }
+            val languageTag = currentLanguageTag()
 
             // Check locale-aware cache
             val cached = cacheDao.find(normalizedTitle, effectiveYear, languageTag)
-            if (cached != null && System.currentTimeMillis() - cached.cachedAt < 7 * 24 * 3600 * 1000L) {
+            if (cached != null && System.currentTimeMillis() - cached.cachedAt < CACHE_TTL_MS) {
                 Timber.d("Cache hit for '$normalizedTitle' (lang=$languageTag)")
                 return cached.toResult()
             }
@@ -206,6 +220,15 @@ class MetadataProvider @Inject constructor(
         } catch (e: Exception) {
             Timber.e(e, "Failed to fetch metadata for: $title")
             return null
+        }
+    }
+
+    private suspend fun currentLanguageTag(): String {
+        val appLanguage = settingsDataStore.settings.first().appLanguage
+        return when (appLanguage.lowercase()) {
+            "tr" -> "tr-TR"
+            "en" -> "en-US"
+            else -> Locale.getDefault().toLanguageTag()
         }
     }
 

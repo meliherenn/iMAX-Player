@@ -173,6 +173,9 @@ interface EpisodeDao {
     @Query("DELETE FROM episodes WHERE seriesId = :seriesId")
     suspend fun deleteBySeries(seriesId: Long)
 
+    @Query("DELETE FROM episodes WHERE seriesId IN (SELECT id FROM series WHERE playlistId = :playlistId)")
+    suspend fun deleteByPlaylist(playlistId: Long)
+
     @Query("SELECT * FROM episodes WHERE seriesId = :seriesId AND seasonNumber = :season AND episodeNumber = :episode LIMIT 1")
     suspend fun getEpisode(seriesId: Long, season: Int, episode: Int): EpisodeEntity?
 
