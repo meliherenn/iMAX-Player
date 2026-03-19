@@ -101,16 +101,13 @@ private fun TvSeriesContent(
 ) {
     val dimens = LocalImaxDimens.current
     Row(modifier = Modifier.fillMaxSize()) {
-        LazyColumn(
-            modifier = Modifier.width(dimens.categoryPanelWidth).fillMaxHeight()
-                .background(ImaxColors.Surface).padding(vertical = 8.dp)
-        ) {
+        TvCategoryPanel {
             item {
-                TvCategoryItem(name = stringResource(R.string.category_all), isSelected = state.selectedCategory == null,
+                TvRailCategoryItem(name = stringResource(R.string.category_all), isSelected = state.selectedCategory == null,
                     onClick = { viewModel.selectCategory(null) })
             }
             items(state.categories) { cat ->
-                TvCategoryItem(name = cat, isSelected = state.selectedCategory == cat,
+                TvRailCategoryItem(name = cat, isSelected = state.selectedCategory == cat,
                     onClick = { viewModel.selectCategory(cat) })
             }
         }
@@ -122,8 +119,11 @@ private fun TvSeriesContent(
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(dimens.gridColumns),
-                modifier = Modifier.weight(1f).padding(8.dp),
-                contentPadding = PaddingValues(8.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .padding(top = 18.dp, end = 20.dp, bottom = 18.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(dimens.cardSpacing),
                 verticalArrangement = Arrangement.spacedBy(dimens.cardSpacing)
             ) {

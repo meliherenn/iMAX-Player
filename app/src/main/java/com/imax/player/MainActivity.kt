@@ -39,11 +39,11 @@ class MainActivity : AppCompatActivity() {
             AppCompatDelegate.setApplicationLocales(localeList)
         }
 
-        val isTv = DeviceUtils.isTvDevice(this)
+        val deviceUiMode = DeviceUtils.resolveUiMode(this)
 
         setContent {
-            ImaxTheme(isTv = isTv) {
-                ImaxNavHost(isTv = isTv)
+            ImaxTheme(isTv = deviceUiMode.isTv) {
+                ImaxNavHost(deviceUiMode = deviceUiMode)
             }
         }
     }

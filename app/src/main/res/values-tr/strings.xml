@@ -98,6 +98,7 @@
     <string name="nav_live_tv">Canlı TV</string>
     <string name="nav_movies">Filmler</string>
     <string name="nav_series">Diziler</string>
+    <string name="nav_continue_watching">İzlemeye Devam Et</string>
     <string name="nav_settings">Ayarlar</string>
     <string name="nav_exit_playlist">Listeden Çık</string>
     

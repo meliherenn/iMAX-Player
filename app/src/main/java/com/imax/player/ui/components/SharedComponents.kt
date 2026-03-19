@@ -92,16 +92,41 @@ fun ContentPosterCard(
     val width = cardWidth ?: dimens.cardWidth
     var isFocused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.08f else 1f,
+        targetValue = when {
+            isTv && isFocused -> 1.12f
+            isFocused -> 1.08f
+            else -> 1f
+        },
         animationSpec = tween(200), label = "posterScale"
     )
     val borderWidth by animateDpAsState(
-        targetValue = if (isFocused) dimens.focusBorderWidth else 0.dp,
+        targetValue = when {
+            isTv && isFocused -> 3.dp
+            isFocused -> dimens.focusBorderWidth
+            else -> 0.dp
+        },
         animationSpec = tween(200), label = "posterBorderWidth"
     )
     val glowAlpha by animateFloatAsState(
-        targetValue = if (isFocused) 0.4f else 0f,
+        targetValue = if (isTv && isFocused) 0.55f else if (isFocused) 0.4f else 0f,
         animationSpec = tween(200), label = "glowAlpha"
+    )
+    val backgroundColor by animateColorAsState(
+        targetValue = when {
+            isTv && isFocused -> ImaxColors.SurfaceElevated
+            isFocused -> ImaxColors.SurfaceVariant
+            else -> ImaxColors.CardBackground
+        },
+        animationSpec = tween(200),
+        label = "posterBackground"
+    )
+    val focusTint by animateColorAsState(
+        targetValue = when {
+            isTv && isFocused -> ImaxColors.Primary.copy(alpha = 0.18f)
+            else -> Color.Transparent
+        },
+        animationSpec = tween(200),
+        label = "posterFocusTint"
     )
 
     Column(
@@ -112,13 +137,17 @@ fun ContentPosterCard(
             .clip(RoundedCornerShape(dimens.borderRadius))
             .then(
                 if (isFocused) Modifier
-                    .shadow(12.dp, RoundedCornerShape(dimens.borderRadius), spotColor = ImaxColors.FocusGlow)
+                    .shadow(
+                        elevation = if (isTv) 18.dp else 12.dp,
+                        shape = RoundedCornerShape(dimens.borderRadius),
+                        spotColor = ImaxColors.FocusGlow.copy(alpha = glowAlpha)
+                    )
                     .border(borderWidth, ImaxColors.FocusBorder, RoundedCornerShape(dimens.borderRadius))
                 else Modifier
             )
             .clickable(onClick = onClick)
             .focusable()
-            .background(ImaxColors.CardBackground)
+            .background(backgroundColor)
     ) {
         Box(
             modifier = Modifier
@@ -130,6 +159,13 @@ fun ContentPosterCard(
                 contentDescription = title,
                 modifier = Modifier.fillMaxSize()
             )
+            if (focusTint.alpha > 0f) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(focusTint)
+                )
+            }
 
             // Gradient overlay
             Box(
@@ -154,22 +190,33 @@ fun ContentPosterCard(
             }
         }
 
-        Text(
-            text = title,
-            style = MaterialTheme.typography.labelMedium,
-            color = ImaxColors.TextPrimary,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
-        )
-
-        if (year > 0) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    when {
+                        isTv && isFocused -> ImaxColors.Primary.copy(alpha = 0.12f)
+                        else -> Color.Transparent
+                    }
+                )
+                .padding(horizontal = 6.dp, vertical = 6.dp)
+        ) {
             Text(
-                text = year.toString(),
-                style = MaterialTheme.typography.labelSmall,
-                color = ImaxColors.TextTertiary,
-                modifier = Modifier.padding(horizontal = 6.dp).padding(bottom = 6.dp)
+                text = title,
+                style = MaterialTheme.typography.labelMedium,
+                color = ImaxColors.TextPrimary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
             )
+
+            if (year > 0) {
+                Text(
+                    text = year.toString(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isTv && isFocused) ImaxColors.TextSecondary else ImaxColors.TextTertiary,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
         }
     }
 }

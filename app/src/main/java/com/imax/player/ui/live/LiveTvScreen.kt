@@ -154,18 +154,14 @@ private fun TvLiveTvContent(
     viewModel: LiveTvViewModel,
     onPlayChannel: (String, String, Long, String?) -> Unit
 ) {
-    val dimens = LocalImaxDimens.current
     Row(modifier = Modifier.fillMaxSize()) {
-        LazyColumn(
-            modifier = Modifier.width(dimens.categoryPanelWidth).fillMaxHeight()
-                .background(ImaxColors.Surface).padding(vertical = 8.dp)
-        ) {
+        TvCategoryPanel {
             item {
-                TvCategoryItem(name = stringResource(R.string.category_all), isSelected = state.selectedGroup == null,
+                TvRailCategoryItem(name = stringResource(R.string.category_all), isSelected = state.selectedGroup == null,
                     onClick = { viewModel.selectGroup(null) })
             }
             items(state.groups) { g ->
-                TvCategoryItem(name = g, isSelected = state.selectedGroup == g,
+                TvRailCategoryItem(name = g, isSelected = state.selectedGroup == g,
                     onClick = { viewModel.selectGroup(g) })
             }
         }
@@ -178,15 +174,25 @@ private fun TvLiveTvContent(
             EmptyScreen(message = stringResource(R.string.no_content))
         } else {
             LazyColumn(
-                modifier = Modifier.weight(1f).padding(8.dp),
-                contentPadding = PaddingValues(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .padding(top = 18.dp, end = 20.dp, bottom = 18.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(display) { channel ->
                     ChannelListItem(
                         channel = channel,
                         isTv = true,
-                        onClick = { onPlayChannel(channel.streamUrl, channel.name, channel.id, null) },
+                        onClick = {
+                            onPlayChannel(
+                                channel.streamUrl,
+                                channel.name,
+                                channel.id,
+                                state.selectedGroup ?: channel.groupTitle
+                            )
+                        },
                         onFavoriteToggle = { viewModel.toggleFavorite(channel) }
                     )
                 }

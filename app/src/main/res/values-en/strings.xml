@@ -98,6 +98,7 @@
     <string name="nav_live_tv">Live TV</string>
     <string name="nav_movies">Movies</string>
     <string name="nav_series">Series</string>
+    <string name="nav_continue_watching">Continue Watching</string>
     <string name="nav_settings">Settings</string>
     <string name="nav_exit_playlist">Exit Playlist</string>
     

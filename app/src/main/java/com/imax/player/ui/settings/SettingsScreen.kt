@@ -14,7 +14,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -183,7 +186,11 @@ private fun SettingsContent(
         // ══════════════════════════════════════════════
         // E) PLAYLIST / ACCOUNT
         // ══════════════════════════════════════════════
-        SettingsSection(icon = Icons.AutoMirrored.Filled.PlaylistPlay, title = stringResource(R.string.settings_playlist_account)) {
+        SettingsSection(
+            icon = Icons.AutoMirrored.Filled.PlaylistPlay,
+            title = stringResource(R.string.settings_playlist_account),
+            isTv = isTv
+        ) {
             // Current playlist info
             if (activePlaylist != null) {
                 Row(
@@ -217,12 +224,14 @@ private fun SettingsContent(
             SettingsActionButton(
                 icon = Icons.Filled.Refresh,
                 label = stringResource(R.string.action_refresh_playlist),
+                isTv = isTv,
                 onClick = { viewModel.refreshPlaylist() }
             )
 
             SettingsActionButton(
                 icon = Icons.Filled.SwapHoriz,
                 label = stringResource(R.string.action_switch_playlist),
+                isTv = isTv,
                 onClick = onBackToOnboarding
             )
 
@@ -232,6 +241,7 @@ private fun SettingsContent(
                 icon = Icons.AutoMirrored.Filled.Logout,
                 label = stringResource(R.string.nav_exit_playlist),
                 isDanger = true,
+                isTv = isTv,
                 onClick = { showExitDialog = true }
             )
         }
@@ -241,12 +251,17 @@ private fun SettingsContent(
         // ══════════════════════════════════════════════
         // F) APP / GENERAL
         // ══════════════════════════════════════════════
-        SettingsSection(icon = Icons.Filled.Info, title = stringResource(R.string.settings_app_general)) {
+        SettingsSection(
+            icon = Icons.Filled.Info,
+            title = stringResource(R.string.settings_app_general),
+            isTv = isTv
+        ) {
             val localizedAppLangs = appLanguages.map { it.code to stringResource(it.labelResId) }
             SettingsDropdown(
                 label = stringResource(R.string.settings_app_language),
                 value = langLabel(settings.appLanguage, appLanguages),
                 options = localizedAppLangs.map { it.second },
+                isTv = isTv,
                 onSelect = { label ->
                     val langCode = localizedAppLangs.find { it.second == label }?.first ?: "system"
                     viewModel.updateAppLanguage(langCode)
@@ -313,14 +328,16 @@ private fun SettingsContent(
 private fun SettingsSection(
     icon: ImageVector,
     title: String,
+    isTv: Boolean,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val borderColor = if (isTv) ImaxColors.GlassBorder else ImaxColors.CardBorder
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(ImaxColors.CardBackground, RoundedCornerShape(16.dp))
-            .border(1.dp, ImaxColors.CardBorder, RoundedCornerShape(16.dp))
-            .padding(16.dp)
+            .border(if (isTv) 1.5.dp else 1.dp, borderColor, RoundedCornerShape(16.dp))
+            .padding(if (isTv) 18.dp else 16.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, contentDescription = null, tint = ImaxColors.Primary, modifier = Modifier.size(20.dp))
@@ -337,24 +354,44 @@ private fun SettingsDropdown(
     label: String,
     value: String,
     options: List<String>,
+    isTv: Boolean,
     onSelect: (String) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
     var isFocused by remember { mutableStateOf(false) }
+    val scale = if (isTv && isFocused) 1.02f else 1f
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
-            .onFocusChanged { isFocused = it.isFocused }
     ) {
         Text(label, style = MaterialTheme.typography.bodySmall, color = ImaxColors.TextSecondary)
         Spacer(modifier = Modifier.height(4.dp))
         Box {
             OutlinedButton(
                 onClick = { expanded = true },
-                modifier = Modifier.fillMaxWidth(),
-                border = BorderStroke(1.dp, if (isFocused) ImaxColors.Primary else ImaxColors.CardBorder),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                    }
+                    .onFocusChanged { isFocused = it.isFocused }
+                    .then(
+                        if (isTv && isFocused) {
+                            Modifier.shadow(14.dp, RoundedCornerShape(10.dp), spotColor = ImaxColors.FocusGlow)
+                        } else {
+                            Modifier
+                        }
+                    ),
+                border = BorderStroke(
+                    width = if (isTv && isFocused) 3.dp else if (isFocused) 2.dp else 1.dp,
+                    color = when {
+                        isFocused -> ImaxColors.FocusBorder
+                        else -> ImaxColors.CardBorder
+                    }
+                ),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = ImaxColors.TextPrimary),
                 shape = RoundedCornerShape(10.dp)
             ) {
@@ -388,21 +425,35 @@ private fun SettingsDropdown(
 private fun SettingsSwitch(
     label: String,
     checked: Boolean,
+    isTv: Boolean = false,
     onCheckedChange: (Boolean) -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
+    val backgroundColor = when {
+        isTv && isFocused -> ImaxColors.SurfaceElevated
+        isFocused -> ImaxColors.SurfaceVariant
+        else -> Color.Transparent
+    }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
-            .then(
-                if (isFocused) Modifier.background(ImaxColors.SurfaceVariant, RoundedCornerShape(10.dp))
-                else Modifier
-            )
+            .clip(RoundedCornerShape(10.dp))
+            .background(backgroundColor)
             .clickable(onClick = { onCheckedChange(!checked) })
             .onFocusChanged { isFocused = it.isFocused }
             .focusable()
+            .then(
+                when {
+                    isTv && isFocused -> Modifier
+                        .shadow(12.dp, RoundedCornerShape(10.dp), spotColor = ImaxColors.FocusGlow)
+                        .border(3.dp, ImaxColors.FocusBorder, RoundedCornerShape(10.dp))
+
+                    isFocused -> Modifier.border(2.dp, ImaxColors.FocusBorder, RoundedCornerShape(10.dp))
+                    else -> Modifier
+                }
+            )
             .padding(horizontal = 4.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -423,15 +474,36 @@ private fun SettingsActionButton(
     icon: ImageVector,
     label: String,
     isDanger: Boolean = false,
+    isTv: Boolean = false,
     onClick: () -> Unit
 ) {
     val contentColor = if (isDanger) ImaxColors.Error else ImaxColors.TextPrimary
+    var isFocused by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
+            .background(
+                when {
+                    isTv && isFocused -> ImaxColors.SurfaceElevated
+                    isFocused -> ImaxColors.SurfaceVariant
+                    else -> Color.Transparent
+                }
+            )
             .clickable(onClick = onClick)
-            .padding(vertical = 12.dp, horizontal = 4.dp),
+            .onFocusChanged { isFocused = it.isFocused }
+            .focusable()
+            .then(
+                when {
+                    isTv && isFocused -> Modifier
+                        .shadow(12.dp, RoundedCornerShape(10.dp), spotColor = ImaxColors.FocusGlow)
+                        .border(3.dp, ImaxColors.FocusBorder, RoundedCornerShape(10.dp))
+
+                    isFocused -> Modifier.border(2.dp, ImaxColors.FocusBorder, RoundedCornerShape(10.dp))
+                    else -> Modifier
+                }
+            )
+            .padding(vertical = 12.dp, horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(icon, contentDescription = null, tint = contentColor, modifier = Modifier.size(20.dp))

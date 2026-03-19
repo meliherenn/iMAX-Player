@@ -1,5 +1,9 @@
 package com.imax.player.ui.home
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
@@ -13,9 +17,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalConfiguration
@@ -80,6 +86,16 @@ private fun TvHomeContent(
 ) {
     val dimens = LocalImaxDimens.current
     val scrollState = rememberScrollState()
+    val latestMovies = remember(state.allMovies) {
+        state.allMovies
+            .sortedByDescending { it.id }
+            .take(20)
+    }
+    val latestSeries = remember(state.allSeries) {
+        state.allSeries
+            .sortedByDescending { it.id }
+            .take(20)
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         // Dynamic backdrop
@@ -105,14 +121,30 @@ private fun TvHomeContent(
             modifier = Modifier.fillMaxSize().verticalScroll(scrollState)
                 .padding(vertical = dimens.screenPadding)
         ) {
-            TvHeroBanner(state, onPlayContent, onContentClick)
-            Spacer(modifier = Modifier.height(dimens.sectionSpacing))
             if (state.continueWatching.isNotEmpty()) {
                 ContentRail(stringResource(R.string.section_continue_watching), dimens.screenPadding) {
                     items(state.continueWatching) { item ->
                         ContinueWatchingCard(item, true,
                             onClick = { onPlayContent(item.streamUrl, item.title, item.contentId, item.contentType.name, item.position) },
                             onFocus = { onFocusChange(item) })
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+            if (latestMovies.isNotEmpty()) {
+                ContentRail(stringResource(R.string.nav_movies), dimens.screenPadding) {
+                    items(latestMovies) { movie ->
+                        ContentPosterCard(title = movie.name, posterUrl = movie.posterUrl, rating = movie.rating, year = movie.year, isTv = true,
+                            onClick = { onContentClick(movie.id, "MOVIE") })
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+            if (latestSeries.isNotEmpty()) {
+                ContentRail(stringResource(R.string.nav_series), dimens.screenPadding) {
+                    items(latestSeries) { series ->
+                        ContentPosterCard(title = series.name, posterUrl = series.posterUrl, rating = series.rating, year = series.year, isTv = true,
+                            onClick = { onContentClick(series.id, "SERIES") })
                     }
                 }
                 Spacer(modifier = Modifier.height(16.dp))
@@ -127,29 +159,11 @@ private fun TvHomeContent(
                 }
                 Spacer(modifier = Modifier.height(16.dp))
             }
-            if (state.allMovies.isNotEmpty()) {
-                ContentRail(stringResource(R.string.nav_movies), dimens.screenPadding) {
-                    items(state.allMovies) { movie ->
-                        ContentPosterCard(title = movie.name, posterUrl = movie.posterUrl, rating = movie.rating, year = movie.year, isTv = true,
-                            onClick = { onContentClick(movie.id, "MOVIE") })
-                    }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-            }
             if (state.favoriteMovies.isNotEmpty()) {
                 ContentRail(stringResource(R.string.section_favorites), dimens.screenPadding) {
                     items(state.favoriteMovies) { movie ->
                         ContentPosterCard(title = movie.name, posterUrl = movie.posterUrl, rating = movie.rating, year = movie.year, isTv = true,
                             onClick = { onContentClick(movie.id, "MOVIE") })
-                    }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-            if (state.allSeries.isNotEmpty()) {
-                ContentRail(stringResource(R.string.nav_series), dimens.screenPadding) {
-                    items(state.allSeries) { series ->
-                        ContentPosterCard(title = series.name, posterUrl = series.posterUrl, rating = series.rating, year = series.year, isTv = true,
-                            onClick = { onContentClick(series.id, "SERIES") })
                     }
                 }
             }
@@ -431,14 +445,48 @@ private fun ContinueWatchingCard(
     val subtitle = remember(item) { continueWatchingSubtitle(item) }
     val progressLabel = remember(item) { continueWatchingProgressLabel(item) }
     val progress = item.progress.coerceIn(0f, 1f)
+    val scale by animateFloatAsState(
+        targetValue = if (isTv && isFocused) 1.06f else 1f,
+        animationSpec = tween(180),
+        label = "continueWatchingScale"
+    )
+    val borderWidth by animateDpAsState(
+        targetValue = if (isTv && isFocused) 3.dp else if (isFocused) dimens.focusBorderWidth else 0.dp,
+        animationSpec = tween(180),
+        label = "continueWatchingBorder"
+    )
+    val backgroundColor by animateColorAsState(
+        targetValue = when {
+            isTv && isFocused -> ImaxColors.SurfaceElevated
+            isFocused -> ImaxColors.SurfaceVariant
+            else -> ImaxColors.CardBackground
+        },
+        animationSpec = tween(180),
+        label = "continueWatchingBackground"
+    )
 
     Column(
         modifier = Modifier
             .width(width)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
             .clip(RoundedCornerShape(dimens.borderRadius))
-            .background(ImaxColors.CardBackground)
+            .background(backgroundColor)
+            .then(
+                if (isTv && isFocused) {
+                    Modifier.shadow(
+                        elevation = 18.dp,
+                        shape = RoundedCornerShape(dimens.borderRadius),
+                        spotColor = ImaxColors.FocusGlow
+                    )
+                } else {
+                    Modifier
+                }
+            )
             .border(
-                width = if (isFocused) dimens.focusBorderWidth else 0.dp,
+                width = borderWidth,
                 color = ImaxColors.FocusBorder,
                 shape = RoundedCornerShape(dimens.borderRadius)
             )
