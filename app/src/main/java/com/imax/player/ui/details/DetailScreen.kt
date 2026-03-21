@@ -3,6 +3,9 @@ package com.imax.player.ui.details
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.animation.*
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
@@ -20,6 +23,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -373,7 +377,11 @@ private fun TvDetailContent(
                         Text(stringResource(R.string.loading_episodes), style = MaterialTheme.typography.bodyMedium, color = ImaxColors.TextSecondary)
                     }
                 } else if (state.seasons.isNotEmpty()) {
-                    SeasonSelector(state.seasons, state.selectedSeason) { viewModel.selectSeason(it) }
+                    SeasonSelector(
+                        seasons = state.seasons,
+                        selected = state.selectedSeason,
+                        isTv = true
+                    ) { viewModel.selectSeason(it) }
                     Spacer(modifier = Modifier.height(12.dp))
                     state.episodes.forEach { ep ->
                         EpisodeRow(ep, true) { onPlay(ep.streamUrl, "${series.name} S${ep.seasonNumber}E${ep.episodeNumber}", ep.id, "SERIES", ep.lastPosition) }
@@ -603,7 +611,12 @@ private fun MobileDetailContent(
                         Text(stringResource(R.string.loading_episodes), style = MaterialTheme.typography.bodyMedium, color = ImaxColors.TextSecondary)
                     }
                 } else if (state.seasons.isNotEmpty()) {
-                    SeasonSelector(state.seasons, state.selectedSeason, sectionPadding) { viewModel.selectSeason(it) }
+                    SeasonSelector(
+                        seasons = state.seasons,
+                        selected = state.selectedSeason,
+                        isTv = false,
+                        modifier = sectionPadding
+                    ) { viewModel.selectSeason(it) }
                     Spacer(modifier = Modifier.height(8.dp))
                     state.episodes.forEach { ep ->
                         EpisodeRow(ep, false) { onPlay(ep.streamUrl, "${series.name} S${ep.seasonNumber}E${ep.episodeNumber}", ep.id, "SERIES", ep.lastPosition) }
@@ -910,18 +923,32 @@ private fun DetailInfoSection(label: String, value: String, modifier: Modifier =
 }
 
 @Composable
-private fun SeasonSelector(seasons: List<Int>, selected: Int, modifier: Modifier = Modifier, onSelect: (Int) -> Unit) {
+private fun SeasonSelector(
+    seasons: List<Int>,
+    selected: Int,
+    isTv: Boolean,
+    modifier: Modifier = Modifier,
+    onSelect: (Int) -> Unit
+) {
     LazyRow(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         items(seasons) { season ->
-            FilterChip(
-                selected = season == selected,
-                onClick = { onSelect(season) },
-                label = { Text(stringResource(R.string.season_format, season)) },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = ImaxColors.Primary.copy(alpha = 0.2f),
-                    selectedLabelColor = ImaxColors.Primary
+            if (isTv) {
+                TvSeasonChip(
+                    season = season,
+                    isSelected = season == selected,
+                    onClick = { onSelect(season) }
                 )
-            )
+            } else {
+                FilterChip(
+                    selected = season == selected,
+                    onClick = { onSelect(season) },
+                    label = { Text(stringResource(R.string.season_format, season)) },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = ImaxColors.Primary.copy(alpha = 0.2f),
+                        selectedLabelColor = ImaxColors.Primary
+                    )
+                )
+            }
         }
     }
 }
@@ -932,6 +959,14 @@ private fun EpisodeRow(
     isTv: Boolean,
     onPlay: () -> Unit
 ) {
+    if (isTv) {
+        TvEpisodeRow(
+            episode = episode,
+            onPlay = onPlay
+        )
+        return
+    }
+
     var isFocused by remember { mutableStateOf(false) }
     val dimens = LocalImaxDimens.current
 
@@ -972,6 +1007,246 @@ private fun EpisodeRow(
         }
         Spacer(modifier = Modifier.width(8.dp))
         Icon(Icons.Filled.PlayCircle, stringResource(R.string.action_play), tint = ImaxColors.Primary, modifier = Modifier.size(28.dp))
+    }
+}
+
+@Composable
+private fun TvSeasonChip(
+    season: Int,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val chipShape = RoundedCornerShape(18.dp)
+    val focusState = rememberTvFocusVisualState(
+        isFocused = isFocused,
+        isSelected = isSelected,
+        defaultSurface = ImaxColors.CardBackground,
+        selectedSurface = Color(0xFF2F2018),
+        focusedSurface = Color(0xFF804A2B),
+        selectedFocusedSurface = Color(0xFFA96036),
+        defaultContentColor = ImaxColors.TextSecondary,
+        defaultSecondaryContentColor = ImaxColors.TextSecondary,
+        selectedContentColor = Color(0xFFFFDEC8),
+        focusedContentColor = Color(0xFFFFFBF8),
+        selectedFocusedContentColor = Color.White,
+        selectedBorderColor = Color(0xFF8F6B55),
+        focusedBorderColor = Color(0xFFFFD8A1),
+        selectedFocusedBorderColor = Color(0xFFFFE6C6),
+        selectedAccentColor = Color(0xFFD8A078),
+        focusedAccentColor = Color(0xFFFFDFA5),
+        selectedFocusedAccentColor = Color(0xFFFFE9CA)
+    )
+    val effectiveScale by animateFloatAsState(
+        targetValue = when {
+            isFocused && isSelected -> 1.10f
+            isFocused -> 1.08f
+            isSelected -> 1.02f
+            else -> 1f
+        },
+        animationSpec = tween(180),
+        label = "tvSeasonChipScale"
+    )
+
+    Row(
+        modifier = Modifier
+            .graphicsLayer {
+                scaleX = effectiveScale
+                scaleY = effectiveScale
+                this.shape = chipShape
+                clip = false
+                shadowElevation = focusState.shadowElevation.toPx()
+            }
+            .clip(chipShape)
+            .background(focusState.backgroundColor)
+            .border(focusState.borderWidth, focusState.borderColor, chipShape)
+            .clickable(onClick = onClick)
+            .onFocusChanged { isFocused = it.isFocused }
+            .focusable()
+            .padding(horizontal = 18.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .width(focusState.accentWidth)
+                .height(28.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(focusState.accentColor)
+        )
+        Spacer(modifier = Modifier.width(if (focusState.accentWidth > 0.dp) 12.dp else 0.dp))
+        Text(
+            text = stringResource(R.string.season_format, season),
+            style = MaterialTheme.typography.titleMedium,
+            color = focusState.contentColor,
+            fontWeight = when {
+                isFocused && isSelected -> FontWeight.ExtraBold
+                isFocused -> FontWeight.Bold
+                isSelected -> FontWeight.SemiBold
+                else -> FontWeight.Medium
+            }
+        )
+    }
+}
+
+@Composable
+private fun TvEpisodeRow(
+    episode: Episode,
+    onPlay: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val dimens = LocalImaxDimens.current
+    val episodeShape = RoundedCornerShape(20.dp)
+    val focusState = rememberTvFocusVisualState(
+        isFocused = isFocused,
+        isSelected = episode.lastPosition > 0L,
+        defaultSurface = ImaxColors.CardBackground,
+        selectedSurface = Color(0xFF241D1A),
+        focusedSurface = Color(0xFF684131),
+        selectedFocusedSurface = Color(0xFF8D563C),
+        defaultContentColor = ImaxColors.TextPrimary,
+        defaultSecondaryContentColor = ImaxColors.TextSecondary,
+        selectedContentColor = Color(0xFFFFE3CF),
+        focusedContentColor = Color(0xFFFFF9F5),
+        selectedFocusedContentColor = Color.White,
+        selectedBorderColor = Color(0xFF91725F),
+        focusedBorderColor = Color(0xFFFFD59B),
+        selectedFocusedBorderColor = Color(0xFFFFE7C8),
+        selectedAccentColor = Color(0xFFD99D73),
+        focusedAccentColor = Color(0xFFFFDEA1),
+        selectedFocusedAccentColor = Color(0xFFFFE9CC)
+    )
+    val effectiveScale by animateFloatAsState(
+        targetValue = when {
+            isFocused && episode.lastPosition > 0L -> 1.10f
+            isFocused -> 1.08f
+            episode.lastPosition > 0L -> 1.02f
+            else -> 1f
+        },
+        animationSpec = tween(180),
+        label = "tvEpisodeRowScale"
+    )
+    val effectiveBorderWidth by animateDpAsState(
+        targetValue = when {
+            isFocused && episode.lastPosition > 0L -> 4.5.dp
+            isFocused -> 3.5.dp
+            episode.lastPosition > 0L -> 1.5.dp
+            else -> 0.dp
+        },
+        animationSpec = tween(180),
+        label = "tvEpisodeRowBorderWidth"
+    )
+    val trailingGlowColor by animateColorAsState(
+        targetValue = when {
+            isFocused && episode.lastPosition > 0L -> Color(0x60FFE9CC)
+            isFocused -> Color(0x46FFD59B)
+            episode.lastPosition > 0L -> Color(0x20D99D73)
+            else -> Color.Transparent
+        },
+        animationSpec = tween(180),
+        label = "tvEpisodeRowTrailingGlow"
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = dimens.screenPadding, vertical = 5.dp)
+            .graphicsLayer {
+                scaleX = effectiveScale
+                scaleY = effectiveScale
+                this.shape = episodeShape
+                clip = false
+                shadowElevation = focusState.shadowElevation.toPx()
+            }
+            .clip(episodeShape)
+            .background(focusState.backgroundColor)
+            .border(effectiveBorderWidth, focusState.borderColor, episodeShape)
+            .clickable(onClick = onPlay)
+            .onFocusChanged { isFocused = it.isFocused }
+            .focusable()
+            .padding(horizontal = 18.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .width(focusState.accentWidth)
+                .height(52.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(focusState.accentColor)
+        )
+        Spacer(modifier = Modifier.width(if (focusState.accentWidth > 0.dp) 16.dp else 10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stringResource(R.string.episode_format, episode.episodeNumber, episode.name),
+                style = MaterialTheme.typography.titleMedium,
+                color = focusState.contentColor,
+                fontWeight = when {
+                    isFocused && episode.lastPosition > 0L -> FontWeight.ExtraBold
+                    isFocused -> FontWeight.Bold
+                    else -> FontWeight.SemiBold
+                },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (episode.plot.isNotBlank()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = episode.plot,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = focusState.secondaryContentColor,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (episode.duration > 0) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = com.imax.player.core.common.StringUtils.formatDurationMinutes(episode.duration),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = focusState.secondaryContentColor
+                )
+            }
+        }
+        if (episode.lastPosition > 0) {
+            Spacer(modifier = Modifier.width(10.dp))
+            Surface(
+                shape = RoundedCornerShape(999.dp),
+                color = focusState.accentColor.copy(alpha = 0.18f),
+                border = BorderStroke(1.dp, focusState.accentColor.copy(alpha = 0.7f))
+            ) {
+                Text(
+                    text = stringResource(R.string.action_resume),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = focusState.contentColor,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+            }
+        }
+        Spacer(modifier = Modifier.width(12.dp))
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(focusState.accentColor.copy(alpha = 0.18f))
+                .border(1.5.dp, focusState.accentColor.copy(alpha = 0.7f), RoundedCornerShape(14.dp)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Filled.PlayCircle,
+                contentDescription = stringResource(R.string.action_play),
+                tint = focusState.contentColor,
+                modifier = Modifier.size(26.dp)
+            )
+        }
+        if (trailingGlowColor != Color.Transparent) {
+            Spacer(modifier = Modifier.width(12.dp))
+            Box(
+                modifier = Modifier
+                    .width(10.dp)
+                    .height(42.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(trailingGlowColor)
+            )
+        }
     }
 }
 

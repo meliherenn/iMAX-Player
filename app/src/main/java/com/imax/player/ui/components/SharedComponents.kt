@@ -90,10 +90,21 @@ fun ContentPosterCard(
 ) {
     val dimens = LocalImaxDimens.current
     val width = cardWidth ?: dimens.cardWidth
-    var isFocused by remember { mutableStateOf(false) }
+    var isFocused by remember(title, posterUrl, year, isTv) { mutableStateOf(false) }
+    val tvFocusState = if (isTv) {
+        rememberTvFocusVisualState(
+            isFocused = isFocused,
+            defaultSurface = ImaxColors.CardBackground,
+            selectedSurface = ImaxColors.CardBackground,
+            focusedSurface = ImaxColors.SurfaceElevated,
+            selectedFocusedSurface = Color(0xFF5C3C2C)
+        )
+    } else {
+        null
+    }
     val scale by animateFloatAsState(
         targetValue = when {
-            isTv && isFocused -> 1.12f
+            tvFocusState != null -> tvFocusState.scale
             isFocused -> 1.08f
             else -> 1f
         },
@@ -101,19 +112,19 @@ fun ContentPosterCard(
     )
     val borderWidth by animateDpAsState(
         targetValue = when {
-            isTv && isFocused -> 3.dp
+            tvFocusState != null -> tvFocusState.borderWidth
             isFocused -> dimens.focusBorderWidth
             else -> 0.dp
         },
         animationSpec = tween(200), label = "posterBorderWidth"
     )
     val glowAlpha by animateFloatAsState(
-        targetValue = if (isTv && isFocused) 0.55f else if (isFocused) 0.4f else 0f,
+        targetValue = if (tvFocusState != null && isFocused) 0.68f else if (isFocused) 0.4f else 0f,
         animationSpec = tween(200), label = "glowAlpha"
     )
     val backgroundColor by animateColorAsState(
         targetValue = when {
-            isTv && isFocused -> ImaxColors.SurfaceElevated
+            tvFocusState != null -> tvFocusState.backgroundColor
             isFocused -> ImaxColors.SurfaceVariant
             else -> ImaxColors.CardBackground
         },
@@ -122,7 +133,7 @@ fun ContentPosterCard(
     )
     val focusTint by animateColorAsState(
         targetValue = when {
-            isTv && isFocused -> ImaxColors.Primary.copy(alpha = 0.18f)
+            tvFocusState != null && isFocused -> ImaxColors.Primary.copy(alpha = 0.24f)
             else -> Color.Transparent
         },
         animationSpec = tween(200),
@@ -138,11 +149,15 @@ fun ContentPosterCard(
             .then(
                 if (isFocused) Modifier
                     .shadow(
-                        elevation = if (isTv) 18.dp else 12.dp,
+                        elevation = tvFocusState?.shadowElevation ?: 12.dp,
                         shape = RoundedCornerShape(dimens.borderRadius),
-                        spotColor = ImaxColors.FocusGlow.copy(alpha = glowAlpha)
+                        spotColor = (tvFocusState?.glowColor ?: ImaxColors.FocusGlow).copy(alpha = glowAlpha)
                     )
-                    .border(borderWidth, ImaxColors.FocusBorder, RoundedCornerShape(dimens.borderRadius))
+                    .border(
+                        borderWidth,
+                        tvFocusState?.borderColor ?: ImaxColors.FocusBorder,
+                        RoundedCornerShape(dimens.borderRadius)
+                    )
                 else Modifier
             )
             .clickable(onClick = onClick)
@@ -204,7 +219,7 @@ fun ContentPosterCard(
             Text(
                 text = title,
                 style = MaterialTheme.typography.labelMedium,
-                color = ImaxColors.TextPrimary,
+                color = tvFocusState?.contentColor ?: ImaxColors.TextPrimary,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
@@ -213,7 +228,8 @@ fun ContentPosterCard(
                 Text(
                     text = year.toString(),
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (isTv && isFocused) ImaxColors.TextSecondary else ImaxColors.TextTertiary,
+                    color = tvFocusState?.secondaryContentColor
+                        ?: if (isFocused) ImaxColors.TextSecondary else ImaxColors.TextTertiary,
                     modifier = Modifier.padding(top = 2.dp)
                 )
             }

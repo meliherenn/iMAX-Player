@@ -1,5 +1,6 @@
 package com.imax.player.ui.tv
 
+import android.util.Log
 import android.app.Activity
 import android.view.SurfaceView
 import android.view.ViewGroup
@@ -72,14 +73,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -114,6 +118,7 @@ import com.imax.player.core.player.ExoPlayerEngine
 import com.imax.player.core.player.PlaybackState
 import com.imax.player.core.player.PlayerState
 import com.imax.player.core.player.VlcPlayerEngine
+import com.imax.player.ui.components.rememberTvFocusVisualState
 import com.imax.player.ui.player.PlayerViewModel
 
 private enum class TvPlayerPanel {
@@ -140,6 +145,8 @@ private enum class TvOverlayAction {
     SCREEN_MODE,
     SETTINGS
 }
+
+private const val TV_PLAYER_LOG_TAG = "TvPlayerScreen"
 
 private data class TvPanelOption(
     val title: String,
@@ -185,6 +192,32 @@ fun TvPlayerScreen(
         playerState.playbackState == PlaybackState.BUFFERING ||
         switchState == EngineSwitchState.SWITCHING ||
         isChannelSwitching
+    val availableOverlayActions = remember(
+        isLivePlayback,
+        isSeriesPlayback,
+        session.previousEpisode?.id,
+        session.nextEpisode?.id
+    ) {
+        buildSet {
+            add(TvOverlayAction.BACK)
+            add(TvOverlayAction.MAIN_PREVIOUS)
+            add(TvOverlayAction.PLAY_PAUSE)
+            add(TvOverlayAction.MAIN_NEXT)
+            if (isLivePlayback) {
+                add(TvOverlayAction.CHANNELS)
+            }
+            if (isSeriesPlayback && session.previousEpisode != null) {
+                add(TvOverlayAction.PREVIOUS_EPISODE)
+            }
+            if (isSeriesPlayback && session.nextEpisode != null) {
+                add(TvOverlayAction.NEXT_EPISODE)
+            }
+            add(TvOverlayAction.AUDIO)
+            add(TvOverlayAction.SUBTITLE)
+            add(TvOverlayAction.SCREEN_MODE)
+            add(TvOverlayAction.SETTINGS)
+        }
+    }
 
     val rootFocusRequester = remember { FocusRequester() }
     val overlayActionRequesters = remember {
@@ -196,6 +229,7 @@ fun TvPlayerScreen(
     var lastOverlayAction by rememberSaveable { mutableStateOf(TvOverlayAction.PLAY_PAUSE) }
     var requestedOverlayAction by rememberSaveable { mutableStateOf(TvOverlayAction.PLAY_PAUSE) }
     var interactionVersion by remember { mutableIntStateOf(0) }
+    var isExiting by rememberSaveable { mutableStateOf(false) }
 
     fun registerInteraction() {
         interactionVersion += 1
@@ -218,7 +252,17 @@ fun TvPlayerScreen(
         showOverlay(lastOverlayAction)
     }
 
+    fun resolvedOverlayAction(action: TvOverlayAction): TvOverlayAction {
+        return when {
+            action in availableOverlayActions -> action
+            lastOverlayAction in availableOverlayActions -> lastOverlayAction
+            else -> TvOverlayAction.PLAY_PAUSE
+        }
+    }
+
     fun exitPlayer() {
+        if (isExiting) return
+        isExiting = true
         hideOverlay()
         viewModel.exitPlayer(onBack)
     }
@@ -291,15 +335,32 @@ fun TvPlayerScreen(
         }
     }
 
+    DisposableEffect(viewModel) {
+        viewModel.configureTvPlayback(true)
+        onDispose {
+            viewModel.configureTvPlayback(false)
+        }
+    }
+
     LaunchedEffect(url, title, contentId, contentType, startPosition, groupContext) {
         viewModel.init(url, title, startPosition, contentId, contentType, groupContext)
     }
 
     LaunchedEffect(overlayVisible, activePanel, requestedOverlayAction) {
+        val targetAction = resolvedOverlayAction(requestedOverlayAction)
+        if (requestedOverlayAction != targetAction) {
+            requestedOverlayAction = targetAction
+        }
+        if (lastOverlayAction !in availableOverlayActions) {
+            lastOverlayAction = targetAction
+        }
+
         when {
             activePanel != TvPlayerPanel.NONE -> Unit
-            overlayVisible -> overlayActionRequesters.getValue(requestedOverlayAction).requestFocus()
-            else -> rootFocusRequester.requestFocus()
+            overlayVisible -> overlayActionRequesters
+                .getValue(targetAction)
+                .requestFocusSafely("player overlay action $targetAction")
+            else -> rootFocusRequester.requestFocusSafely("player root surface")
         }
     }
 
@@ -308,7 +369,7 @@ fun TvPlayerScreen(
             kotlinx.coroutines.delay(6500)
             if (overlayVisible && activePanel == TvPlayerPanel.NONE && playerState.isPlaying) {
                 overlayVisible = false
-                rootFocusRequester.requestFocus()
+                rootFocusRequester.requestFocusSafely("player root after overlay timeout")
             }
         }
     }
@@ -323,7 +384,13 @@ fun TvPlayerScreen(
         }
     }
 
-    BackHandler(onBack = ::handleBack)
+    LaunchedEffect(liveChannelSwitch.errorMessage) {
+        if (!liveChannelSwitch.errorMessage.isNullOrBlank()) {
+            showOverlay(TvOverlayAction.CHANNELS)
+        }
+    }
+
+    BackHandler(enabled = !isExiting, onBack = ::handleBack)
 
     Box(
         modifier = Modifier
@@ -332,6 +399,9 @@ fun TvPlayerScreen(
             .focusRequester(rootFocusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
+                if (isExiting) {
+                    return@onPreviewKeyEvent true
+                }
                 if (event.type != KeyEventType.KeyDown) {
                     return@onPreviewKeyEvent false
                 }
@@ -474,18 +544,22 @@ fun TvPlayerScreen(
         }
 
         if (
-            playerState.playbackState == PlaybackState.ERROR &&
+            (playerState.playbackState == PlaybackState.ERROR || !liveChannelSwitch.errorMessage.isNullOrBlank()) &&
             switchState != EngineSwitchState.SWITCHING &&
             !isChannelSwitching
         ) {
             TvErrorState(
-                message = playerState.errorMessage ?: stringResource(R.string.playback_error),
+                message = liveChannelSwitch.errorMessage
+                    ?: playerState.errorMessage
+                    ?: stringResource(R.string.playback_error),
                 onRetry = {
                     showOverlay(TvOverlayAction.PLAY_PAUSE)
+                    viewModel.clearLiveChannelSwitchError()
                     viewModel.retryCurrent()
                 },
                 onSwitchEngine = {
                     showOverlay(TvOverlayAction.PLAY_PAUSE)
+                    viewModel.clearLiveChannelSwitchError()
                     viewModel.switchEngine()
                 },
                 onExit = ::exitPlayer
@@ -760,6 +834,7 @@ private fun TvPlayerVideoSurface(
 }
 
 @Composable
+@OptIn(ExperimentalComposeUiApi::class)
 private fun TvPlaybackOverlay(
     title: String,
     subtitle: String,
@@ -787,6 +862,54 @@ private fun TvPlaybackOverlay(
     onNextEpisode: () -> Unit
 ) {
     val shouldShowProgress = !isLivePlayback && playerState.duration > 0L
+    val utilityActions = remember(
+        isLivePlayback,
+        isSeriesPlayback,
+        hasPreviousEpisode,
+        hasNextEpisode
+    ) {
+        buildList {
+            if (isLivePlayback) {
+                add(TvOverlayAction.CHANNELS)
+            }
+            if (isSeriesPlayback && hasPreviousEpisode) {
+                add(TvOverlayAction.PREVIOUS_EPISODE)
+            }
+            if (isSeriesPlayback && hasNextEpisode) {
+                add(TvOverlayAction.NEXT_EPISODE)
+            }
+            add(TvOverlayAction.AUDIO)
+            add(TvOverlayAction.SUBTITLE)
+            add(TvOverlayAction.SCREEN_MODE)
+            add(TvOverlayAction.SETTINGS)
+        }
+    }
+
+    fun actionRequester(action: TvOverlayAction?): FocusRequester {
+        return action?.let { overlayActionRequesters.getValue(it) } ?: FocusRequester.Cancel
+    }
+
+    fun utilityActionForMain(slot: Int): TvOverlayAction? {
+        if (utilityActions.isEmpty()) return null
+
+        return when (slot) {
+            0 -> utilityActions.first()
+            1 -> utilityActions[utilityActions.lastIndex / 2]
+            else -> utilityActions.last()
+        }
+    }
+
+    fun mainActionForUtility(index: Int): TvOverlayAction {
+        if (utilityActions.size <= 1) {
+            return TvOverlayAction.PLAY_PAUSE
+        }
+
+        return when {
+            index == 0 -> TvOverlayAction.MAIN_PREVIOUS
+            index == utilityActions.lastIndex -> TvOverlayAction.MAIN_NEXT
+            else -> TvOverlayAction.PLAY_PAUSE
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -822,6 +945,9 @@ private fun TvPlaybackOverlay(
                         icon = Icons.AutoMirrored.Filled.ArrowBack,
                         label = stringResource(R.string.cancel),
                         focusRequester = overlayActionRequesters.getValue(TvOverlayAction.BACK),
+                        focusProperties = {
+                            down = overlayActionRequesters.getValue(TvOverlayAction.PLAY_PAUSE)
+                        },
                         onFocused = { onActionFocused(TvOverlayAction.BACK) },
                         onClick = onBack
                     )
@@ -924,6 +1050,11 @@ private fun TvPlaybackOverlay(
                         label = if (isLivePlayback) stringResource(R.string.previous_channel) else "10s",
                         enabled = if (isLivePlayback) hasPreviousChannel else true,
                         focusRequester = overlayActionRequesters.getValue(TvOverlayAction.MAIN_PREVIOUS),
+                        focusProperties = {
+                            up = overlayActionRequesters.getValue(TvOverlayAction.BACK)
+                            right = overlayActionRequesters.getValue(TvOverlayAction.PLAY_PAUSE)
+                            down = actionRequester(utilityActionForMain(0))
+                        },
                         onFocused = { onActionFocused(TvOverlayAction.MAIN_PREVIOUS) },
                         onClick = onPrevious
                     )
@@ -933,6 +1064,12 @@ private fun TvPlaybackOverlay(
                         enabled = true,
                         primary = true,
                         focusRequester = overlayActionRequesters.getValue(TvOverlayAction.PLAY_PAUSE),
+                        focusProperties = {
+                            up = overlayActionRequesters.getValue(TvOverlayAction.BACK)
+                            left = overlayActionRequesters.getValue(TvOverlayAction.MAIN_PREVIOUS)
+                            right = overlayActionRequesters.getValue(TvOverlayAction.MAIN_NEXT)
+                            down = actionRequester(utilityActionForMain(1))
+                        },
                         onFocused = { onActionFocused(TvOverlayAction.PLAY_PAUSE) },
                         onClick = onPlayPause
                     )
@@ -941,6 +1078,11 @@ private fun TvPlaybackOverlay(
                         label = if (isLivePlayback) stringResource(R.string.next_channel) else "10s",
                         enabled = if (isLivePlayback) hasNextChannel else true,
                         focusRequester = overlayActionRequesters.getValue(TvOverlayAction.MAIN_NEXT),
+                        focusProperties = {
+                            up = overlayActionRequesters.getValue(TvOverlayAction.BACK)
+                            left = overlayActionRequesters.getValue(TvOverlayAction.PLAY_PAUSE)
+                            down = actionRequester(utilityActionForMain(2))
+                        },
                         onFocused = { onActionFocused(TvOverlayAction.MAIN_NEXT) },
                         onClick = onNext
                     )
@@ -950,64 +1092,102 @@ private fun TvPlaybackOverlay(
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    if (isLivePlayback) {
-                        TvActionChip(
-                            icon = Icons.AutoMirrored.Filled.List,
-                            label = stringResource(R.string.channel_list),
-                            focusRequester = overlayActionRequesters.getValue(TvOverlayAction.CHANNELS),
-                            onFocused = { onActionFocused(TvOverlayAction.CHANNELS) },
-                            onClick = onOpenChannels
-                        )
-                    }
+                    utilityActions.forEachIndexed { index, action ->
+                        when (action) {
+                            TvOverlayAction.CHANNELS -> TvActionChip(
+                                icon = Icons.AutoMirrored.Filled.List,
+                                label = stringResource(R.string.channel_list),
+                                focusRequester = overlayActionRequesters.getValue(action),
+                                focusProperties = {
+                                    left = actionRequester(utilityActions.getOrNull(index - 1))
+                                    right = actionRequester(utilityActions.getOrNull(index + 1))
+                                    up = overlayActionRequesters.getValue(mainActionForUtility(index))
+                                },
+                                onFocused = { onActionFocused(action) },
+                                onClick = onOpenChannels
+                            )
 
-                    if (isSeriesPlayback && hasPreviousEpisode) {
-                        TvActionChip(
-                            icon = Icons.Filled.SkipPrevious,
-                            label = stringResource(R.string.previous_episode),
-                            focusRequester = overlayActionRequesters.getValue(TvOverlayAction.PREVIOUS_EPISODE),
-                            onFocused = { onActionFocused(TvOverlayAction.PREVIOUS_EPISODE) },
-                            onClick = onPreviousEpisode
-                        )
-                    }
+                            TvOverlayAction.PREVIOUS_EPISODE -> TvActionChip(
+                                icon = Icons.Filled.SkipPrevious,
+                                label = stringResource(R.string.previous_episode),
+                                focusRequester = overlayActionRequesters.getValue(action),
+                                focusProperties = {
+                                    left = actionRequester(utilityActions.getOrNull(index - 1))
+                                    right = actionRequester(utilityActions.getOrNull(index + 1))
+                                    up = overlayActionRequesters.getValue(mainActionForUtility(index))
+                                },
+                                onFocused = { onActionFocused(action) },
+                                onClick = onPreviousEpisode
+                            )
 
-                    if (isSeriesPlayback && hasNextEpisode) {
-                        TvActionChip(
-                            icon = Icons.Filled.SkipNext,
-                            label = stringResource(R.string.next_episode),
-                            focusRequester = overlayActionRequesters.getValue(TvOverlayAction.NEXT_EPISODE),
-                            onFocused = { onActionFocused(TvOverlayAction.NEXT_EPISODE) },
-                            onClick = onNextEpisode
-                        )
-                    }
+                            TvOverlayAction.NEXT_EPISODE -> TvActionChip(
+                                icon = Icons.Filled.SkipNext,
+                                label = stringResource(R.string.next_episode),
+                                focusRequester = overlayActionRequesters.getValue(action),
+                                focusProperties = {
+                                    left = actionRequester(utilityActions.getOrNull(index - 1))
+                                    right = actionRequester(utilityActions.getOrNull(index + 1))
+                                    up = overlayActionRequesters.getValue(mainActionForUtility(index))
+                                },
+                                onFocused = { onActionFocused(action) },
+                                onClick = onNextEpisode
+                            )
 
-                    TvActionChip(
-                        icon = Icons.Filled.Audiotrack,
-                        label = stringResource(R.string.setting_audio_track),
-                        focusRequester = overlayActionRequesters.getValue(TvOverlayAction.AUDIO),
-                        onFocused = { onActionFocused(TvOverlayAction.AUDIO) },
-                        onClick = onOpenAudio
-                    )
-                    TvActionChip(
-                        icon = Icons.Filled.Subtitles,
-                        label = stringResource(R.string.setting_subtitles),
-                        focusRequester = overlayActionRequesters.getValue(TvOverlayAction.SUBTITLE),
-                        onFocused = { onActionFocused(TvOverlayAction.SUBTITLE) },
-                        onClick = onOpenSubtitle
-                    )
-                    TvActionChip(
-                        icon = Icons.Filled.AspectRatio,
-                        label = stringResource(R.string.setting_display_mode),
-                        focusRequester = overlayActionRequesters.getValue(TvOverlayAction.SCREEN_MODE),
-                        onFocused = { onActionFocused(TvOverlayAction.SCREEN_MODE) },
-                        onClick = onOpenScreenMode
-                    )
-                    TvActionChip(
-                        icon = Icons.Filled.Settings,
-                        label = stringResource(R.string.nav_settings),
-                        focusRequester = overlayActionRequesters.getValue(TvOverlayAction.SETTINGS),
-                        onFocused = { onActionFocused(TvOverlayAction.SETTINGS) },
-                        onClick = onOpenSettings
-                    )
+                            TvOverlayAction.AUDIO -> TvActionChip(
+                                icon = Icons.Filled.Audiotrack,
+                                label = stringResource(R.string.setting_audio_track),
+                                focusRequester = overlayActionRequesters.getValue(action),
+                                focusProperties = {
+                                    left = actionRequester(utilityActions.getOrNull(index - 1))
+                                    right = actionRequester(utilityActions.getOrNull(index + 1))
+                                    up = overlayActionRequesters.getValue(mainActionForUtility(index))
+                                },
+                                onFocused = { onActionFocused(action) },
+                                onClick = onOpenAudio
+                            )
+
+                            TvOverlayAction.SUBTITLE -> TvActionChip(
+                                icon = Icons.Filled.Subtitles,
+                                label = stringResource(R.string.setting_subtitles),
+                                focusRequester = overlayActionRequesters.getValue(action),
+                                focusProperties = {
+                                    left = actionRequester(utilityActions.getOrNull(index - 1))
+                                    right = actionRequester(utilityActions.getOrNull(index + 1))
+                                    up = overlayActionRequesters.getValue(mainActionForUtility(index))
+                                },
+                                onFocused = { onActionFocused(action) },
+                                onClick = onOpenSubtitle
+                            )
+
+                            TvOverlayAction.SCREEN_MODE -> TvActionChip(
+                                icon = Icons.Filled.AspectRatio,
+                                label = stringResource(R.string.setting_display_mode),
+                                focusRequester = overlayActionRequesters.getValue(action),
+                                focusProperties = {
+                                    left = actionRequester(utilityActions.getOrNull(index - 1))
+                                    right = actionRequester(utilityActions.getOrNull(index + 1))
+                                    up = overlayActionRequesters.getValue(mainActionForUtility(index))
+                                },
+                                onFocused = { onActionFocused(action) },
+                                onClick = onOpenScreenMode
+                            )
+
+                            TvOverlayAction.SETTINGS -> TvActionChip(
+                                icon = Icons.Filled.Settings,
+                                label = stringResource(R.string.nav_settings),
+                                focusRequester = overlayActionRequesters.getValue(action),
+                                focusProperties = {
+                                    left = actionRequester(utilityActions.getOrNull(index - 1))
+                                    right = actionRequester(utilityActions.getOrNull(index + 1))
+                                    up = overlayActionRequesters.getValue(mainActionForUtility(index))
+                                },
+                                onFocused = { onActionFocused(action) },
+                                onClick = onOpenSettings
+                            )
+
+                            else -> Unit
+                        }
+                    }
                 }
             }
         }
@@ -1195,10 +1375,26 @@ private fun TvOptionPanel(
     items: List<TvPanelOption>,
     modifier: Modifier = Modifier
 ) {
-    val firstRequester = remember(title, items.size) { FocusRequester() }
+    val optionKeys = remember(title, items) {
+        items.mapIndexed { index, item ->
+            "$index|${item.title}|${item.subtitle.orEmpty()}|${item.selected}|${item.enabled}"
+        }
+    }
+    val optionRequesters = remember(optionKeys) {
+        optionKeys.map { FocusRequester() }
+    }
+    val initialFocusIndex = remember(items) {
+        items.indexOfFirst { it.selected && it.enabled }
+            .takeIf { it >= 0 }
+            ?: items.indexOfFirst { it.enabled }.takeIf { it >= 0 }
+    }
 
-    LaunchedEffect(title, items.size) {
-        firstRequester.requestFocus()
+    LaunchedEffect(title, optionKeys, initialFocusIndex) {
+        if (initialFocusIndex != null) {
+            optionRequesters
+                .getOrNull(initialFocusIndex)
+                ?.requestFocusSafely("player option panel $title")
+        }
     }
 
     Surface(
@@ -1223,15 +1419,31 @@ private fun TvOptionPanel(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(vertical = 10.dp)
             ) {
-                itemsIndexed(items) { index, item ->
-                    TvPanelOptionRow(
-                        title = item.title,
-                        subtitle = item.subtitle,
-                        selected = item.selected,
-                        enabled = item.enabled,
-                        focusRequester = if (index == 0) firstRequester else null,
-                        onClick = item.onClick
-                    )
+                if (items.isEmpty()) {
+                    item {
+                        Text(
+                            text = stringResource(R.string.no_content),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = ImaxColors.TextSecondary,
+                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 18.dp)
+                        )
+                    }
+                } else {
+                    itemsIndexed(
+                        items = items,
+                        key = { index, item -> optionKeys[index] }
+                    ) { index, item ->
+                        TvPanelOptionRow(
+                            title = item.title,
+                            subtitle = item.subtitle,
+                            selected = item.selected,
+                            enabled = item.enabled,
+                            focusRequester = optionRequesters.getOrNull(index),
+                            previousFocusRequester = optionRequesters.getOrNull(index - 1),
+                            nextFocusRequester = optionRequesters.getOrNull(index + 1),
+                            onClick = item.onClick
+                        )
+                    }
                 }
             }
         }
@@ -1247,7 +1459,7 @@ private fun TvInfoPanel(
     val closeRequester = remember { FocusRequester() }
 
     LaunchedEffect(Unit) {
-        closeRequester.requestFocus()
+        closeRequester.requestFocusSafely("player info panel close action")
     }
 
     Surface(
@@ -1315,7 +1527,7 @@ private fun TvErrorState(
     val retryRequester = remember { FocusRequester() }
 
     LaunchedEffect(Unit) {
-        retryRequester.requestFocus()
+        retryRequester.requestFocusSafely("player error retry action")
     }
 
     Box(
@@ -1376,36 +1588,68 @@ private fun TvErrorState(
 }
 
 @Composable
+@OptIn(ExperimentalComposeUiApi::class)
 private fun TvActionButton(
     icon: ImageVector,
     label: String,
     enabled: Boolean,
     focusRequester: FocusRequester,
+    focusProperties: (androidx.compose.ui.focus.FocusProperties.() -> Unit)? = null,
     onFocused: () -> Unit,
     onClick: () -> Unit,
     primary: Boolean = false
 ) {
-    var isFocused by remember { mutableStateOf(false) }
+    var isFocused by remember(label, enabled, primary) { mutableStateOf(false) }
+    val focusState = rememberTvFocusVisualState(
+        isFocused = isFocused,
+        isSelected = primary,
+        defaultSurface = Color.Black.copy(alpha = 0.36f),
+        selectedSurface = ImaxColors.Primary,
+        focusedSurface = Color(0xFF2D2D34),
+        selectedFocusedSurface = ImaxColors.PrimaryVariant,
+        defaultContentColor = Color.White,
+        defaultSecondaryContentColor = Color.White.copy(alpha = 0.82f),
+        selectedContentColor = Color.White,
+        focusedContentColor = Color.White,
+        selectedFocusedContentColor = Color.White,
+        selectedBorderColor = Color.White.copy(alpha = 0.12f),
+        focusedBorderColor = ImaxColors.FocusBorder,
+        selectedFocusedBorderColor = Color(0xFFFFE1C8),
+        selectedAccentColor = Color.Transparent,
+        focusedAccentColor = Color.Transparent,
+        selectedFocusedAccentColor = Color.Transparent
+    )
 
     Surface(
         modifier = Modifier
             .alpha(if (enabled) 1f else 0.42f)
+            .graphicsLayer {
+                scaleX = focusState.scale
+                scaleY = focusState.scale
+                shadowElevation = focusState.shadowElevation.toPx()
+            }
             .focusRequester(focusRequester)
+            .then(
+                if (focusProperties != null) {
+                    Modifier.focusProperties { focusProperties() }
+                } else {
+                    Modifier
+                }
+            )
             .onFocusChanged {
                 isFocused = it.isFocused
                 if (it.isFocused) onFocused()
             }
             .focusable(enabled = enabled),
         shape = RoundedCornerShape(28.dp),
-        color = when {
-            primary && isFocused -> ImaxColors.PrimaryVariant
-            primary -> ImaxColors.Primary
-            isFocused -> Color.White.copy(alpha = 0.18f)
-            else -> Color.Black.copy(alpha = 0.36f)
-        },
+        color = focusState.backgroundColor,
         border = BorderStroke(
-            width = if (isFocused) 2.dp else 1.dp,
-            color = if (isFocused) ImaxColors.FocusBorder else Color.White.copy(alpha = 0.08f)
+            width = focusState.borderWidth.coerceAtLeast(1.dp),
+            color = if (focusState.borderWidth > 0.dp) {
+                focusState.borderColor
+            } else {
+                Color.White.copy(alpha = 0.08f)
+            }
         )
     ) {
         Row(
@@ -1418,13 +1662,13 @@ private fun TvActionButton(
             Icon(
                 imageVector = icon,
                 contentDescription = label,
-                tint = Color.White,
+                tint = focusState.contentColor,
                 modifier = Modifier.size(if (primary) 42.dp else 34.dp)
             )
             Text(
                 text = label,
                 style = if (primary) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium,
-                color = Color.White,
+                color = focusState.contentColor,
                 fontWeight = if (primary) FontWeight.SemiBold else FontWeight.Medium
             )
         }
@@ -1432,28 +1676,64 @@ private fun TvActionButton(
 }
 
 @Composable
+@OptIn(ExperimentalComposeUiApi::class)
 private fun TvActionChip(
     icon: ImageVector,
     label: String,
     focusRequester: FocusRequester? = null,
+    focusProperties: (androidx.compose.ui.focus.FocusProperties.() -> Unit)? = null,
     onFocused: () -> Unit,
     onClick: () -> Unit
 ) {
-    var isFocused by remember { mutableStateOf(false) }
+    var isFocused by remember(label) { mutableStateOf(false) }
+    val focusState = rememberTvFocusVisualState(
+        isFocused = isFocused,
+        defaultSurface = Color.Black.copy(alpha = 0.34f),
+        selectedSurface = Color.Black.copy(alpha = 0.34f),
+        focusedSurface = Color(0xFF2D2D34),
+        selectedFocusedSurface = Color(0xFF2D2D34),
+        defaultContentColor = Color.White,
+        defaultSecondaryContentColor = Color.White.copy(alpha = 0.82f),
+        selectedContentColor = Color.White,
+        focusedContentColor = Color.White,
+        selectedFocusedContentColor = Color.White,
+        selectedBorderColor = Color.White.copy(alpha = 0.1f),
+        focusedBorderColor = ImaxColors.FocusBorder,
+        selectedFocusedBorderColor = ImaxColors.FocusBorder,
+        selectedAccentColor = Color.Transparent,
+        focusedAccentColor = Color.Transparent,
+        selectedFocusedAccentColor = Color.Transparent
+    )
 
     Surface(
         modifier = Modifier
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .graphicsLayer {
+                scaleX = focusState.scale
+                scaleY = focusState.scale
+                shadowElevation = focusState.shadowElevation.toPx()
+            }
+            .then(
+                if (focusProperties != null) {
+                    Modifier.focusProperties { focusProperties() }
+                } else {
+                    Modifier
+                }
+            )
             .onFocusChanged {
                 isFocused = it.isFocused
                 if (it.isFocused) onFocused()
             }
             .focusable(),
         shape = RoundedCornerShape(999.dp),
-        color = if (isFocused) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.34f),
+        color = focusState.backgroundColor,
         border = BorderStroke(
-            width = if (isFocused) 2.dp else 1.dp,
-            color = if (isFocused) ImaxColors.FocusBorder else Color.White.copy(alpha = 0.1f)
+            width = focusState.borderWidth.coerceAtLeast(1.dp),
+            color = if (focusState.borderWidth > 0.dp) {
+                focusState.borderColor
+            } else {
+                Color.White.copy(alpha = 0.1f)
+            }
         )
     ) {
         Row(
@@ -1466,28 +1746,51 @@ private fun TvActionChip(
             Icon(
                 imageVector = icon,
                 contentDescription = label,
-                tint = Color.White,
+                tint = focusState.contentColor,
                 modifier = Modifier.size(22.dp)
             )
             Text(
                 text = label,
                 style = MaterialTheme.typography.titleMedium,
-                color = Color.White
+                color = focusState.contentColor
             )
         }
     }
 }
 
+private fun FocusRequester.requestFocusSafely(reason: String) {
+    runCatching { requestFocus() }
+        .onFailure { error ->
+            Log.w(TV_PLAYER_LOG_TAG, "Unable to request focus for $reason", error)
+        }
+}
+
 @Composable
+@OptIn(ExperimentalComposeUiApi::class)
 private fun TvPanelOptionRow(
     title: String,
     subtitle: String?,
     selected: Boolean,
     enabled: Boolean,
     onClick: () -> Unit,
-    focusRequester: FocusRequester? = null
+    focusRequester: FocusRequester? = null,
+    previousFocusRequester: FocusRequester? = null,
+    nextFocusRequester: FocusRequester? = null
 ) {
-    var isFocused by remember { mutableStateOf(false) }
+    var isFocused by remember(title, subtitle, selected, enabled) { mutableStateOf(false) }
+    val focusState = rememberTvFocusVisualState(
+        isFocused = isFocused,
+        isSelected = selected,
+        defaultSurface = Color.Transparent,
+        selectedSurface = ImaxColors.Primary.copy(alpha = 0.16f),
+        focusedSurface = ImaxColors.SurfaceVariant,
+        selectedFocusedSurface = Color(0xFF5A4035),
+        defaultContentColor = Color.White,
+        defaultSecondaryContentColor = ImaxColors.TextSecondary,
+        selectedContentColor = Color(0xFFFFE4D3),
+        focusedContentColor = Color.White,
+        selectedFocusedContentColor = Color.White
+    )
 
     Surface(
         modifier = Modifier
@@ -1495,21 +1798,22 @@ private fun TvPanelOptionRow(
             .padding(horizontal = 14.dp, vertical = 6.dp)
             .alpha(if (enabled) 1f else 0.52f)
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .graphicsLayer {
+                scaleX = focusState.scale
+                scaleY = focusState.scale
+                shadowElevation = focusState.shadowElevation.toPx()
+            }
+            .focusProperties {
+                up = previousFocusRequester ?: FocusRequester.Cancel
+                down = nextFocusRequester ?: FocusRequester.Cancel
+            }
             .onFocusChanged { isFocused = it.isFocused }
             .focusable(enabled = enabled),
         shape = RoundedCornerShape(18.dp),
-        color = when {
-            selected -> ImaxColors.Primary.copy(alpha = 0.18f)
-            isFocused -> ImaxColors.SurfaceVariant
-            else -> Color.Transparent
-        },
+        color = focusState.backgroundColor,
         border = BorderStroke(
-            width = if (selected || isFocused) 1.dp else 0.dp,
-            color = when {
-                selected -> ImaxColors.Primary
-                isFocused -> ImaxColors.FocusBorder.copy(alpha = 0.72f)
-                else -> Color.Transparent
-            }
+            width = focusState.borderWidth,
+            color = focusState.borderColor
         )
     ) {
         Row(
@@ -1523,14 +1827,14 @@ private fun TvPanelOptionRow(
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleMedium,
-                    color = Color.White
+                    color = focusState.contentColor
                 )
                 if (!subtitle.isNullOrBlank()) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = subtitle,
                         style = MaterialTheme.typography.bodySmall,
-                        color = ImaxColors.TextSecondary,
+                        color = focusState.secondaryContentColor,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )

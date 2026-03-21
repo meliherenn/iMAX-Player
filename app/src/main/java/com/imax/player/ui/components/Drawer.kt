@@ -1,9 +1,12 @@
 package com.imax.player.ui.components
 
+import android.util.Log
 import androidx.compose.animation.*
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -27,22 +30,28 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.res.stringResource
 import com.imax.player.R
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.imax.player.core.designsystem.theme.ImaxColors
 import com.imax.player.core.designsystem.theme.LocalImaxDimens
 import com.imax.player.ui.navigation.Routes
+import kotlinx.coroutines.delay
+
+private const val TV_DRAWER_LOG_TAG = "TvDrawer"
+private const val TV_DRAWER_COLLAPSE_DELAY_MS = 180L
 
 data class DrawerItem(
     val route: String,
@@ -68,7 +77,6 @@ val tvDrawerItems @Composable get() = listOf(
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 @Composable
-@OptIn(ExperimentalComposeUiApi::class)
 fun TvDrawerLayout(
     isExpanded: Boolean,
     selectedRoute: String,
@@ -80,7 +88,8 @@ fun TvDrawerLayout(
     val dimens = LocalImaxDimens.current
     val items = tvDrawerItems
     val exitLabel = stringResource(R.string.nav_exit_playlist)
-    val exitItem = remember {
+    val logoPainter = painterResource(id = R.mipmap.ic_launcher_foreground)
+    val exitItem = remember(exitLabel) {
         DrawerItem(
             Routes.EXIT,
             exitLabel,
@@ -96,7 +105,6 @@ fun TvDrawerLayout(
     val itemFocusRequesters = remember(menuRoutes) {
         menuRoutes.associateWith { FocusRequester() }
     }
-    val toggleFocusRequester = remember { FocusRequester() }
     val firstMenuRoute = menuRoutes.firstOrNull()
     val selectedMenuRoute = selectedRoute.takeIf { it in itemFocusRequesters } ?: firstMenuRoute
     var lastFocusedRoute by rememberSaveable {
@@ -105,10 +113,20 @@ fun TvDrawerLayout(
     var focusedIndex by rememberSaveable {
         mutableStateOf(menuRoutes.indexOf(selectedMenuRoute).takeIf { it >= 0 } ?: 0)
     }
+    var focusedDrawerTarget by rememberSaveable { mutableStateOf<String?>(null) }
+    var drawerExpanded by rememberSaveable { mutableStateOf(isExpanded) }
+    val drawerWidth by animateDpAsState(
+        targetValue = if (drawerExpanded) dimens.drawerWidth else dimens.drawerCollapsedWidth,
+        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        label = "tvDrawerWidth"
+    )
 
     LaunchedEffect(menuRoutes, selectedRoute) {
         val fallbackRoute = selectedRoute.takeIf { it in itemFocusRequesters } ?: firstMenuRoute ?: ""
         if (lastFocusedRoute !in itemFocusRequesters) {
+            lastFocusedRoute = fallbackRoute
+        }
+        if (focusedDrawerTarget == null) {
             lastFocusedRoute = fallbackRoute
         }
         if (focusedIndex !in menuRoutes.indices) {
@@ -116,24 +134,19 @@ fun TvDrawerLayout(
         }
     }
 
-    LaunchedEffect(isExpanded) {
-        if (isExpanded) {
-            val targetRoute = when {
-                itemFocusRequesters.containsKey(lastFocusedRoute) -> lastFocusedRoute
-                itemFocusRequesters.containsKey(selectedRoute) -> selectedRoute
-                else -> firstMenuRoute
-            }
-            targetRoute?.let { route ->
-                focusedIndex = menuRoutes.indexOf(route).takeIf { it >= 0 } ?: focusedIndex
-                itemFocusRequesters.getValue(route).requestFocus()
-            }
+    LaunchedEffect(isExpanded, focusedDrawerTarget) {
+        if (isExpanded || focusedDrawerTarget != null) {
+            drawerExpanded = true
         } else {
-            toggleFocusRequester.requestFocus()
+            delay(TV_DRAWER_COLLAPSE_DELAY_MS)
+            if (!isExpanded && focusedDrawerTarget == null) {
+                drawerExpanded = false
+            }
         }
     }
 
-    LaunchedEffect(isExpanded, focusedIndex) {
-        if (!isExpanded || focusedIndex !in menuRoutes.indices) return@LaunchedEffect
+    LaunchedEffect(drawerExpanded, focusedIndex) {
+        if (!drawerExpanded || focusedIndex !in menuRoutes.indices) return@LaunchedEffect
 
         val visibleItems = listState.layoutInfo.visibleItemsInfo
         if (visibleItems.isEmpty()) return@LaunchedEffect
@@ -146,57 +159,24 @@ fun TvDrawerLayout(
     }
 
     Row(modifier = modifier.fillMaxSize().background(ImaxColors.Background)) {
-        val width = if (isExpanded) dimens.drawerWidth else dimens.drawerCollapsedWidth
-
         Column(
             modifier = Modifier
-                .width(width)
+                .width(drawerWidth)
                 .fillMaxHeight()
                 .background(ImaxColors.Surface)
-                .padding(vertical = 16.dp, horizontal = 10.dp)
-        ) {
-            // App Logo/Title
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(ImaxColors.SurfaceVariant.copy(alpha = if (isExpanded) 0.36f else 0.22f))
-                    .padding(horizontal = 14.dp, vertical = 14.dp)
-                    .clickable(onClick = onToggle)
-                    .focusRequester(toggleFocusRequester)
-                    .focusProperties {
-                        up = FocusRequester.Cancel
-                        down = firstMenuRoute
-                            ?.let { route -> itemFocusRequesters.getValue(route) }
-                            ?: FocusRequester.Cancel
-                    }
-                    .focusable(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = if (isExpanded) Icons.AutoMirrored.Filled.MenuOpen else Icons.Filled.Menu,
-                    contentDescription = "Menu",
-                    tint = ImaxColors.Primary,
-                    modifier = Modifier.size(28.dp)
+                .padding(
+                    vertical = if (drawerExpanded) 16.dp else 18.dp,
+                    horizontal = if (drawerExpanded) 10.dp else 8.dp
                 )
-                if (isExpanded) {
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = "iMAX",
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = ImaxColors.Primary
-                    )
-                    Text(
-                        text = " Player",
-                        style = MaterialTheme.typography.headlineMedium,
-                        color = ImaxColors.Secondary
-                    )
-                }
-            }
+        ) {
+            TvDrawerBrand(
+                isExpanded = drawerExpanded,
+                logoPainter = logoPainter
+            )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(if (drawerExpanded) 16.dp else 12.dp))
             HorizontalDivider(color = ImaxColors.DividerColor, thickness = 0.5.dp)
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(if (drawerExpanded) 10.dp else 12.dp))
 
             LazyColumn(
                 state = listState,
@@ -211,16 +191,21 @@ fun TvDrawerLayout(
                     TvDrawerItemRow(
                         item = item,
                         isSelected = selectedRoute == item.route,
-                        isExpanded = isExpanded,
+                        isExpanded = drawerExpanded,
                         focusRequester = itemFocusRequesters.getValue(item.route),
                         previousFocusRequester = items.getOrNull(index - 1)?.route
                             ?.let { route -> itemFocusRequesters.getValue(route) },
                         nextFocusRequester = items.getOrNull(index + 1)?.route
                             ?.let { route -> itemFocusRequesters.getValue(route) }
                             ?: itemFocusRequesters.getValue(Routes.EXIT),
-                        onFocused = {
-                            lastFocusedRoute = item.route
-                            focusedIndex = index
+                        onFocusChanged = { isFocused ->
+                            if (isFocused) {
+                                focusedDrawerTarget = item.route
+                                lastFocusedRoute = item.route
+                                focusedIndex = index
+                            } else if (focusedDrawerTarget == item.route) {
+                                focusedDrawerTarget = null
+                            }
                         },
                         onClick = { onNavigate(item.route) }
                     )
@@ -233,14 +218,19 @@ fun TvDrawerLayout(
                     TvDrawerItemRow(
                         item = exitItem,
                         isSelected = false,
-                        isExpanded = isExpanded,
+                        isExpanded = drawerExpanded,
                         focusRequester = itemFocusRequesters.getValue(Routes.EXIT),
                         previousFocusRequester = items.lastOrNull()?.route
                             ?.let { route -> itemFocusRequesters.getValue(route) },
                         nextFocusRequester = null,
-                        onFocused = {
-                            lastFocusedRoute = Routes.EXIT
-                            focusedIndex = items.lastIndex + 1
+                        onFocusChanged = { isFocused ->
+                            if (isFocused) {
+                                focusedDrawerTarget = Routes.EXIT
+                                lastFocusedRoute = Routes.EXIT
+                                focusedIndex = items.lastIndex + 1
+                            } else if (focusedDrawerTarget == Routes.EXIT) {
+                                focusedDrawerTarget = null
+                            }
                         },
                         onClick = { onNavigate(Routes.EXIT) }
                     )
@@ -248,11 +238,69 @@ fun TvDrawerLayout(
             }
         }
 
-        // Main content
         Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
             content()
         }
     }
+}
+
+@Composable
+private fun TvDrawerBrand(
+    isExpanded: Boolean,
+    logoPainter: androidx.compose.ui.graphics.painter.Painter
+) {
+    val containerColor by animateColorAsState(
+        targetValue = if (isExpanded) {
+            ImaxColors.SurfaceVariant.copy(alpha = 0.36f)
+        } else {
+            ImaxColors.SurfaceVariant.copy(alpha = 0.24f)
+        },
+        animationSpec = tween(180),
+        label = "tvDrawerBrandBackground"
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(containerColor)
+            .padding(
+                horizontal = if (isExpanded) 14.dp else 10.dp,
+                vertical = if (isExpanded) 14.dp else 12.dp
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = if (isExpanded) Arrangement.Start else Arrangement.Center
+    ) {
+        Image(
+            painter = logoPainter,
+            contentDescription = stringResource(R.string.app_name),
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.size(if (isExpanded) 62.dp else 36.dp)
+        )
+        AnimatedVisibility(
+            visible = isExpanded,
+            enter = fadeIn(animationSpec = tween(160)) + expandHorizontally(animationSpec = tween(160)),
+            exit = fadeOut(animationSpec = tween(120)) + shrinkHorizontally(animationSpec = tween(120))
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = stringResource(R.string.app_name),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = ImaxColors.TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+private fun FocusRequester.requestFocusSafely(reason: String) {
+    runCatching { requestFocus() }
+        .onFailure { error ->
+            Log.w(TV_DRAWER_LOG_TAG, "Unable to request focus for $reason", error)
+        }
 }
 
 @Composable
@@ -264,154 +312,206 @@ private fun TvDrawerItemRow(
     focusRequester: FocusRequester,
     previousFocusRequester: FocusRequester?,
     nextFocusRequester: FocusRequester?,
-    onFocused: () -> Unit,
+    onFocusChanged: (Boolean) -> Unit,
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    val itemShape = RoundedCornerShape(14.dp)
-    val isFocusedAndSelected = isSelected && isFocused
-    val scale by animateFloatAsState(
+    val itemShape = RoundedCornerShape(if (isExpanded) 18.dp else 20.dp)
+    val isFocusedAndSelected = isFocused && isSelected
+    val focusState = rememberTvFocusVisualState(
+        isFocused = isFocused,
+        isSelected = isSelected,
+        defaultSurface = Color.Transparent,
+        selectedSurface = if (isExpanded) Color(0xFF25181D) else Color.Transparent,
+        focusedSurface = Color(0xFF7B3342),
+        selectedFocusedSurface = Color(0xFFA0475C),
+        defaultContentColor = ImaxColors.TextSecondary,
+        defaultSecondaryContentColor = ImaxColors.TextSecondary,
+        selectedContentColor = Color(0xFFFFD6E0),
+        focusedContentColor = Color(0xFFFFFAFB),
+        selectedFocusedContentColor = Color.White,
+        selectedBorderColor = if (isExpanded) Color(0xFF7E5A64) else Color.Transparent,
+        focusedBorderColor = Color(0xFFFFB7C8),
+        selectedFocusedBorderColor = Color(0xFFFFDEE5),
+        selectedAccentColor = Color(0xFFCC7B8B),
+        focusedAccentColor = Color(0xFFFFC0CD),
+        selectedFocusedAccentColor = Color(0xFFFFE1E7)
+    )
+    val effectiveScale by animateFloatAsState(
         targetValue = when {
-            isFocusedAndSelected -> 1.07f
-            isFocused -> 1.055f
-            isSelected -> 1.01f
+            isFocusedAndSelected -> 1.12f
+            isFocused -> 1.10f
+            isSelected && isExpanded -> 1.02f
             else -> 1f
         },
         animationSpec = tween(180),
-        label = "drawerItemScale"
+        label = "tvDrawerEffectiveScale"
     )
-    val focusShadowElevation by animateDpAsState(
+    val effectiveBackgroundColor by animateColorAsState(
         targetValue = when {
-            isFocusedAndSelected -> 20.dp
-            isFocused -> 16.dp
-            isSelected -> 4.dp
-            else -> 0.dp
-        },
-        animationSpec = tween(180),
-        label = "drawerItemShadow"
-    )
-    val backgroundColor by animateColorAsState(
-        targetValue = when {
-            isFocusedAndSelected -> Color(0xFF6E3927)
-            isFocused -> Color(0xFF58333D)
-            isSelected -> Color(0xFF2A211D)
+            isFocusedAndSelected -> Color(0xFFA0475C)
+            isFocused -> Color(0xFF7B3342)
+            isSelected && isExpanded -> Color(0xFF25181D)
             else -> Color.Transparent
         },
         animationSpec = tween(180),
-        label = "drawerItemBackground"
+        label = "tvDrawerEffectiveBackground"
     )
-    val borderColor by animateColorAsState(
+    val effectiveBorderWidth by animateDpAsState(
         targetValue = when {
-            isFocusedAndSelected -> Color(0xFFFFD7B4)
-            isFocused -> Color(0xFFFFB196)
-            isSelected -> Color(0xFF8C6D5C)
-            else -> Color.Transparent
-        },
-        animationSpec = tween(180),
-        label = "drawerItemBorder"
-    )
-    val borderWidth by animateDpAsState(
-        targetValue = when {
-            isFocusedAndSelected -> 4.dp
-            isFocused -> 3.5.dp
-            isSelected -> 1.5.dp
+            isFocusedAndSelected -> 4.5.dp
+            isFocused -> 4.dp
+            isSelected && isExpanded -> 1.5.dp
             else -> 0.dp
         },
         animationSpec = tween(180),
-        label = "drawerItemBorderWidth"
+        label = "tvDrawerEffectiveBorderWidth"
     )
-    val accentColor by animateColorAsState(
+    val effectiveBorderColor by animateColorAsState(
         targetValue = when {
-            isFocusedAndSelected -> Color(0xFFFFE0C3)
-            isFocused -> Color(0xFFFFC1A7)
-            isSelected -> Color(0xFFD4A485)
+            isFocusedAndSelected -> Color(0xFFFFDEE5)
+            isFocused -> Color(0xFFFFC0CD)
+            isSelected && isExpanded -> Color(0xFF7E5A64)
             else -> Color.Transparent
         },
         animationSpec = tween(180),
-        label = "drawerItemAccent"
+        label = "tvDrawerEffectiveBorderColor"
     )
-    val accentWidth by animateDpAsState(
+    val indicatorWidth by animateDpAsState(
         targetValue = when {
-            isFocusedAndSelected -> 12.dp
-            isFocused -> 10.dp
-            isSelected -> 5.dp
+            isFocusedAndSelected -> if (isExpanded) 14.dp else 9.dp
+            isFocused -> if (isExpanded) 12.dp else 8.dp
+            isSelected -> if (isExpanded) 6.dp else 4.dp
             else -> 0.dp
         },
         animationSpec = tween(180),
-        label = "drawerItemAccentWidth"
+        label = "tvDrawerIndicatorWidth"
     )
-    val iconTint = when {
-        isFocusedAndSelected -> Color(0xFFFFFCFA)
-        isFocused -> Color(0xFFFFF8F2)
-        isSelected -> Color(0xFFFFD9C0)
-        else -> ImaxColors.TextSecondary
-    }
-    val textColor = when {
-        isFocusedAndSelected -> Color(0xFFFFFCFA)
-        isFocused -> Color(0xFFFFF8F2)
-        isSelected -> Color(0xFFFFD9C0)
-        else -> ImaxColors.TextSecondary
-    }
+    val iconPlateColor by animateColorAsState(
+        targetValue = when {
+            isFocusedAndSelected -> Color.White.copy(alpha = 0.26f)
+            isFocused -> Color.White.copy(alpha = 0.2f)
+            isSelected -> Color.White.copy(alpha = if (isExpanded) 0.08f else 0.06f)
+            else -> Color.Transparent
+        },
+        animationSpec = tween(180),
+        label = "tvDrawerIconPlateBackground"
+    )
+    val iconPlateBorderColor by animateColorAsState(
+        targetValue = when {
+            isFocusedAndSelected -> Color(0xFFFFE1E7)
+            isFocused -> Color(0xFFFFCBD5)
+            isSelected -> Color(0xFFC68592)
+            else -> Color.Transparent
+        },
+        animationSpec = tween(180),
+        label = "tvDrawerIconPlateBorder"
+    )
+    val trailingFocusGlowColor by animateColorAsState(
+        targetValue = when {
+            !isExpanded -> Color.Transparent
+            isFocusedAndSelected -> Color(0x66FFE1E7)
+            isFocused -> Color(0x52FFC0CD)
+            isSelected -> Color(0x20CC7B8B)
+            else -> Color.Transparent
+        },
+        animationSpec = tween(180),
+        label = "tvDrawerTrailingFocusGlow"
+    )
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
+                scaleX = effectiveScale
+                scaleY = effectiveScale
                 this.shape = itemShape
                 clip = false
-                shadowElevation = focusShadowElevation.toPx()
+                shadowElevation = focusState.shadowElevation.toPx()
             }
             .padding(horizontal = 4.dp, vertical = 1.dp)
             .clip(itemShape)
-            .background(backgroundColor)
+            .background(effectiveBackgroundColor)
             .clickable(onClick = onClick)
             .focusRequester(focusRequester)
             .focusProperties {
+                left = FocusRequester.Cancel
                 up = previousFocusRequester ?: FocusRequester.Cancel
                 down = nextFocusRequester ?: FocusRequester.Cancel
             }
             .onFocusChanged {
                 isFocused = it.isFocused
-                if (it.isFocused) onFocused()
+                onFocusChanged(it.isFocused)
             }
             .focusable()
-            .border(borderWidth, borderColor, itemShape)
-            .padding(horizontal = 16.dp, vertical = 16.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .border(effectiveBorderWidth, effectiveBorderColor, itemShape)
+            .padding(
+                horizontal = if (isExpanded) 16.dp else 10.dp,
+                vertical = if (isExpanded) 16.dp else 12.dp
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = if (isExpanded) Arrangement.Start else Arrangement.Center
     ) {
         Box(
             modifier = Modifier
-                .width(if (isExpanded) accentWidth else 0.dp)
-                .height(40.dp)
+                .width(indicatorWidth)
+                .height(if (isExpanded) 42.dp else 40.dp)
                 .clip(RoundedCornerShape(6.dp))
-                .background(accentColor)
+                .background(focusState.accentColor)
         )
-        if (isExpanded) {
-            Spacer(modifier = Modifier.width(if (accentWidth > 0.dp) 14.dp else 8.dp))
+        if (indicatorWidth > 0.dp) {
+            Spacer(modifier = Modifier.width(if (isExpanded) 14.dp else 8.dp))
         }
-        Icon(
-            imageVector = if (isSelected) item.selectedIcon else item.icon,
-            contentDescription = item.label,
-            tint = iconTint,
-            modifier = Modifier.size(26.dp)
-        )
-        if (isExpanded) {
-            Spacer(modifier = Modifier.width(14.dp))
-            Text(
-                text = item.label,
-                style = MaterialTheme.typography.titleMedium,
-                color = textColor,
-                fontWeight = when {
-                    isFocusedAndSelected -> FontWeight.Bold
-                    isFocused -> FontWeight.Bold
-                    isSelected -> FontWeight.SemiBold
-                    else -> FontWeight.Medium
-                },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+        Box(
+            modifier = Modifier
+                .size(if (isExpanded) 44.dp else 48.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(iconPlateColor)
+                .border(
+                    width = if (isFocused || isSelected) 1.5.dp else 0.dp,
+                    color = iconPlateBorderColor,
+                    shape = RoundedCornerShape(16.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = if (isSelected) item.selectedIcon else item.icon,
+                contentDescription = item.label,
+                tint = focusState.contentColor,
+                modifier = Modifier.size(26.dp)
             )
+        }
+        AnimatedVisibility(
+            visible = isExpanded,
+            enter = fadeIn(animationSpec = tween(160)) + expandHorizontally(animationSpec = tween(160)),
+            exit = fadeOut(animationSpec = tween(120)) + shrinkHorizontally(animationSpec = tween(120))
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(modifier = Modifier.width(14.dp))
+                Text(
+                    text = item.label,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = focusState.contentColor,
+                    fontWeight = when {
+                        isFocusedAndSelected -> FontWeight.ExtraBold
+                        isFocused -> FontWeight.Bold
+                        isSelected -> FontWeight.SemiBold
+                        else -> FontWeight.Medium
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (trailingFocusGlowColor != Color.Transparent) {
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Box(
+                        modifier = Modifier
+                            .width(10.dp)
+                            .height(34.dp)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(trailingFocusGlowColor)
+                    )
+                }
+            }
         }
     }
 }

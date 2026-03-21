@@ -1,11 +1,55 @@
 package com.imax.player.ui.navigation.tv
 
+import android.app.Activity
+import android.util.Log
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.navArgument
+import com.imax.player.R
+import com.imax.player.core.designsystem.theme.ImaxColors
 import com.imax.player.ui.navigation.Routes
 import com.imax.player.ui.tv.TvContinueWatchingScreen
 import com.imax.player.ui.tv.TvDetailScreen
@@ -18,13 +62,24 @@ import com.imax.player.ui.tv.TvPlaylistsScreen
 import com.imax.player.ui.tv.TvSearchScreen
 import com.imax.player.ui.tv.TvSeriesScreen
 import com.imax.player.ui.tv.TvSettingsScreen
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 
 private const val TV_STARTUP = "tv_startup"
+private const val TV_NAV_LOG_TAG = "TvNavGraph"
 
 @Composable
 fun TvNavGraph(
     navController: NavHostController
 ) {
+    val context = LocalContext.current
+    val activity = context as? Activity
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = backStackEntry?.destination?.route
+    val isAtAppExitPoint = currentRoute in Routes.TV_TOP_LEVEL_DESTINATIONS &&
+        navController.previousBackStackEntry == null
+    var showExitDialog by rememberSaveable { mutableStateOf(false) }
+
     val navigateToTopLevel: (String) -> Unit = { route ->
         when (route) {
             Routes.EXIT,
@@ -42,6 +97,16 @@ fun TvNavGraph(
                 }
             }
         }
+    }
+
+    LaunchedEffect(isAtAppExitPoint) {
+        if (!isAtAppExitPoint && showExitDialog) {
+            showExitDialog = false
+        }
+    }
+
+    BackHandler(enabled = isAtAppExitPoint && !showExitDialog) {
+        showExitDialog = true
     }
 
     NavHost(
@@ -206,24 +271,187 @@ fun TvNavGraph(
                 navArgument("group") { type = NavType.StringType; defaultValue = "" }
             )
         ) { backStackEntry ->
+            val decodedUrl = decodeTvNavArg(backStackEntry.arguments?.getString("url"), "url")
+            val decodedTitle = decodeTvNavArg(backStackEntry.arguments?.getString("title"), "title")
+            val decodedGroup = decodeTvNavArg(backStackEntry.arguments?.getString("group"), "group")
+
             TvPlayerScreen(
-                url = java.net.URLDecoder.decode(
-                    backStackEntry.arguments?.getString("url").orEmpty(),
-                    "UTF-8"
-                ),
-                title = java.net.URLDecoder.decode(
-                    backStackEntry.arguments?.getString("title").orEmpty(),
-                    "UTF-8"
-                ),
+                url = decodedUrl,
+                title = decodedTitle,
                 contentId = backStackEntry.arguments?.getLong("contentId") ?: 0L,
                 contentType = backStackEntry.arguments?.getString("contentType").orEmpty(),
                 startPosition = backStackEntry.arguments?.getLong("startPos") ?: 0L,
-                groupContext = java.net.URLDecoder.decode(
-                    backStackEntry.arguments?.getString("group").orEmpty(),
-                    "UTF-8"
-                ),
-                onBack = { navController.popBackStack() }
+                groupContext = decodedGroup,
+                onBack = {
+                    if (!navController.popBackStack()) {
+                        navigateToTopLevel(Routes.HOME)
+                    }
+                }
             )
         }
+    }
+
+    if (showExitDialog) {
+        TvExitConfirmationDialog(
+            onDismiss = { showExitDialog = false },
+            onConfirmExit = {
+                showExitDialog = false
+                activity?.finishAffinity()
+            }
+        )
+    }
+}
+
+private fun decodeTvNavArg(value: String?, argumentName: String): String {
+    val rawValue = value.orEmpty()
+    if (rawValue.isBlank()) {
+        return ""
+    }
+
+    return runCatching {
+        URLDecoder.decode(rawValue, StandardCharsets.UTF_8.name())
+    }.getOrElse { error ->
+        Log.w(TV_NAV_LOG_TAG, "Failed to decode TV nav argument: $argumentName", error)
+        rawValue
+    }
+}
+
+@Composable
+private fun TvExitConfirmationDialog(
+    onDismiss: () -> Unit,
+    onConfirmExit: () -> Unit
+) {
+    val cancelFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        runCatching { cancelFocusRequester.requestFocus() }
+            .onFailure { error ->
+                Log.w(TV_NAV_LOG_TAG, "Unable to focus TV exit dialog cancel button", error)
+            }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = false,
+            usePlatformDefaultWidth = false
+        )
+    ) {
+        Surface(
+            modifier = Modifier.widthIn(max = 720.dp),
+            shape = RoundedCornerShape(28.dp),
+            color = ImaxColors.Surface,
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                ImaxColors.CardBorder.copy(alpha = 0.9f)
+            )
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 32.dp, vertical = 30.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.app_name),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = ImaxColors.TextPrimary,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = stringResource(R.string.tv_exit_confirmation_message),
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = Color.White
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TvExitDialogButton(
+                        text = stringResource(R.string.cancel),
+                        focusRequester = cancelFocusRequester,
+                        modifier = Modifier.weight(1f),
+                        onClick = onDismiss
+                    )
+                    TvExitDialogButton(
+                        text = stringResource(R.string.tv_exit_action),
+                        modifier = Modifier.weight(1f),
+                        isDestructive = true,
+                        onClick = onConfirmExit
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvExitDialogButton(
+    text: String,
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null,
+    isDestructive: Boolean = false,
+    onClick: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(18.dp)
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused) 1.03f else 1f,
+        animationSpec = tween(160),
+        label = "tvExitDialogButtonScale"
+    )
+    val backgroundColor by animateColorAsState(
+        targetValue = when {
+            isFocused && isDestructive -> ImaxColors.Error.copy(alpha = 0.28f)
+            isFocused -> ImaxColors.Primary.copy(alpha = 0.24f)
+            isDestructive -> ImaxColors.Error.copy(alpha = 0.14f)
+            else -> ImaxColors.SurfaceVariant.copy(alpha = 0.68f)
+        },
+        animationSpec = tween(160),
+        label = "tvExitDialogButtonBackground"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = when {
+            isFocused && isDestructive -> ImaxColors.Error
+            isFocused -> ImaxColors.FocusBorder
+            isDestructive -> ImaxColors.Error.copy(alpha = 0.6f)
+            else -> ImaxColors.CardBorder.copy(alpha = 0.8f)
+        },
+        animationSpec = tween(160),
+        label = "tvExitDialogButtonBorder"
+    )
+    val textColor by animateColorAsState(
+        targetValue = when {
+            isFocused -> Color.White
+            isDestructive -> ImaxColors.Error
+            else -> ImaxColors.TextPrimary
+        },
+        animationSpec = tween(160),
+        label = "tvExitDialogButtonText"
+    )
+
+    Box(
+        modifier = modifier
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .clip(shape)
+            .background(backgroundColor)
+            .border(2.dp, borderColor, shape)
+            .onFocusChanged { isFocused = it.isFocused }
+            .focusable()
+            .clickable(onClick = onClick)
+            .padding(vertical = 18.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.titleMedium,
+            color = textColor,
+            fontWeight = FontWeight.Bold
+        )
     }
 }

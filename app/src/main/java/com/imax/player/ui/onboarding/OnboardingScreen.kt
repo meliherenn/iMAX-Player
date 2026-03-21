@@ -1,7 +1,11 @@
 package com.imax.player.ui.onboarding
 
+import android.util.Log
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -66,6 +70,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -76,6 +83,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.imax.player.R
 import com.imax.player.core.designsystem.theme.ImaxColors
 import com.imax.player.core.designsystem.theme.LocalImaxDimens
 import com.imax.player.core.model.Playlist
@@ -89,6 +97,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+private const val TV_ONBOARDING_LOG_TAG = "TvOnboarding"
 
 data class OnboardingState(
     val playlists: List<Playlist> = emptyList(),
@@ -330,10 +340,11 @@ private fun TvOnboardingContent(
 ) {
     val dimens = LocalImaxDimens.current
     val addPlaylistFocusRequester = remember { FocusRequester() }
+    val logoPainter = painterResource(id = R.mipmap.ic_launcher_foreground)
 
     LaunchedEffect(state.showAddDialog, state.isSyncing) {
         if (!state.showAddDialog && !state.isSyncing) {
-            addPlaylistFocusRequester.requestFocus()
+            addPlaylistFocusRequester.requestFocusSafely("TV onboarding add playlist card")
         }
     }
 
@@ -349,6 +360,15 @@ private fun TvOnboardingContent(
                 .fillMaxSize()
                 .padding(horizontal = 72.dp, vertical = 56.dp)
         ) {
+            Image(
+                painter = logoPainter,
+                contentDescription = stringResource(R.string.app_name),
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .width(150.dp)
+                    .height(150.dp)
+            )
+            Spacer(modifier = Modifier.height(12.dp))
             Text(
                 "Set up your TV playlists",
                 style = MaterialTheme.typography.displayMedium,
@@ -864,12 +884,12 @@ private fun TvAddPlaylistDialog(
     }
 
     LaunchedEffect(Unit) {
-        typeFocusRequester.requestFocus()
+        typeFocusRequester.requestFocusSafely("TV add playlist dialog provider type")
     }
 
     LaunchedEffect(selectedType, shouldMoveFocusToForm) {
         if (shouldMoveFocusToForm) {
-            nameFocusRequester.requestFocus()
+            nameFocusRequester.requestFocusSafely("TV add playlist dialog form")
             shouldMoveFocusToForm = false
         }
     }
@@ -1250,50 +1270,126 @@ private fun TvFocusableCard(
     content: @Composable () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
+    val isFocusedAndSelected = isFocused && isSelected
     val scale by animateFloatAsState(
         targetValue = when {
-            isFocused -> 1.03f
-            isSelected -> 1.01f
+            isFocusedAndSelected -> 1.055f
+            isFocused -> 1.045f
+            isSelected -> 1.012f
             else -> 1f
         },
         animationSpec = spring(stiffness = 320f),
         label = "tvFocusScale"
+    )
+    val borderWidth by animateDpAsState(
+        targetValue = when {
+            isFocusedAndSelected -> 4.dp
+            isFocused -> 3.5.dp
+            isSelected -> 2.dp
+            else -> 1.dp
+        },
+        animationSpec = spring(stiffness = 320f),
+        label = "tvFocusableCardBorderWidth"
+    )
+    val backgroundColor by animateColorAsState(
+        targetValue = when {
+            isFocusedAndSelected -> Color(0xFF3B2730)
+            isFocused -> Color(0xFF241D28)
+            isSelected -> ImaxColors.Surface.copy(alpha = 0.96f)
+            else -> ImaxColors.Surface
+        },
+        label = "tvFocusableCardBackground"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = when {
+            isFocusedAndSelected -> Color(0xFFFFD7DF)
+            isFocused -> Color(0xFFFFC2CF)
+            isSelected -> ImaxColors.Primary.copy(alpha = 0.6f)
+            else -> ImaxColors.CardBorder
+        },
+        label = "tvFocusableCardBorderColor"
+    )
+    val focusGlowColor by animateColorAsState(
+        targetValue = when {
+            isFocusedAndSelected -> Color(0x88FF9DB2)
+            isFocused -> Color(0x70FF87A1)
+            else -> Color.Transparent
+        },
+        label = "tvFocusableCardGlowColor"
+    )
+    val indicatorWidth by animateDpAsState(
+        targetValue = when {
+            isFocusedAndSelected -> 12.dp
+            isFocused -> 10.dp
+            isSelected -> 6.dp
+            else -> 0.dp
+        },
+        animationSpec = spring(stiffness = 320f),
+        label = "tvFocusableCardIndicatorWidth"
+    )
+    val trailingFocusPillColor by animateColorAsState(
+        targetValue = when {
+            isFocusedAndSelected -> Color(0x66FFD7DF)
+            isFocused -> Color(0x4CFFB6C7)
+            isSelected -> Color(0x20FF9DB2)
+            else -> Color.Transparent
+        },
+        label = "tvFocusableCardTrailingPill"
     )
 
     Box(
         modifier = modifier
             .graphicsLayer(scaleX = scale, scaleY = scale)
             .shadow(
-                elevation = if (isFocused) 22.dp else 0.dp,
+                elevation = if (isFocused) 26.dp else 0.dp,
                 shape = RoundedCornerShape(28.dp),
-                ambientColor = ImaxColors.FocusGlow,
-                spotColor = ImaxColors.FocusGlow
+                ambientColor = if (isFocused) focusGlowColor else ImaxColors.FocusGlow,
+                spotColor = if (isFocused) focusGlowColor else ImaxColors.FocusGlow
             )
             .clip(RoundedCornerShape(28.dp))
-            .background(
-                when {
-                    isFocused -> ImaxColors.SurfaceVariant
-                    isSelected -> ImaxColors.Surface.copy(alpha = 0.95f)
-                    else -> ImaxColors.Surface
-                }
-            )
+            .background(backgroundColor)
             .border(
-                width = when {
-                    isFocused -> 3.dp
-                    isSelected -> 2.dp
-                    else -> 1.dp
-                },
-                color = when {
-                    isFocused -> ImaxColors.FocusBorder
-                    isSelected -> ImaxColors.Primary.copy(alpha = 0.55f)
-                    else -> ImaxColors.CardBorder
-                },
+                width = borderWidth,
+                color = borderColor,
                 shape = RoundedCornerShape(28.dp)
             )
             .clickable(onClick = onClick)
             .onFocusChanged { isFocused = it.isFocused }
             .focusable()
     ) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .padding(horizontal = 14.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            if (indicatorWidth > 0.dp) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .width(indicatorWidth)
+                        .height(68.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(
+                            when {
+                                isFocusedAndSelected -> Color(0xFFFFDCE4)
+                                isFocused -> Color(0xFFFFC9D5)
+                                else -> Color(0xFFE1A5B6)
+                            }
+                        )
+                )
+            }
+            if (trailingFocusPillColor != Color.Transparent) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .width(12.dp)
+                        .height(54.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(trailingFocusPillColor)
+                )
+            }
+        }
         content()
     }
 }
@@ -1467,4 +1563,11 @@ private fun isPositiveTestMessage(message: String?): Boolean {
     if (message == null) return false
     val normalized = message.lowercase()
     return "successful" in normalized || "ready" in normalized || "active" in normalized
+}
+
+private fun FocusRequester.requestFocusSafely(reason: String) {
+    runCatching { requestFocus() }
+        .onFailure { error ->
+            Log.w(TV_ONBOARDING_LOG_TAG, "Unable to request focus for $reason", error)
+        }
 }

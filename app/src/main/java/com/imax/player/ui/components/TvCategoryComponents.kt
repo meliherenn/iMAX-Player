@@ -49,15 +49,16 @@ fun TvCategoryPanel(
     content: LazyListScope.() -> Unit
 ) {
     val dimens = LocalImaxDimens.current
-    val panelShape = RoundedCornerShape(18.dp)
-    val panelBackground = Color(0xFF171210)
-    val panelBorder = Color(0xFF3C2C24)
+    val panelShape = RoundedCornerShape(22.dp)
+    val panelBackground = Color(0xFF120D0D)
+    val panelBorder = Color(0xFF5C3A2D)
+    val panelInnerGlow = Color(0x26FFB47A)
 
     Box(
         modifier = modifier
-            .width(dimens.categoryPanelWidth + 36.dp)
+            .width(dimens.categoryPanelWidth + 42.dp)
             .fillMaxHeight()
-            .padding(start = 16.dp, top = 16.dp, bottom = 16.dp, end = 12.dp)
+            .padding(start = 16.dp, top = 16.dp, bottom = 16.dp, end = 14.dp)
     ) {
         Box(
             modifier = Modifier
@@ -65,17 +66,25 @@ fun TvCategoryPanel(
                 .clip(panelShape)
                 .background(panelBackground)
                 .border(
-                    width = 1.5.dp,
+                    width = 2.dp,
                     color = panelBorder,
                     shape = panelShape
                 )
-                .padding(horizontal = 8.dp, vertical = 12.dp)
+                .padding(horizontal = 10.dp, vertical = 14.dp)
         ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(3.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(panelInnerGlow)
+                    .align(Alignment.CenterStart)
+            )
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
                     .focusGroup(),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
                 contentPadding = PaddingValues(vertical = 4.dp),
                 content = content
             )
@@ -91,119 +100,91 @@ fun TvRailCategoryItem(
     modifier: Modifier = Modifier
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    val itemShape = RoundedCornerShape(14.dp)
-    val isFocusedAndSelected = isSelected && isFocused
-    val scale by animateFloatAsState(
+    val itemShape = RoundedCornerShape(18.dp)
+    val focusState = rememberTvFocusVisualState(
+        isFocused = isFocused,
+        isSelected = isSelected,
+        defaultSurface = Color.Transparent,
+        selectedSurface = Color(0xFF2D1D16),
+        focusedSurface = Color(0xFF85502B),
+        selectedFocusedSurface = Color(0xFFAF6535),
+        defaultContentColor = ImaxColors.TextSecondary,
+        defaultSecondaryContentColor = ImaxColors.TextSecondary,
+        selectedContentColor = Color(0xFFFFDFC9),
+        focusedContentColor = Color(0xFFFFFCF8),
+        selectedFocusedContentColor = Color(0xFFFFFCF8),
+        selectedBorderColor = Color(0xFF8F6A52),
+        focusedBorderColor = Color(0xFFFFD49C),
+        selectedFocusedBorderColor = Color(0xFFFFE6C0),
+        selectedAccentColor = Color(0xFFD69C73),
+        focusedAccentColor = Color(0xFFFFDDA0),
+        selectedFocusedAccentColor = Color(0xFFFFE8C8)
+    )
+    val trailingGlowColor by animateColorAsState(
         targetValue = when {
-            isFocusedAndSelected -> 1.065f
-            isFocused -> 1.055f
-            isSelected -> 1.01f
+            isFocused && isSelected -> Color(0x60FFE7C3)
+            isFocused -> Color(0x48FFD49A)
+            isSelected -> Color(0x22D69C73)
+            else -> Color.Transparent
+        },
+        animationSpec = tween(180),
+        label = "tvCategoryGlow"
+    )
+    val effectiveScale by animateFloatAsState(
+        targetValue = when {
+            isFocused && isSelected -> 1.10f
+            isFocused -> 1.08f
+            isSelected -> 1.02f
             else -> 1f
         },
         animationSpec = tween(180),
-        label = "tvCategoryScale"
+        label = "tvCategoryEffectiveScale"
     )
-    val focusShadowElevation by animateDpAsState(
+    val effectiveBorderWidth by animateDpAsState(
         targetValue = when {
-            isFocusedAndSelected -> 18.dp
-            isFocused -> 14.dp
-            isSelected -> 4.dp
-            else -> 0.dp
-        },
-        animationSpec = tween(180),
-        label = "tvCategoryShadow"
-    )
-    val backgroundColor by animateColorAsState(
-        targetValue = when {
-            isFocusedAndSelected -> Color(0xFF795238)
-            isFocused -> Color(0xFF5C3F2E)
-            isSelected -> Color(0xFF2F241E)
-            else -> Color.Transparent
-        },
-        animationSpec = tween(180),
-        label = "tvCategoryBackground"
-    )
-    val borderColor by animateColorAsState(
-        targetValue = when {
-            isFocusedAndSelected -> Color(0xFFFFD9BB)
-            isFocused -> Color(0xFFFFC08F)
-            isSelected -> Color(0xFF8D6C57)
-            else -> Color.Transparent
-        },
-        animationSpec = tween(180),
-        label = "tvCategoryBorder"
-    )
-    val borderWidth by animateDpAsState(
-        targetValue = when {
-            isFocusedAndSelected -> 4.dp
+            isFocused && isSelected -> 4.5.dp
             isFocused -> 3.5.dp
             isSelected -> 1.5.dp
             else -> 0.dp
         },
         animationSpec = tween(180),
-        label = "tvCategoryBorderWidth"
+        label = "tvCategoryEffectiveBorderWidth"
     )
-    val indicatorColor by animateColorAsState(
-        targetValue = when {
-            isFocusedAndSelected -> Color(0xFFFFE1C8)
-            isFocused -> Color(0xFFFFC89B)
-            isSelected -> Color(0xFFD8A787)
-            else -> Color.Transparent
-        },
-        animationSpec = tween(180),
-        label = "tvCategoryIndicator"
-    )
-    val indicatorWidth by animateDpAsState(
-        targetValue = when {
-            isFocusedAndSelected -> 12.dp
-            isFocused -> 10.dp
-            isSelected -> 5.dp
-            else -> 0.dp
-        },
-        animationSpec = tween(180),
-        label = "tvCategoryIndicatorWidth"
-    )
-    val textColor = when {
-        isFocusedAndSelected -> Color(0xFFFFFCF8)
-        isFocused -> Color(0xFFFFF7F0)
-        isSelected -> Color(0xFFFFDEC8)
-        else -> ImaxColors.TextSecondary
-    }
 
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 72.dp)
+            .heightIn(min = 82.dp)
             .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
+                scaleX = effectiveScale
+                scaleY = effectiveScale
                 this.shape = itemShape
                 clip = false
-                shadowElevation = focusShadowElevation.toPx()
+                shadowElevation = focusState.shadowElevation.toPx()
             }
             .clip(itemShape)
-            .background(backgroundColor)
-            .border(borderWidth, borderColor, itemShape)
+            .background(focusState.backgroundColor)
+            .border(effectiveBorderWidth, focusState.borderColor, itemShape)
             .clickable(onClick = onClick)
             .onFocusChanged { isFocused = it.isFocused }
             .focusable()
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 18.dp, vertical = 15.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
-                .width(indicatorWidth)
-                .height(40.dp)
+                .width(focusState.accentWidth)
+                .height(48.dp)
                 .clip(RoundedCornerShape(6.dp))
-                .background(indicatorColor)
+                .background(focusState.accentColor)
         )
-        Spacer(modifier = Modifier.width(if (indicatorWidth > 0.dp) 12.dp else 6.dp))
+        Spacer(modifier = Modifier.width(if (focusState.accentWidth > 0.dp) 16.dp else 10.dp))
         Text(
             text = name,
             style = MaterialTheme.typography.titleMedium,
-            color = textColor,
+            color = focusState.contentColor,
             fontWeight = when {
-                isFocusedAndSelected -> FontWeight.Bold
+                isFocused && isSelected -> FontWeight.ExtraBold
                 isFocused -> FontWeight.Bold
                 isSelected -> FontWeight.SemiBold
                 else -> FontWeight.Medium
@@ -212,5 +193,15 @@ fun TvRailCategoryItem(
             maxLines = 2,
             overflow = TextOverflow.Ellipsis
         )
+        if (trailingGlowColor != Color.Transparent) {
+            Spacer(modifier = Modifier.width(10.dp))
+            Box(
+                modifier = Modifier
+                    .width(10.dp)
+                    .height(36.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(trailingGlowColor)
+            )
+        }
     }
 }

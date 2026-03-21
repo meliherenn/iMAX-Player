@@ -12,10 +12,15 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.style.TextOverflow
@@ -149,26 +154,57 @@ fun LiveTvScreen(
 }
 
 @Composable
+@OptIn(ExperimentalComposeUiApi::class)
 private fun TvLiveTvContent(
     state: LiveTvState,
     viewModel: LiveTvViewModel,
     onPlayChannel: (String, String, Long, String?) -> Unit
 ) {
+    val categoryFocusKeys = remember(state.groups) {
+        listOf(TV_ALL_CATEGORY_KEY) + state.groups
+    }
+    val categoryRequesters = remember(categoryFocusKeys) {
+        categoryFocusKeys.associateWith { FocusRequester() }
+    }
     Row(modifier = Modifier.fillMaxSize()) {
-        TvCategoryPanel {
-            item {
-                TvRailCategoryItem(name = stringResource(R.string.category_all), isSelected = state.selectedGroup == null,
-                    onClick = { viewModel.selectGroup(null) })
-            }
-            items(state.groups) { g ->
-                TvRailCategoryItem(name = g, isSelected = state.selectedGroup == g,
-                    onClick = { viewModel.selectGroup(g) })
-            }
-        }
-
         val display = if (state.selectedGroup != null)
             state.channels.filter { it.groupTitle == state.selectedGroup }
         else state.channels
+        val channelRequesters = remember(display.map(Channel::id)) {
+            display.associate { it.id to FocusRequester() }
+        }
+        val selectedCategoryRequester = categoryRequesters.getValue(
+            state.selectedGroup ?: TV_ALL_CATEGORY_KEY
+        )
+        val firstChannelRequester = display.firstOrNull()
+            ?.let { channel -> channelRequesters.getValue(channel.id) }
+
+        TvCategoryPanel {
+            item {
+                TvRailCategoryItem(
+                    name = stringResource(R.string.category_all),
+                    isSelected = state.selectedGroup == null,
+                    modifier = Modifier
+                        .focusRequester(categoryRequesters.getValue(TV_ALL_CATEGORY_KEY))
+                        .focusProperties {
+                            right = firstChannelRequester ?: FocusRequester.Cancel
+                        },
+                    onClick = { viewModel.selectGroup(null) }
+                )
+            }
+            items(state.groups, key = { it }) { g ->
+                TvRailCategoryItem(
+                    name = g,
+                    isSelected = state.selectedGroup == g,
+                    modifier = Modifier
+                        .focusRequester(categoryRequesters.getValue(g))
+                        .focusProperties {
+                            right = firstChannelRequester ?: FocusRequester.Cancel
+                        },
+                    onClick = { viewModel.selectGroup(g) }
+                )
+            }
+        }
 
         if (display.isEmpty()) {
             EmptyScreen(message = stringResource(R.string.no_content))
@@ -181,10 +217,21 @@ private fun TvLiveTvContent(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(display) { channel ->
+                items(display, key = { it.id }) { channel ->
                     ChannelListItem(
                         channel = channel,
                         isTv = true,
+                        modifier = Modifier
+                            .then(
+                                if (channel == display.firstOrNull()) {
+                                    Modifier.focusRequester(channelRequesters.getValue(channel.id))
+                                } else {
+                                    Modifier
+                                }
+                            )
+                            .focusProperties {
+                                left = selectedCategoryRequester
+                            },
                         onClick = {
                             onPlayChannel(
                                 channel.streamUrl,
@@ -349,22 +396,49 @@ private fun ChannelListLoadingPlaceholder() {
 }
 
 @Composable
+@OptIn(ExperimentalComposeUiApi::class)
 private fun ChannelListItem(
     channel: Channel,
     isTv: Boolean,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onFavoriteToggle: () -> Unit
 ) {
-    var isFocused by remember { mutableStateOf(false) }
-    val bg = if (isFocused) ImaxColors.SurfaceVariant else ImaxColors.CardBackground
+    var isFocused by remember(channel.id, isTv) { mutableStateOf(false) }
+    val tvFocusState = if (isTv) {
+        rememberTvFocusVisualState(
+            isFocused = isFocused,
+            defaultSurface = ImaxColors.CardBackground,
+            selectedSurface = ImaxColors.CardBackground,
+            focusedSurface = ImaxColors.SurfaceElevated,
+            selectedFocusedSurface = Color(0xFF594030)
+        )
+    } else {
+        null
+    }
+    val backgroundColor = tvFocusState?.backgroundColor
+        ?: if (isFocused) ImaxColors.SurfaceVariant else ImaxColors.CardBackground
 
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = tvFocusState?.scale ?: 1f
+                scaleY = tvFocusState?.scale ?: 1f
+                shadowElevation = (tvFocusState?.shadowElevation ?: 0.dp).toPx()
+            }
             .clip(RoundedCornerShape(12.dp))
-            .background(bg)
+            .background(backgroundColor)
             .then(
-                if (isFocused) Modifier.border(1.dp, ImaxColors.FocusBorder, RoundedCornerShape(12.dp))
+                if (tvFocusState != null && isFocused) {
+                    Modifier.border(
+                        tvFocusState.borderWidth,
+                        tvFocusState.borderColor,
+                        RoundedCornerShape(12.dp)
+                    )
+                } else if (isFocused) {
+                    Modifier.border(1.dp, ImaxColors.FocusBorder, RoundedCornerShape(12.dp))
+                }
                 else Modifier
             )
             .clickable(onClick = onClick)
@@ -385,13 +459,23 @@ private fun ChannelListItem(
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(channel.name, style = MaterialTheme.typography.titleMedium,
-                color = ImaxColors.TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                color = tvFocusState?.contentColor ?: ImaxColors.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis)
             if (channel.groupTitle.isNotBlank()) {
                 Text(channel.groupTitle, style = MaterialTheme.typography.bodySmall,
-                    color = ImaxColors.TextTertiary, maxLines = 1)
+                    color = tvFocusState?.secondaryContentColor ?: ImaxColors.TextTertiary,
+                    maxLines = 1)
             }
         }
-        IconButton(onClick = onFavoriteToggle) {
+        IconButton(
+            onClick = onFavoriteToggle,
+            modifier = if (isTv) {
+                Modifier.focusProperties { canFocus = false }
+            } else {
+                Modifier
+            }
+        ) {
             Icon(
                 imageVector = if (channel.isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
                 contentDescription = "Favorite",
@@ -402,8 +486,10 @@ private fun ChannelListItem(
         Icon(
             imageVector = Icons.Filled.PlayArrow,
             contentDescription = stringResource(R.string.action_play),
-            tint = ImaxColors.Primary,
+            tint = if (isTv && isFocused) tvFocusState?.contentColor ?: ImaxColors.Primary else ImaxColors.Primary,
             modifier = Modifier.size(24.dp)
         )
     }
 }
+
+private const val TV_ALL_CATEGORY_KEY = "__tv_all__"

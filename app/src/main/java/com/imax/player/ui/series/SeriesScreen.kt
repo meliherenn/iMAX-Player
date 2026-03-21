@@ -103,12 +103,18 @@ private fun TvSeriesContent(
     Row(modifier = Modifier.fillMaxSize()) {
         TvCategoryPanel {
             item {
-                TvRailCategoryItem(name = stringResource(R.string.category_all), isSelected = state.selectedCategory == null,
-                    onClick = { viewModel.selectCategory(null) })
+                TvRailCategoryItem(
+                    name = stringResource(R.string.category_all),
+                    isSelected = state.selectedCategory == null,
+                    onClick = { viewModel.selectCategory(null) }
+                )
             }
             items(state.categories) { cat ->
-                TvRailCategoryItem(name = cat, isSelected = state.selectedCategory == cat,
-                    onClick = { viewModel.selectCategory(cat) })
+                TvRailCategoryItem(
+                    name = cat,
+                    isSelected = state.selectedCategory == cat,
+                    onClick = { viewModel.selectCategory(cat) }
+                )
             }
         }
 

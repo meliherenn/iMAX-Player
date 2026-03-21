@@ -91,7 +91,8 @@ data class PlayerSessionState(
 data class LiveChannelSwitchState(
     val isSwitching: Boolean = false,
     val targetChannelId: Long? = null,
-    val targetTitle: String = ""
+    val targetTitle: String = "",
+    val errorMessage: String? = null
 )
 
 @HiltViewModel
@@ -120,6 +121,8 @@ class PlayerViewModel @Inject constructor(
     private var currentContentType = ""
     private var currentGroupContext = ""
     private var isInitialized = false
+    private var enableTvPlaybackWorkarounds = false
+    private var currentPlaybackCandidates: List<String> = emptyList()
     private var liveChannelSwitchJob: kotlinx.coroutines.Job? = null
     private var pendingLiveChannel: Channel? = null
 
@@ -151,27 +154,54 @@ class PlayerViewModel @Inject constructor(
             return
         }
 
-        val resolvedUrl = resolvePlaybackUrl(url, contentType)
+        val playbackCandidates = resolvePlaybackCandidates(url, contentType)
+        val resolvedUrl = playbackCandidates.firstOrNull().orEmpty()
 
         currentOriginalUrl = url
         currentUrl = resolvedUrl
+        currentPlaybackCandidates = playbackCandidates
         currentTitle = title
         currentContentId = contentId
         currentContentType = contentType
         currentGroupContext = groupContext
 
         viewModelScope.launch {
+            clearLiveChannelSwitchError()
             if (!isInitialized) {
                 _engineReady.value = false
                 playerManager.initializeWithSettings()
                 isInitialized = true
                 _engineReady.value = true
             }
-            refreshSessionContext(resolvedUrl, title, contentId, contentType, groupContext)
-            playerManager.play(resolvedUrl, startPos)
-            if (contentType == ContentType.LIVE.name && contentId > 0L) {
-                contentRepository.updateChannelLastWatched(contentId)
+            refreshSessionContext(url, title, contentId, contentType, groupContext)
+
+            val playbackStarted = if (
+                enableTvPlaybackWorkarounds &&
+                contentType.equals(ContentType.LIVE.name, ignoreCase = true)
+            ) {
+                startLiveChannelPlayback(playbackCandidates, startPos)
+            } else {
+                playerManager.play(resolvedUrl, startPos)
+                true
             }
+
+            if (playbackStarted && contentType == ContentType.LIVE.name && contentId > 0L) {
+                contentRepository.updateChannelLastWatched(contentId)
+            } else if (!playbackStarted) {
+                _liveChannelSwitch.value = LiveChannelSwitchState(
+                    errorMessage = buildPlaybackFailureMessage(title.ifBlank { "This channel" })
+                )
+            }
+        }
+    }
+
+    fun configureTvPlayback(enabled: Boolean) {
+        enableTvPlaybackWorkarounds = enabled
+    }
+
+    fun clearLiveChannelSwitchError() {
+        if (_liveChannelSwitch.value.errorMessage != null && !_liveChannelSwitch.value.isSwitching) {
+            _liveChannelSwitch.value = LiveChannelSwitchState()
         }
     }
 
@@ -218,7 +248,21 @@ class PlayerViewModel @Inject constructor(
 
     fun retryCurrent() {
         viewModelScope.launch {
-            playerManager.play(currentUrl, state.value.currentPosition)
+            clearLiveChannelSwitchError()
+            val startPosition = if (currentContentType == ContentType.LIVE.name) 0L else state.value.currentPosition
+            if (enableTvPlaybackWorkarounds && currentContentType == ContentType.LIVE.name) {
+                val candidates = currentPlaybackCandidates.ifEmpty {
+                    resolvePlaybackCandidates(currentOriginalUrl.ifBlank { currentUrl }, currentContentType)
+                }
+                val started = startLiveChannelPlayback(candidates, startPosition)
+                if (!started) {
+                    _liveChannelSwitch.value = LiveChannelSwitchState(
+                        errorMessage = buildPlaybackFailureMessage(currentTitle.ifBlank { "This channel" })
+                    )
+                }
+            } else {
+                playerManager.play(currentUrl, startPosition)
+            }
         }
     }
 
@@ -251,6 +295,7 @@ class PlayerViewModel @Inject constructor(
             return
         }
 
+        clearLiveChannelSwitchError()
         if (_liveChannelSwitch.value.isSwitching) {
             pendingLiveChannel = channel
             return
@@ -342,9 +387,10 @@ class PlayerViewModel @Inject constructor(
         val previousContentId = currentContentId
         val previousContentType = currentContentType
         val previousGroupContext = currentGroupContext
+        val previousPlaybackCandidates = currentPlaybackCandidates
         val previousSession = session.value
         val targetGroupContext = currentGroupContext.ifBlank { channel.groupTitle }
-        val resolvedUrl = resolvePlaybackUrl(channel.streamUrl, ContentType.LIVE.name)
+        val playbackCandidates = resolvePlaybackCandidates(channel.streamUrl, ContentType.LIVE.name)
 
         _liveChannelSwitch.value = LiveChannelSwitchState(
             isSwitching = true,
@@ -352,22 +398,25 @@ class PlayerViewModel @Inject constructor(
             targetTitle = channel.name
         )
 
+        var switchErrorMessage: String? = null
+
         try {
             coroutineScope {
                 currentOriginalUrl = channel.streamUrl
-                currentUrl = resolvedUrl
+                currentUrl = playbackCandidates.firstOrNull().orEmpty()
+                currentPlaybackCandidates = playbackCandidates
                 currentTitle = channel.name
                 currentContentId = channel.id
                 currentContentType = ContentType.LIVE.name
                 currentGroupContext = targetGroupContext
 
-                val started = startLiveChannelPlayback(resolvedUrl)
+                val started = startLiveChannelPlayback(playbackCandidates)
                 if (!started) {
                     throw IllegalStateException("Live channel switch did not reach a stable playback state")
                 }
 
                 refreshSessionContext(
-                    url = resolvedUrl,
+                    url = channel.streamUrl,
                     title = channel.name,
                     contentId = channel.id,
                     contentType = ContentType.LIVE.name,
@@ -382,6 +431,7 @@ class PlayerViewModel @Inject constructor(
             currentContentId = previousContentId
             currentContentType = previousContentType
             currentGroupContext = previousGroupContext
+            currentPlaybackCandidates = previousPlaybackCandidates
             _session.value = previousSession
             throw cancelled
         } catch (_: Exception) {
@@ -391,49 +441,69 @@ class PlayerViewModel @Inject constructor(
             currentContentId = previousContentId
             currentContentType = previousContentType
             currentGroupContext = previousGroupContext
+            currentPlaybackCandidates = previousPlaybackCandidates
             _session.value = previousSession
+            switchErrorMessage = buildPlaybackFailureMessage(channel.name)
 
             if (previousUrl.isNotBlank()) {
                 playerManager.play(previousUrl, 0L)
             }
         } finally {
-            _liveChannelSwitch.value = LiveChannelSwitchState()
+            _liveChannelSwitch.value = LiveChannelSwitchState(errorMessage = switchErrorMessage)
         }
     }
 
-    private suspend fun startLiveChannelPlayback(url: String): Boolean {
-        repeat(2) { attempt ->
-            playerManager.getEngine().stop()
-            delay(if (attempt == 0) 140L else 220L)
-            playerManager.play(url, 0L)
+    private suspend fun startLiveChannelPlayback(
+        candidates: List<String>,
+        startPosition: Long = 0L
+    ): Boolean {
+        val uniqueCandidates = candidates
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .distinct()
 
-            val enteredTransitionState = withTimeoutOrNull(2_500L) {
-                state
-                    .map { it.playbackState }
-                    .drop(1)
-                    .first { playbackState ->
-                        playbackState == PlaybackState.BUFFERING ||
-                            playbackState == PlaybackState.PLAYING ||
-                            playbackState == PlaybackState.ERROR
-                    }
-            }
+        uniqueCandidates.forEachIndexed { candidateIndex, candidate ->
+            val attempts = if (candidateIndex == 0) 2 else 1
 
-            when (enteredTransitionState) {
-                PlaybackState.PLAYING -> return true
-                PlaybackState.BUFFERING -> {
-                    val settledState = withTimeoutOrNull(7_000L) {
-                        state
-                            .map { it.playbackState }
-                            .first { playbackState ->
+            repeat(attempts) { attempt ->
+                playerManager.getEngine().stop()
+                delay(if (attempt == 0) 160L else 240L)
+                playerManager.play(candidate, startPosition)
+
+                val enteredTransitionState = withTimeoutOrNull(3_500L) {
+                    state
+                        .map { it.playbackState }
+                        .drop(1)
+                        .first { playbackState ->
+                            playbackState == PlaybackState.BUFFERING ||
                                 playbackState == PlaybackState.PLAYING ||
-                                    playbackState == PlaybackState.ERROR
-                            }
-                    }
-                    if (settledState == PlaybackState.PLAYING) {
+                                playbackState == PlaybackState.ERROR
+                        }
+                }
+
+                when (enteredTransitionState) {
+                    PlaybackState.PLAYING -> {
+                        currentUrl = candidate
                         return true
                     }
+
+                    PlaybackState.BUFFERING -> {
+                        val settledState = withTimeoutOrNull(8_500L) {
+                            state
+                                .map { it.playbackState }
+                                .first { playbackState ->
+                                    playbackState == PlaybackState.PLAYING ||
+                                        playbackState == PlaybackState.ERROR
+                                }
+                        }
+                        if (settledState == PlaybackState.PLAYING) {
+                            currentUrl = candidate
+                            return true
+                        }
+                    }
+
+                    else -> Unit
                 }
-                else -> Unit
             }
         }
 
@@ -601,6 +671,34 @@ class PlayerViewModel @Inject constructor(
 
             else -> trimmedUrl
         }
+    }
+
+    private fun resolvePlaybackCandidates(url: String, contentType: String): List<String> {
+        val trimmedUrl = url.trim().removeSuffix(".")
+        val defaultResolvedUrl = resolvePlaybackUrl(trimmedUrl, contentType)
+
+        if (
+            !enableTvPlaybackWorkarounds ||
+            !contentType.equals(ContentType.LIVE.name, ignoreCase = true)
+        ) {
+            return listOf(defaultResolvedUrl)
+        }
+
+        return buildList {
+            add(trimmedUrl)
+            if (defaultResolvedUrl != trimmedUrl) {
+                add(defaultResolvedUrl)
+            }
+            if (trimmedUrl.contains("/live/") && trimmedUrl.endsWith(".ts", ignoreCase = true)) {
+                add(trimmedUrl.removeSuffix(".ts") + ".m3u8")
+            }
+        }.map(String::trim)
+            .filter(String::isNotBlank)
+            .distinct()
+    }
+
+    private fun buildPlaybackFailureMessage(title: String): String {
+        return "$title could not be opened reliably on TV. Try retrying or switching player engine."
     }
 
     private fun buildEpisodePlayerTitle(seriesName: String, episode: Episode): String {

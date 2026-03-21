@@ -1,0 +1,1652 @@
+1. Kısa ama teknik root-cause analysis
+- Önceki denemede görsel state’ler bazı bileşenlerde güçlenmiş olsa da asıl problem interaction modelinde kaldı. TV drawer hâlâ ekran bazlı `isDrawerExpanded` boolean’larıyla yönetiliyordu; yani rail/drawer geçişi kullanıcı focus’una göre değil, çoğunlukla manuel toggle mantığına göre çalışıyordu. Bu yüzden görsel değişiklikler pratikte beklenen etkiyi üretmedi.
+- Sol menüde selected/current route ile focused state ayrımı vardı ama compact modda interaction doğru olmadığı için kullanıcı genelde “menüye girdim mi, içerikte miyim, OK basınca ne seçilecek?” bilgisini hızlı alamıyordu. Sorun renk kadar, hatta ondan daha fazla, focus tabanlı expand/collapse modelinin eksikliğiydi.
+- Drawer açılışta ve ekran geçişlerinde focus request / collapse-expand mantığını merkezden yönetmiyordu. Bu da bir yandan menünün gereğinden aktif görünmesine, diğer yandan bazı ekranlarda yeterince anlaşılır olmamasına yol açıyordu.
+- TV açılışındaki yavaş his büyük ölçüde ilk route’tan sonra Home ekranında fazla eager UI composition’dan geliyordu: TV Home tüm section yapısını ve blur’lu backdrop’u erken compose ediyordu, ayrıca startup route tarafı bir kerelik karar yerine sürekli flow topluyordu.
+- Kategori panelinde selected, focused ve focused+selected state’leri mevcuttu ama uzaktan bakıldığında fark hâlâ yetersiz kalıyordu. Panel kabuğu, arka plan kontrastı ve state önceliği drawer kadar güçlü değildi.
+- Sonuç: asıl başarısızlık interaction modeli + görsel önceliğin birlikte yetersiz kalmasıydı; ancak baskın kök neden interaction modeliydi. En küçük ama en etkili kalıcı çözüm, drawer’ı focus-driven compact/expanded rail haline getirmek, selected/focused/focused+selected ayrımını compact modda da görünür kılmak ve TV Home ilk frame maliyetini azaltmaktı.
+
+2. Uyguladığın çözüm planı
+- TV drawer’ı manuel expand boolean’ından çıkarıp focus-driven collapsible rail/drawer modeline aldım.
+- Drawer header’ı ekstra focus durağı olmaktan çıkardım; menü öğeleri ana giriş noktası oldu.
+- Compact modda bile current route’un net görünmesi için selected state’i ikon kabı, border ve edge indicator ile güçlendirdim.
+- Expanded modda focused ve focused+selected state’leri daha baskın arka plan, border ve kontrast ile belirginleştirdim.
+- `TvCategoryPanel` ve `TvRailCategoryItem` görsellerini aynı netlik seviyesine çıkarıp panel kabuğunu ve kategori highlight’larını güçlendirdim.
+- `TvStartupRoute`u bir kerelik startup kararına indirdim; sürekli playlist flow toplama yerine tek shot route çözümüne geçtim.
+- TV Home’u ilk frame için hafiflettim: eager `Column + verticalScroll` yerine `LazyColumn`, daha kontrollü rail sayısı, deferred backdrop ve drawer shell içinden loading state kullandım.
+
+3. Güncel klasör ağacı
+app/src/main/java/com/imax/player/ui/
+├── components/
+│   ├── Drawer.kt
+│   └── TvCategoryComponents.kt
+├── home/
+│   └── HomeScreen.kt
+└── navigation/
+    └── tv/
+        └── TvStartupRoute.kt
+
+4. Değiştirdiğin TÜM dosyaları tam içerikleriyle
+
+===== app/src/main/java/com/imax/player/ui/components/Drawer.kt =====
+
+package com.imax.player.ui.components
+
+import android.util.Log
+import androidx.compose.animation.*
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MenuOpen
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.automirrored.outlined.ExitToApp
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.res.stringResource
+import com.imax.player.R
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.imax.player.core.designsystem.theme.ImaxColors
+import com.imax.player.core.designsystem.theme.LocalImaxDimens
+import com.imax.player.ui.navigation.Routes
+import kotlinx.coroutines.delay
+
+private const val TV_DRAWER_LOG_TAG = "TvDrawer"
+private const val TV_DRAWER_COLLAPSE_DELAY_MS = 140L
+
+data class DrawerItem(
+    val route: String,
+    val label: String,
+    val icon: ImageVector,
+    val selectedIcon: ImageVector
+)
+
+val tvDrawerItems @Composable get() = listOf(
+    DrawerItem(Routes.HOME, stringResource(R.string.nav_home), Icons.Outlined.Home, Icons.Filled.Home),
+    DrawerItem(Routes.SEARCH, stringResource(R.string.nav_search), Icons.Outlined.Search, Icons.Filled.Search),
+    DrawerItem(Routes.LIVE_TV, stringResource(R.string.nav_live_tv), Icons.Outlined.LiveTv, Icons.Filled.LiveTv),
+    DrawerItem(Routes.MOVIES, stringResource(R.string.nav_movies), Icons.Outlined.Movie, Icons.Filled.Movie),
+    DrawerItem(Routes.SERIES, stringResource(R.string.nav_series), Icons.Outlined.Tv, Icons.Filled.Tv),
+    DrawerItem(Routes.CONTINUE_WATCHING, stringResource(R.string.nav_continue_watching), Icons.Filled.History, Icons.Filled.History),
+    DrawerItem(Routes.FAVORITES, stringResource(R.string.favorites), Icons.Outlined.FavoriteBorder, Icons.Filled.Favorite),
+    DrawerItem(Routes.PLAYLISTS, stringResource(R.string.playlists), Icons.AutoMirrored.Filled.PlaylistPlay, Icons.AutoMirrored.Filled.PlaylistPlay),
+    DrawerItem(Routes.SETTINGS, stringResource(R.string.nav_settings), Icons.Outlined.Settings, Icons.Filled.Settings)
+)
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TV-specific side drawer
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@Composable
+fun TvDrawerLayout(
+    isExpanded: Boolean,
+    selectedRoute: String,
+    onToggle: () -> Unit,
+    onNavigate: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    val dimens = LocalImaxDimens.current
+    val items = tvDrawerItems
+    val exitLabel = stringResource(R.string.nav_exit_playlist)
+    val logoPainter = painterResource(id = R.mipmap.ic_launcher_foreground)
+    val exitItem = remember(exitLabel) {
+        DrawerItem(
+            Routes.EXIT,
+            exitLabel,
+            Icons.AutoMirrored.Outlined.ExitToApp,
+            Icons.AutoMirrored.Filled.ExitToApp
+        )
+    }
+    val menuItems = remember(items, exitItem) {
+        items + exitItem
+    }
+    val menuRoutes = remember(menuItems) { menuItems.map { it.route } }
+    val listState = rememberLazyListState()
+    val itemFocusRequesters = remember(menuRoutes) {
+        menuRoutes.associateWith { FocusRequester() }
+    }
+    val firstMenuRoute = menuRoutes.firstOrNull()
+    val selectedMenuRoute = selectedRoute.takeIf { it in itemFocusRequesters } ?: firstMenuRoute
+    var lastFocusedRoute by rememberSaveable {
+        mutableStateOf(selectedMenuRoute ?: "")
+    }
+    var focusedIndex by rememberSaveable {
+        mutableStateOf(menuRoutes.indexOf(selectedMenuRoute).takeIf { it >= 0 } ?: 0)
+    }
+    var focusedDrawerTarget by rememberSaveable { mutableStateOf<String?>(null) }
+    var drawerExpanded by rememberSaveable { mutableStateOf(isExpanded) }
+    val drawerWidth by animateDpAsState(
+        targetValue = if (drawerExpanded) dimens.drawerWidth else dimens.drawerCollapsedWidth,
+        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+        label = "tvDrawerWidth"
+    )
+
+    LaunchedEffect(menuRoutes, selectedRoute) {
+        val fallbackRoute = selectedRoute.takeIf { it in itemFocusRequesters } ?: firstMenuRoute ?: ""
+        if (lastFocusedRoute !in itemFocusRequesters) {
+            lastFocusedRoute = fallbackRoute
+        }
+        if (focusedDrawerTarget == null) {
+            lastFocusedRoute = fallbackRoute
+        }
+        if (focusedIndex !in menuRoutes.indices) {
+            focusedIndex = menuRoutes.indexOf(lastFocusedRoute).takeIf { it >= 0 } ?: 0
+        }
+    }
+
+    LaunchedEffect(focusedDrawerTarget) {
+        if (focusedDrawerTarget != null) {
+            drawerExpanded = true
+        } else {
+            delay(TV_DRAWER_COLLAPSE_DELAY_MS)
+            if (focusedDrawerTarget == null) {
+                drawerExpanded = false
+            }
+        }
+    }
+
+    LaunchedEffect(drawerExpanded, focusedIndex) {
+        if (!drawerExpanded || focusedIndex !in menuRoutes.indices) return@LaunchedEffect
+
+        val visibleItems = listState.layoutInfo.visibleItemsInfo
+        if (visibleItems.isEmpty()) return@LaunchedEffect
+
+        val firstVisibleIndex = visibleItems.first().index
+        val lastVisibleIndex = visibleItems.last().index
+        if (focusedIndex < firstVisibleIndex || focusedIndex > lastVisibleIndex) {
+            listState.scrollToItem(focusedIndex)
+        }
+    }
+
+    Row(modifier = modifier.fillMaxSize().background(ImaxColors.Background)) {
+        Column(
+            modifier = Modifier
+                .width(drawerWidth)
+                .fillMaxHeight()
+                .background(ImaxColors.Surface)
+                .padding(
+                    vertical = if (drawerExpanded) 16.dp else 18.dp,
+                    horizontal = if (drawerExpanded) 10.dp else 8.dp
+                )
+        ) {
+            TvDrawerBrand(
+                isExpanded = drawerExpanded,
+                logoPainter = logoPainter
+            )
+
+            Spacer(modifier = Modifier.height(if (drawerExpanded) 16.dp else 12.dp))
+            HorizontalDivider(color = ImaxColors.DividerColor, thickness = 0.5.dp)
+            Spacer(modifier = Modifier.height(if (drawerExpanded) 10.dp else 12.dp))
+
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .focusGroup(),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                contentPadding = PaddingValues(bottom = 8.dp)
+            ) {
+                itemsIndexed(items) { index, item ->
+                    TvDrawerItemRow(
+                        item = item,
+                        isSelected = selectedRoute == item.route,
+                        isExpanded = drawerExpanded,
+                        focusRequester = itemFocusRequesters.getValue(item.route),
+                        previousFocusRequester = items.getOrNull(index - 1)?.route
+                            ?.let { route -> itemFocusRequesters.getValue(route) },
+                        nextFocusRequester = items.getOrNull(index + 1)?.route
+                            ?.let { route -> itemFocusRequesters.getValue(route) }
+                            ?: itemFocusRequesters.getValue(Routes.EXIT),
+                        onFocusChanged = { isFocused ->
+                            if (isFocused) {
+                                focusedDrawerTarget = item.route
+                                lastFocusedRoute = item.route
+                                focusedIndex = index
+                            } else if (focusedDrawerTarget == item.route) {
+                                focusedDrawerTarget = null
+                            }
+                        },
+                        onClick = { onNavigate(item.route) }
+                    )
+                }
+
+                item(key = Routes.EXIT) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    HorizontalDivider(color = ImaxColors.DividerColor, thickness = 0.5.dp)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    TvDrawerItemRow(
+                        item = exitItem,
+                        isSelected = false,
+                        isExpanded = drawerExpanded,
+                        focusRequester = itemFocusRequesters.getValue(Routes.EXIT),
+                        previousFocusRequester = items.lastOrNull()?.route
+                            ?.let { route -> itemFocusRequesters.getValue(route) },
+                        nextFocusRequester = null,
+                        onFocusChanged = { isFocused ->
+                            if (isFocused) {
+                                focusedDrawerTarget = Routes.EXIT
+                                lastFocusedRoute = Routes.EXIT
+                                focusedIndex = items.lastIndex + 1
+                            } else if (focusedDrawerTarget == Routes.EXIT) {
+                                focusedDrawerTarget = null
+                            }
+                        },
+                        onClick = { onNavigate(Routes.EXIT) }
+                    )
+                }
+            }
+        }
+
+        // Main content
+        Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+            content()
+        }
+    }
+}
+
+@Composable
+private fun TvDrawerBrand(
+    isExpanded: Boolean,
+    logoPainter: androidx.compose.ui.graphics.painter.Painter
+) {
+    val containerColor by animateColorAsState(
+        targetValue = if (isExpanded) {
+            ImaxColors.SurfaceVariant.copy(alpha = 0.36f)
+        } else {
+            ImaxColors.SurfaceVariant.copy(alpha = 0.24f)
+        },
+        animationSpec = tween(180),
+        label = "tvDrawerBrandBackground"
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(containerColor)
+            .padding(
+                horizontal = if (isExpanded) 14.dp else 10.dp,
+                vertical = if (isExpanded) 14.dp else 12.dp
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = if (isExpanded) Arrangement.Start else Arrangement.Center
+    ) {
+        Image(
+            painter = logoPainter,
+            contentDescription = stringResource(R.string.app_name),
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.size(if (isExpanded) 62.dp else 36.dp)
+        )
+        AnimatedVisibility(
+            visible = isExpanded,
+            enter = fadeIn(animationSpec = tween(160)) + expandHorizontally(animationSpec = tween(160)),
+            exit = fadeOut(animationSpec = tween(120)) + shrinkHorizontally(animationSpec = tween(120))
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = stringResource(R.string.app_name),
+                    style = MaterialTheme.typography.titleLarge,
+                    color = ImaxColors.TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+private fun FocusRequester.requestFocusSafely(reason: String) {
+    runCatching { requestFocus() }
+        .onFailure { error ->
+            Log.w(TV_DRAWER_LOG_TAG, "Unable to request focus for $reason", error)
+        }
+}
+
+@Composable
+@OptIn(ExperimentalComposeUiApi::class)
+private fun TvDrawerItemRow(
+    item: DrawerItem,
+    isSelected: Boolean,
+    isExpanded: Boolean,
+    focusRequester: FocusRequester,
+    previousFocusRequester: FocusRequester?,
+    nextFocusRequester: FocusRequester?,
+    onFocusChanged: (Boolean) -> Unit,
+    onClick: () -> Unit
+) {
+    var isFocused by remember(item.route, isSelected) { mutableStateOf(false) }
+    val itemShape = RoundedCornerShape(if (isExpanded) 18.dp else 20.dp)
+    val focusState = rememberTvFocusVisualState(
+        isFocused = isFocused,
+        isSelected = isSelected,
+        defaultSurface = Color.Transparent,
+        selectedSurface = Color(0xFF2B1B20),
+        focusedSurface = Color(0xFF4A2530),
+        selectedFocusedSurface = Color(0xFF73313F),
+        defaultContentColor = ImaxColors.TextSecondary,
+        defaultSecondaryContentColor = ImaxColors.TextSecondary,
+        selectedContentColor = Color(0xFFFFE6EC),
+        focusedContentColor = Color(0xFFFFF4F7),
+        selectedFocusedContentColor = Color.White,
+        selectedBorderColor = Color(0xFFAA6C78),
+        focusedBorderColor = Color(0xFFFF7F97),
+        selectedFocusedBorderColor = Color(0xFFFFC4D0),
+        selectedAccentColor = Color(0xFFE57B8E),
+        focusedAccentColor = Color(0xFFFF8EA4),
+        selectedFocusedAccentColor = Color(0xFFFFD2DB)
+    )
+    val compactIndicatorWidth = if (isExpanded) focusState.accentWidth else if (isSelected || isFocused) 4.dp else 0.dp
+    val iconPlateColor by animateColorAsState(
+        targetValue = when {
+            isFocused && isSelected -> Color.White.copy(alpha = 0.18f)
+            isFocused -> Color.White.copy(alpha = 0.14f)
+            isSelected -> Color.White.copy(alpha = 0.1f)
+            else -> Color.Transparent
+        },
+        animationSpec = tween(180),
+        label = "tvDrawerIconPlateBackground"
+    )
+    val iconPlateBorderColor by animateColorAsState(
+        targetValue = when {
+            isFocused && isSelected -> Color(0xFFFFD2DB)
+            isFocused -> Color(0xFFFFA2B3)
+            isSelected -> Color(0xFFCE7E8E)
+            else -> Color.Transparent
+        },
+        animationSpec = tween(180),
+        label = "tvDrawerIconPlateBorder"
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .graphicsLayer {
+                scaleX = focusState.scale
+                scaleY = focusState.scale
+                this.shape = itemShape
+                clip = false
+                shadowElevation = focusState.shadowElevation.toPx()
+            }
+            .padding(horizontal = 4.dp, vertical = 1.dp)
+            .clip(itemShape)
+            .background(focusState.backgroundColor)
+            .clickable(onClick = onClick)
+            .focusRequester(focusRequester)
+            .focusProperties {
+                left = FocusRequester.Cancel
+                up = previousFocusRequester ?: FocusRequester.Cancel
+                down = nextFocusRequester ?: FocusRequester.Cancel
+            }
+            .onFocusChanged {
+                isFocused = it.isFocused
+                onFocusChanged(it.isFocused)
+            }
+            .focusable()
+            .border(focusState.borderWidth, focusState.borderColor, itemShape)
+            .padding(
+                horizontal = if (isExpanded) 16.dp else 10.dp,
+                vertical = if (isExpanded) 16.dp else 12.dp
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = if (isExpanded) Arrangement.Start else Arrangement.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .width(compactIndicatorWidth)
+                .height(40.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(focusState.accentColor)
+        )
+        if (compactIndicatorWidth > 0.dp) {
+            Spacer(modifier = Modifier.width(if (isExpanded) 14.dp else 8.dp))
+        }
+        Box(
+            modifier = Modifier
+                .size(if (isExpanded) 44.dp else 48.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(iconPlateColor)
+                .border(
+                    width = if (isFocused || isSelected) 1.5.dp else 0.dp,
+                    color = iconPlateBorderColor,
+                    shape = RoundedCornerShape(16.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = if (isSelected) item.selectedIcon else item.icon,
+                contentDescription = item.label,
+                tint = focusState.contentColor,
+                modifier = Modifier.size(26.dp)
+            )
+        }
+        AnimatedVisibility(
+            visible = isExpanded,
+            enter = fadeIn(animationSpec = tween(160)) + expandHorizontally(animationSpec = tween(160)),
+            exit = fadeOut(animationSpec = tween(120)) + shrinkHorizontally(animationSpec = tween(120))
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(modifier = Modifier.width(14.dp))
+                Text(
+                    text = item.label,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = focusState.contentColor,
+                    fontWeight = when {
+                        isFocused -> FontWeight.Bold
+                        isSelected -> FontWeight.SemiBold
+                        else -> FontWeight.Medium
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Mobile BottomNavigation 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+val bottomNavItems @Composable get() = listOf(
+    DrawerItem(Routes.HOME, stringResource(R.string.nav_home), Icons.Outlined.Home, Icons.Filled.Home),
+    DrawerItem(Routes.SEARCH, stringResource(R.string.nav_search), Icons.Outlined.Search, Icons.Filled.Search),
+    DrawerItem(Routes.LIVE_TV, stringResource(R.string.nav_live_tv), Icons.Outlined.LiveTv, Icons.Filled.LiveTv),
+    DrawerItem(Routes.MOVIES, stringResource(R.string.nav_movies), Icons.Outlined.Movie, Icons.Filled.Movie),
+    DrawerItem(Routes.SERIES, stringResource(R.string.nav_series), Icons.Outlined.Tv, Icons.Filled.Tv),
+    DrawerItem(Routes.SETTINGS, stringResource(R.string.nav_settings), Icons.Outlined.Settings, Icons.Filled.Settings)
+)
+
+@Composable
+fun MobileScaffoldLayout(
+    selectedRoute: String,
+    onNavigate: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable (PaddingValues) -> Unit
+) {
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        containerColor = ImaxColors.Background,
+        bottomBar = {
+            NavigationBar(
+                containerColor = ImaxColors.Surface,
+                contentColor = ImaxColors.TextPrimary,
+                tonalElevation = 0.dp
+            ) {
+                bottomNavItems.forEach { item ->
+                    val isSelected = selectedRoute == item.route
+                    NavigationBarItem(
+                        selected = isSelected,
+                        onClick = { onNavigate(item.route) },
+                        icon = {
+                            Icon(
+                                imageVector = if (isSelected) item.selectedIcon else item.icon,
+                                contentDescription = item.label,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        },
+                        label = {
+                            Text(
+                                text = item.label,
+                                style = MaterialTheme.typography.labelSmall,
+                                maxLines = 1
+                            )
+                        },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = ImaxColors.Primary,
+                            selectedTextColor = ImaxColors.Primary,
+                            unselectedIconColor = ImaxColors.TextTertiary,
+                            unselectedTextColor = ImaxColors.TextTertiary,
+                            indicatorColor = ImaxColors.Primary.copy(alpha = 0.12f)
+                        )
+                    )
+                }
+            }
+        }
+    ) { paddingValues ->
+        content(paddingValues)
+    }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Backward-compatible wrapper 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+/**
+ * Unified wrapper: TV gets side drawer, Mobile gets bottom navigation.
+ * Called by all screens that need the standard shell.
+ */
+@Composable
+fun ImaxDrawer(
+    isExpanded: Boolean,
+    selectedRoute: String,
+    isTv: Boolean,
+    onToggle: () -> Unit,
+    onNavigate: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    if (isTv) {
+        TvDrawerLayout(
+            isExpanded = isExpanded,
+            selectedRoute = selectedRoute,
+            onToggle = onToggle,
+            onNavigate = onNavigate,
+            modifier = modifier,
+            content = content
+        )
+    } else {
+        // For mobile, this just provides content directly.
+        // The BottomNavigation is handled by the Navigation scaffold.
+        // Individual screens still call ImaxDrawer but on mobile it's a pass-through.
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(ImaxColors.Background)
+        ) {
+            content()
+        }
+    }
+}
+
+
+===== app/src/main/java/com/imax/player/ui/components/TvCategoryComponents.kt =====
+
+package com.imax.player.ui.components
+
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import com.imax.player.core.designsystem.theme.ImaxColors
+import com.imax.player.core.designsystem.theme.LocalImaxDimens
+
+@Composable
+fun TvCategoryPanel(
+    modifier: Modifier = Modifier,
+    content: LazyListScope.() -> Unit
+) {
+    val dimens = LocalImaxDimens.current
+    val panelShape = RoundedCornerShape(22.dp)
+    val panelBackground = Color(0xFF120D0D)
+    val panelBorder = Color(0xFF5C3A2D)
+    val panelInnerGlow = Color(0x26FFB47A)
+
+    Box(
+        modifier = modifier
+            .width(dimens.categoryPanelWidth + 42.dp)
+            .fillMaxHeight()
+            .padding(start = 16.dp, top = 16.dp, bottom = 16.dp, end = 14.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(panelShape)
+                .background(panelBackground)
+                .border(
+                    width = 2.dp,
+                    color = panelBorder,
+                    shape = panelShape
+                )
+                .padding(horizontal = 10.dp, vertical = 14.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .width(3.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(panelInnerGlow)
+                    .align(Alignment.CenterStart)
+            )
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .focusGroup(),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(vertical = 4.dp),
+                content = content
+            )
+        }
+    }
+}
+
+@Composable
+fun TvRailCategoryItem(
+    name: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var isFocused by remember(name, isSelected) { mutableStateOf(false) }
+    val itemShape = RoundedCornerShape(18.dp)
+    val focusState = rememberTvFocusVisualState(
+        isFocused = isFocused,
+        isSelected = isSelected,
+        defaultSurface = Color.Transparent,
+        selectedSurface = Color(0xFF33231B),
+        focusedSurface = Color(0xFF6B3E27),
+        selectedFocusedSurface = Color(0xFF915637),
+        defaultContentColor = ImaxColors.TextSecondary,
+        defaultSecondaryContentColor = ImaxColors.TextSecondary,
+        selectedContentColor = Color(0xFFFFE5D3),
+        focusedContentColor = Color(0xFFFFFBF7),
+        selectedFocusedContentColor = Color(0xFFFFFCF8),
+        selectedBorderColor = Color(0xFFAF8062),
+        focusedBorderColor = Color(0xFFFFC98F),
+        selectedFocusedBorderColor = Color(0xFFFFE1BC),
+        selectedAccentColor = Color(0xFFE3A375),
+        focusedAccentColor = Color(0xFFFFD08D),
+        selectedFocusedAccentColor = Color(0xFFFFE5C6)
+    )
+    val trailingGlowColor by animateColorAsState(
+        targetValue = when {
+            isFocused && isSelected -> Color(0x4DFFE5C6)
+            isFocused -> Color(0x33FFD08D)
+            isSelected -> Color(0x26E3A375)
+            else -> Color.Transparent
+        },
+        animationSpec = tween(180),
+        label = "tvCategoryGlow"
+    )
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = 78.dp)
+            .graphicsLayer {
+                scaleX = focusState.scale
+                scaleY = focusState.scale
+                this.shape = itemShape
+                clip = false
+                shadowElevation = focusState.shadowElevation.toPx()
+            }
+            .clip(itemShape)
+            .background(focusState.backgroundColor)
+            .border(focusState.borderWidth, focusState.borderColor, itemShape)
+            .clickable(onClick = onClick)
+            .onFocusChanged { isFocused = it.isFocused }
+            .focusable()
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .width(focusState.accentWidth)
+                .height(44.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(focusState.accentColor)
+        )
+        Spacer(modifier = Modifier.width(if (focusState.accentWidth > 0.dp) 14.dp else 8.dp))
+        Text(
+            text = name,
+            style = MaterialTheme.typography.titleMedium,
+            color = focusState.contentColor,
+            fontWeight = when {
+                isFocused -> FontWeight.Bold
+                isSelected -> FontWeight.SemiBold
+                else -> FontWeight.Medium
+            },
+            modifier = Modifier.weight(1f),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (trailingGlowColor != Color.Transparent) {
+            Spacer(modifier = Modifier.width(10.dp))
+            Box(
+                modifier = Modifier
+                    .width(8.dp)
+                    .height(32.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(trailingGlowColor)
+            )
+        }
+    }
+}
+
+
+===== app/src/main/java/com/imax/player/ui/navigation/tv/TvStartupRoute.kt =====
+
+package com.imax.player.ui.navigation.tv
+
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewModelScope
+import com.imax.player.core.model.Playlist
+import com.imax.player.core.model.PlaylistType
+import com.imax.player.data.repository.PlaylistRepository
+import com.imax.player.ui.components.LoadingScreen
+import com.imax.player.ui.navigation.Routes
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+
+data class TvStartupState(
+    val isLoading: Boolean = true,
+    val targetRoute: String? = null
+)
+
+@HiltViewModel
+class TvStartupViewModel @Inject constructor(
+    private val playlistRepository: PlaylistRepository
+) : ViewModel() {
+
+    private val _state = MutableStateFlow(TvStartupState())
+    val state: StateFlow<TvStartupState> = _state.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            val playlists = playlistRepository.getAllPlaylists().first()
+            val activePlaylist = playlists.firstOrNull { it.isActive && it.isUsableForTvStartup() }
+            val fallbackPlaylist = playlists.firstOrNull { it.isUsableForTvStartup() }
+
+            val targetRoute = when {
+                activePlaylist != null -> Routes.HOME
+                fallbackPlaylist != null -> {
+                    if (!fallbackPlaylist.isActive) {
+                        playlistRepository.activatePlaylist(fallbackPlaylist.id)
+                    }
+                    Routes.HOME
+                }
+
+                else -> Routes.PLAYLISTS
+            }
+
+            _state.value = TvStartupState(
+                isLoading = false,
+                targetRoute = targetRoute
+            )
+        }
+    }
+}
+
+@Composable
+fun TvStartupRoute(
+    onReady: (String) -> Unit,
+    viewModel: TvStartupViewModel = hiltViewModel()
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    var hasNavigated by rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+
+    LaunchedEffect(state.isLoading, state.targetRoute, hasNavigated) {
+        val targetRoute = state.targetRoute ?: return@LaunchedEffect
+        if (!state.isLoading && !hasNavigated) {
+            hasNavigated = true
+            onReady(targetRoute)
+        }
+    }
+
+    LoadingScreen()
+}
+
+private fun Playlist.isUsableForTvStartup(): Boolean {
+    val hasSource = when (type) {
+        PlaylistType.M3U_URL -> url.isNotBlank()
+        PlaylistType.M3U_FILE -> filePath.isNotBlank()
+        PlaylistType.XTREAM_CODES -> serverUrl.isNotBlank() && username.isNotBlank() && password.isNotBlank()
+    }
+
+    val hasPlayableCatalog = channelCount > 0 || movieCount > 0 || seriesCount > 0
+    return hasSource && hasPlayableCatalog
+}
+
+
+===== app/src/main/java/com/imax/player/ui/home/HomeScreen.kt =====
+
+package com.imax.player.ui.home
+
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.style.TextOverflow
+import com.imax.player.R
+import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.imax.player.core.common.StringUtils
+import com.imax.player.core.designsystem.theme.ImaxColors
+import com.imax.player.core.designsystem.theme.LocalImaxDimens
+import com.imax.player.core.model.*
+import com.imax.player.ui.components.*
+import com.imax.player.ui.navigation.Routes
+
+@Composable
+fun HomeScreen(
+    isTv: Boolean,
+    onNavigate: (String) -> Unit,
+    onContentClick: (Long, String) -> Unit,
+    onPlayContent: (String, String, Long, String, Long) -> Unit,
+    viewModel: HomeViewModel = hiltViewModel()
+) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+
+    if (isTv) {
+        ImaxDrawer(
+            isExpanded = false,
+            selectedRoute = Routes.HOME,
+            isTv = true,
+            onToggle = {},
+            onNavigate = { route ->
+                if (route == "exit") onNavigate(Routes.ONBOARDING) else onNavigate(route)
+            }
+        ) {
+            TvHomeContent(
+                state = state,
+                isLoading = state.isLoading,
+                onContentClick = onContentClick,
+                onPlayContent = onPlayContent
+            ) { viewModel.selectContent(it) }
+        }
+    } else {
+        if (state.isLoading) {
+            LoadingScreen()
+        } else {
+            MobileHomeContent(state, onContentClick, onPlayContent) { viewModel.selectContent(it) }
+        }
+    }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TV Home — rail-based landscape layout
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@Composable
+private fun TvHomeContent(
+    state: HomeState,
+    isLoading: Boolean,
+    onContentClick: (Long, String) -> Unit,
+    onPlayContent: (String, String, Long, String, Long) -> Unit,
+    onFocusChange: (Any?) -> Unit
+) {
+    val dimens = LocalImaxDimens.current
+    val latestMovies = remember(state.recentMovies, state.allMovies) {
+        state.recentMovies
+            .ifEmpty { state.allMovies }
+            .take(18)
+    }
+    val latestSeries = remember(state.allSeries) {
+        state.allSeries
+            .take(18)
+    }
+    val favoriteMovies = remember(state.favoriteMovies) { state.favoriteMovies.take(18) }
+    val recentChannels = remember(state.recentChannels) { state.recentChannels.take(16) }
+    val hasVisibleContent = remember(
+        state.continueWatching,
+        latestMovies,
+        latestSeries,
+        recentChannels,
+        favoriteMovies
+    ) {
+        state.continueWatching.isNotEmpty() ||
+            latestMovies.isNotEmpty() ||
+            latestSeries.isNotEmpty() ||
+            recentChannels.isNotEmpty() ||
+            favoriteMovies.isNotEmpty()
+    }
+    val backdropUrl = remember(state.selectedContent, latestMovies) {
+        when (val selected = state.selectedContent) {
+            is Movie -> selected.backdropUrl.ifBlank { selected.posterUrl }
+            is Series -> selected.backdropUrl.ifBlank { selected.posterUrl }
+            else -> latestMovies.firstOrNull()?.backdropUrl
+                ?.ifBlank { latestMovies.firstOrNull()?.posterUrl.orEmpty() }
+                .orEmpty()
+        }
+    }
+    var showBackdrop by remember(backdropUrl) { mutableStateOf(false) }
+
+    LaunchedEffect(backdropUrl) {
+        showBackdrop = false
+        if (backdropUrl.isNotBlank()) {
+            withFrameNanos {
+                showBackdrop = true
+            }
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (showBackdrop && backdropUrl.isNotBlank()) {
+            PosterImage(
+                url = backdropUrl,
+                contentDescription = "Backdrop",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(360.dp)
+                    .blur(14.dp)
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(360.dp)
+                    .background(Brush.verticalGradient(listOf(ImaxColors.OverlayDark, ImaxColors.Background)))
+            )
+        }
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(vertical = dimens.screenPadding),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            if (isLoading && !hasVisibleContent) {
+                item(key = "tv-home-loading") {
+                    TvHomeLoadingState()
+                }
+            }
+
+            if (state.continueWatching.isNotEmpty()) {
+                item(key = "tv-home-continue-watching") {
+                    ContentRail(stringResource(R.string.section_continue_watching), dimens.screenPadding) {
+                        items(
+                            items = state.continueWatching,
+                            key = { "${it.contentType.name}-${it.id}" }
+                        ) { item ->
+                            ContinueWatchingCard(item, true,
+                                onClick = { onPlayContent(item.streamUrl, item.title, item.contentId, item.contentType.name, item.position) },
+                                onFocus = { onFocusChange(item) })
+                        }
+                    }
+                }
+            }
+            if (latestMovies.isNotEmpty()) {
+                item(key = "tv-home-movies") {
+                    ContentRail(stringResource(R.string.nav_movies), dimens.screenPadding) {
+                        items(latestMovies, key = { it.id }) { movie ->
+                            ContentPosterCard(title = movie.name, posterUrl = movie.posterUrl, rating = movie.rating, year = movie.year, isTv = true,
+                                onClick = { onContentClick(movie.id, "MOVIE") })
+                        }
+                    }
+                }
+            }
+            if (latestSeries.isNotEmpty()) {
+                item(key = "tv-home-series") {
+                    ContentRail(stringResource(R.string.nav_series), dimens.screenPadding) {
+                        items(latestSeries, key = { it.id }) { series ->
+                            ContentPosterCard(title = series.name, posterUrl = series.posterUrl, rating = series.rating, year = series.year, isTv = true,
+                                onClick = { onContentClick(series.id, "SERIES") })
+                        }
+                    }
+                }
+            }
+            if (recentChannels.isNotEmpty()) {
+                item(key = "tv-home-recent-channels") {
+                    ContentRail(stringResource(R.string.section_recent_channels), dimens.screenPadding) {
+                        items(recentChannels, key = { it.id }) { ch ->
+                            ChannelCard(ch, true,
+                                onClick = { onPlayContent(ch.streamUrl, ch.name, ch.id, "LIVE", 0) },
+                                onFocus = { onFocusChange(ch) })
+                        }
+                    }
+                }
+            }
+            if (favoriteMovies.isNotEmpty()) {
+                item(key = "tv-home-favorites") {
+                    ContentRail(stringResource(R.string.section_favorites), dimens.screenPadding) {
+                        items(favoriteMovies, key = { it.id }) { movie ->
+                            ContentPosterCard(title = movie.name, posterUrl = movie.posterUrl, rating = movie.rating, year = movie.year, isTv = true,
+                                onClick = { onContentClick(movie.id, "MOVIE") })
+                        }
+                    }
+                }
+            }
+            item(key = "tv-home-footer-space") {
+                Spacer(modifier = Modifier.height(32.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvHomeLoadingState() {
+    val dimens = LocalImaxDimens.current
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = dimens.screenPadding, vertical = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        Text(
+            text = stringResource(R.string.nav_home),
+            style = MaterialTheme.typography.headlineMedium,
+            color = ImaxColors.TextPrimary
+        )
+        LinearProgressIndicator(
+            modifier = Modifier
+                .fillMaxWidth(0.42f)
+                .height(6.dp)
+                .clip(RoundedCornerShape(999.dp)),
+            color = ImaxColors.Primary,
+            trackColor = ImaxColors.SurfaceVariant
+        )
+        repeat(2) {
+            ShimmerBox(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(170.dp)
+                    .clip(RoundedCornerShape(22.dp))
+            )
+        }
+    }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Mobile Home — portrait-first vertical layout
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@Composable
+private fun MobileHomeContent(
+    state: HomeState,
+    onContentClick: (Long, String) -> Unit,
+    onPlayContent: (String, String, Long, String, Long) -> Unit,
+    onFocusChange: (Any?) -> Unit
+) {
+    val dimens = LocalImaxDimens.current
+    val scrollState = rememberScrollState()
+    val config = LocalConfiguration.current
+    val isLandscape = config.screenWidthDp > config.screenHeightDp
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Dynamic backdrop
+        val backdropUrl = when (val selected = state.selectedContent) {
+            is Movie -> selected.backdropUrl.ifBlank { selected.posterUrl }
+            is Series -> selected.backdropUrl.ifBlank { selected.posterUrl }
+            else -> state.allMovies.firstOrNull()?.posterUrl ?: ""
+        }
+        if (backdropUrl.isNotBlank()) {
+            PosterImage(
+                url = backdropUrl,
+                contentDescription = "Backdrop",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxWidth().height(300.dp).blur(20.dp)
+            )
+            Box(
+                modifier = Modifier.fillMaxWidth().height(300.dp)
+                    .background(Brush.verticalGradient(listOf(ImaxColors.OverlayDark, ImaxColors.Background)))
+            )
+        }
+
+        Column(
+            modifier = Modifier.fillMaxSize().verticalScroll(scrollState)
+                .padding(top = dimens.screenPadding, bottom = 8.dp)
+        ) {
+            // Mobile hero banner — stacked layout for portrait
+            MobileHeroBanner(state, isLandscape, onPlayContent, onContentClick)
+            Spacer(modifier = Modifier.height(dimens.sectionSpacing))
+
+            if (state.continueWatching.isNotEmpty()) {
+                ContentRail(stringResource(R.string.section_continue_watching), dimens.screenPadding) {
+                    items(state.continueWatching) { item ->
+                        ContinueWatchingCard(item, false,
+                            onClick = { onPlayContent(item.streamUrl, item.title, item.contentId, item.contentType.name, item.position) },
+                            onFocus = { onFocusChange(item) })
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+            if (state.recentChannels.isNotEmpty()) {
+                ContentRail(stringResource(R.string.section_recent_channels), dimens.screenPadding) {
+                    items(state.recentChannels) { ch ->
+                        ChannelCard(ch, false,
+                            onClick = { onPlayContent(ch.streamUrl, ch.name, ch.id, "LIVE", 0) },
+                            onFocus = { onFocusChange(ch) })
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+            if (state.allMovies.isNotEmpty()) {
+                ContentRail(stringResource(R.string.nav_movies), dimens.screenPadding) {
+                    items(state.allMovies) { movie ->
+                        ContentPosterCard(title = movie.name, posterUrl = movie.posterUrl, rating = movie.rating, year = movie.year, isTv = false,
+                            onClick = { onContentClick(movie.id, "MOVIE") })
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+            if (state.favoriteMovies.isNotEmpty()) {
+                ContentRail(stringResource(R.string.section_favorites), dimens.screenPadding) {
+                    items(state.favoriteMovies) { movie ->
+                        ContentPosterCard(title = movie.name, posterUrl = movie.posterUrl, rating = movie.rating, year = movie.year, isTv = false,
+                            onClick = { onContentClick(movie.id, "MOVIE") })
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+            if (state.allSeries.isNotEmpty()) {
+                ContentRail(stringResource(R.string.nav_series), dimens.screenPadding) {
+                    items(state.allSeries) { series ->
+                        ContentPosterCard(title = series.name, posterUrl = series.posterUrl, rating = series.rating, year = series.year, isTv = false,
+                            onClick = { onContentClick(series.id, "SERIES") })
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+    }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// TV Hero Banner — horizontal Row layout (landscape-first)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@Composable
+private fun TvHeroBanner(
+    state: HomeState,
+    onPlay: (String, String, Long, String, Long) -> Unit,
+    onDetail: (Long, String) -> Unit
+) {
+    val featured = state.allMovies.firstOrNull() ?: return
+    val dimens = LocalImaxDimens.current
+
+    Box(
+        modifier = Modifier.fillMaxWidth().height(dimens.bannerHeight)
+            .padding(horizontal = dimens.screenPadding)
+    ) {
+        GlassCard(modifier = Modifier.fillMaxSize()) {
+            Row(modifier = Modifier.fillMaxSize()) {
+                PosterImage(
+                    url = featured.posterUrl,
+                    contentDescription = featured.name,
+                    modifier = Modifier.width(dimens.posterWidth).fillMaxHeight()
+                        .clip(RoundedCornerShape(12.dp))
+                )
+                Column(
+                    modifier = Modifier.weight(1f).padding(start = 16.dp).fillMaxHeight(),
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(text = featured.name, style = MaterialTheme.typography.headlineMedium,
+                        color = ImaxColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (featured.year > 0) Text(featured.year.toString(), style = MaterialTheme.typography.bodyMedium, color = ImaxColors.TextSecondary)
+                        if (featured.rating > 0) Text("⭐ ${String.format("%.1f", featured.rating)}", style = MaterialTheme.typography.bodyMedium, color = ImaxColors.RatingStarColor)
+                        if (featured.genre.isNotBlank()) Text(featured.genre.take(30), style = MaterialTheme.typography.bodyMedium, color = ImaxColors.TextSecondary)
+                    }
+                    if (featured.plot.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(featured.plot, style = MaterialTheme.typography.bodySmall, color = ImaxColors.TextTertiary, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        GradientButton(text = stringResource(R.string.action_play), icon = Icons.Filled.PlayArrow,
+                            onClick = { onPlay(featured.streamUrl, featured.name, featured.id, "MOVIE", featured.lastPosition) })
+                        OutlinedButton(
+                            onClick = { onDetail(featured.id, "MOVIE") },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = ImaxColors.TextPrimary),
+                            border = BorderStroke(1.dp, ImaxColors.GlassBorder)
+                        ) {
+                            Icon(Icons.Filled.Info, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(stringResource(R.string.action_details))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Mobile Hero Banner — stacked Column for portrait, Row for landscape
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@Composable
+private fun MobileHeroBanner(
+    state: HomeState,
+    isLandscape: Boolean,
+    onPlay: (String, String, Long, String, Long) -> Unit,
+    onDetail: (Long, String) -> Unit
+) {
+    val featured = state.allMovies.firstOrNull() ?: return
+    val dimens = LocalImaxDimens.current
+
+    Box(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = dimens.screenPadding)
+    ) {
+        GlassCard(modifier = Modifier.fillMaxWidth()) {
+            if (isLandscape) {
+                // Landscape: horizontal layout
+                Row(modifier = Modifier.fillMaxWidth()) {
+                    PosterImage(
+                        url = featured.posterUrl,
+                        contentDescription = featured.name,
+                        modifier = Modifier.width(140.dp).aspectRatio(2f / 3f)
+                            .clip(RoundedCornerShape(12.dp))
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    MobileHeroBannerInfo(featured, onPlay, onDetail)
+                }
+            } else {
+                // Portrait: stacked vertical layout
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // Backdrop image
+                    PosterImage(
+                        url = featured.backdropUrl.ifBlank { featured.posterUrl },
+                        contentDescription = featured.name,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxWidth().height(160.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    MobileHeroBannerInfo(featured, onPlay, onDetail)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MobileHeroBannerInfo(
+    featured: Movie,
+    onPlay: (String, String, Long, String, Long) -> Unit,
+    onDetail: (Long, String) -> Unit
+) {
+    Column {
+        Text(text = featured.name, style = MaterialTheme.typography.titleLarge,
+            color = ImaxColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Spacer(modifier = Modifier.height(4.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (featured.year > 0) Text(featured.year.toString(), style = MaterialTheme.typography.bodySmall, color = ImaxColors.TextSecondary)
+            if (featured.rating > 0) Text("⭐ ${String.format("%.1f", featured.rating)}", style = MaterialTheme.typography.bodySmall, color = ImaxColors.RatingStarColor)
+        }
+        if (featured.plot.isNotBlank()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(featured.plot, style = MaterialTheme.typography.bodySmall, color = ImaxColors.TextTertiary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            GradientButton(text = stringResource(R.string.action_play), icon = Icons.Filled.PlayArrow,
+                onClick = { onPlay(featured.streamUrl, featured.name, featured.id, "MOVIE", featured.lastPosition) })
+            OutlinedButton(
+                onClick = { onDetail(featured.id, "MOVIE") },
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = ImaxColors.TextPrimary),
+                border = BorderStroke(1.dp, ImaxColors.GlassBorder)
+            ) {
+                Icon(Icons.Filled.Info, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(stringResource(R.string.action_details), style = MaterialTheme.typography.labelMedium)
+            }
+        }
+    }
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Shared composables
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+@Composable
+private fun ContentRail(
+    title: String,
+    horizontalPad: androidx.compose.ui.unit.Dp,
+    itemContent: androidx.compose.foundation.lazy.LazyListScope.() -> Unit
+) {
+    val dimens = LocalImaxDimens.current
+    SectionHeader(title = title, modifier = Modifier.padding(horizontal = horizontalPad))
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = horizontalPad),
+        horizontalArrangement = Arrangement.spacedBy(dimens.cardSpacing),
+        content = { itemContent() }
+    )
+}
+
+@Composable
+private fun ContinueWatchingCard(
+    item: WatchHistoryItem,
+    isTv: Boolean,
+    onClick: () -> Unit,
+    onFocus: () -> Unit
+) {
+    val dimens = LocalImaxDimens.current
+    var isFocused by remember { mutableStateOf(false) }
+    val width = if (isTv) 240.dp else 184.dp
+    val title = remember(item) { item.seriesName.ifBlank { item.title } }
+    val subtitle = remember(item) { continueWatchingSubtitle(item) }
+    val progressLabel = remember(item) { continueWatchingProgressLabel(item) }
+    val progress = item.progress.coerceIn(0f, 1f)
+    val scale by animateFloatAsState(
+        targetValue = if (isTv && isFocused) 1.06f else 1f,
+        animationSpec = tween(180),
+        label = "continueWatchingScale"
+    )
+    val borderWidth by animateDpAsState(
+        targetValue = if (isTv && isFocused) 3.dp else if (isFocused) dimens.focusBorderWidth else 0.dp,
+        animationSpec = tween(180),
+        label = "continueWatchingBorder"
+    )
+    val backgroundColor by animateColorAsState(
+        targetValue = when {
+            isTv && isFocused -> ImaxColors.SurfaceElevated
+            isFocused -> ImaxColors.SurfaceVariant
+            else -> ImaxColors.CardBackground
+        },
+        animationSpec = tween(180),
+        label = "continueWatchingBackground"
+    )
+
+    Column(
+        modifier = Modifier
+            .width(width)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .clip(RoundedCornerShape(dimens.borderRadius))
+            .background(backgroundColor)
+            .then(
+                if (isTv && isFocused) {
+                    Modifier.shadow(
+                        elevation = 18.dp,
+                        shape = RoundedCornerShape(dimens.borderRadius),
+                        spotColor = ImaxColors.FocusGlow
+                    )
+                } else {
+                    Modifier
+                }
+            )
+            .border(
+                width = borderWidth,
+                color = ImaxColors.FocusBorder,
+                shape = RoundedCornerShape(dimens.borderRadius)
+            )
+            .clickable(onClick = onClick)
+            .onFocusChanged { fs ->
+                isFocused = fs.isFocused
+                if (fs.isFocused) onFocus()
+            }
+            .focusable()
+    ) {
+        Box(modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+            PosterImage(url = item.posterUrl, contentDescription = item.title, modifier = Modifier.fillMaxSize())
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.1f),
+                                Color.Black.copy(alpha = 0.72f)
+                            )
+                        )
+                    )
+            )
+            if (item.contentType == ContentType.SERIES && item.seasonNumber > 0) {
+                Surface(
+                    modifier = Modifier.padding(8.dp).align(Alignment.TopStart),
+                    shape = RoundedCornerShape(999.dp),
+                    color = Color.Black.copy(alpha = 0.55f)
+                ) {
+                    Text(
+                        text = "S${item.seasonNumber}:E${item.episodeNumber}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+            Surface(
+                modifier = Modifier.padding(8.dp).align(Alignment.BottomStart),
+                shape = RoundedCornerShape(999.dp),
+                color = ImaxColors.Primary.copy(alpha = 0.92f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Filled.PlayArrow,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = stringResource(R.string.action_resume),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White
+                    )
+                }
+            }
+            Box(
+                modifier = Modifier.fillMaxWidth().height(4.dp)
+                    .align(Alignment.BottomCenter).background(ImaxColors.SurfaceVariant)
+            ) {
+                Box(modifier = Modifier.fillMaxWidth(progress).fillMaxHeight().background(ImaxColors.Primary))
+            }
+        }
+        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                color = ImaxColors.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (subtitle.isNotBlank()) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ImaxColors.TextTertiary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = progressLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = ImaxColors.TextSecondary
+                )
+                Text(
+                    text = "${(progress * 100).toInt()}%",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = ImaxColors.Primary
+                )
+            }
+        }
+    }
+}
+
+private fun continueWatchingSubtitle(item: WatchHistoryItem): String {
+    return when {
+        item.contentType == ContentType.SERIES && item.seasonNumber > 0 -> {
+            val episodeLabel = "S${item.seasonNumber}:E${item.episodeNumber}"
+            if (item.title.isNotBlank() && item.title != item.seriesName) {
+                "$episodeLabel  •  ${item.title}"
+            } else {
+                episodeLabel
+            }
+        }
+        item.title.isNotBlank() -> item.title
+        else -> ""
+    }
+}
+
+private fun continueWatchingProgressLabel(item: WatchHistoryItem): String {
+    return if (item.totalDuration > 0L) {
+        "${StringUtils.formatDuration(item.position)} / ${StringUtils.formatDuration(item.totalDuration)}"
+    } else if (item.position > 0L) {
+        StringUtils.formatDuration(item.position)
+    } else {
+        ""
+    }
+}
+
+@Composable
+private fun ChannelCard(
+    channel: Channel,
+    isTv: Boolean,
+    onClick: () -> Unit,
+    onFocus: () -> Unit
+) {
+    val dimens = LocalImaxDimens.current
+    var isFocused by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .width(if (isTv) 160.dp else 110.dp)
+            .clip(RoundedCornerShape(dimens.borderRadius))
+            .background(ImaxColors.CardBackground)
+            .border(
+                width = if (isFocused) dimens.focusBorderWidth else 0.dp,
+                color = ImaxColors.FocusBorder,
+                shape = RoundedCornerShape(dimens.borderRadius)
+            )
+            .clickable(onClick = onClick)
+            .onFocusChanged { fs ->
+                isFocused = fs.isFocused
+                if (fs.isFocused) onFocus()
+            }
+            .focusable()
+            .padding(12.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        PosterImage(
+            url = channel.logoUrl,
+            contentDescription = channel.name,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.size(if (isTv) 64.dp else 48.dp)
+                .clip(RoundedCornerShape(8.dp))
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(text = channel.name, style = MaterialTheme.typography.titleSmall,
+            color = ImaxColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+    }
+}
+
+5. TV startup + collapsible drawer + category focus doğrulama notları
+- Drawer artık compact ve expanded olmak üzere iki net moda sahip. İçerik tarafına geçildiğinde compact rail görünümüne dönüyor; drawer item focus alınca genişleyip label’ları açıyor.
+- Drawer genişlemesi artık görsel toggle değil, focus-driven interaction. Bu yüzden kullanıcı sola gidince menü büyüyor, içerik tarafına dönünce menü tekrar küçülüyor.
+- Compact modda selected/current route sadece ikon tint’iyle kalmıyor; kalıcı zemin, border ve edge indicator ile belli oluyor. Focused+selected state en güçlü state olarak çiziliyor.
+- Expanded modda focused item daha güçlü zemin, belirgin ring ve daha parlak icon/text ile okunuyor. OK’a basınca neyin seçileceği daha net.
+- Kategori paneli daha kontrastlı panel kabuğu ve daha baskın selected/focused state’lerle güncellendi. Ana ve iç kategori highlight’ları önceki “ton farkı” hissinden çıkıp daha okunur hale geldi.
+- TV Home açılışında drawer artık başlangıçta focus istemiyor; bu gereksiz focus zincirini kaldırıyor. Home ayrıca `LazyColumn` ile ilk ekranda görünmeyen rail’leri hemen compose etmiyor.
+- Blur’lu backdrop ilk frame’den sonra açılıyor; bu da ilk görüntünün daha erken gelmesine yardım ediyor.
+
+6. Test / doğrulama notları
+- Çalıştırıldı: `./gradlew :app:compileDebugKotlin`
+- Sonuç: Başarılı
+- Çalıştırıldı: `./gradlew :app:testDebugUnitTest`
+- Sonuç: Başarılı
+- Manuel cihaz doğrulaması bu ortamda yapılamadı; Android TV cihazı veya TV emülatöründe şu akışlar özellikle kontrol edilmeli:
+  - Uygulama ilk açılışında drawer shell’in daha erken görünmesi
+  - İçerik tarafındayken drawer’ın compact kalması
+  - Sola gidildiğinde drawer’ın expand olması
+  - Compact modda current route’un uzaktan net görünmesi
+  - Movies / Series / Live TV kategori panelinde selected, focused, focused+selected farklarının açıkça ayırt edilmesi
+- Not: Çalışma ağacında bu turdan önce mevcut olan ve tarafımdan dokunulmayan başka modifiyeli dosyalar da var; bu teslim yalnızca yukarıdaki 4 TV dosyasını kapsıyor.
+
+7. Build ve run adımları
+1. `./gradlew :app:assembleDebug`
+2. TV cihazı veya TV emülatörü bağlıysa `./gradlew :app:installDebug`
+3. Uygulamayı Android TV launcher’dan aç
+4. Açılışta Home shell’in önceki hâle göre daha hızlı görünmesini kontrol et
+5. D-pad ile içerikten sola geçip drawer’ın expand olduğunu, sağa dönünce compact moda indiğini doğrula
+6. Movies / Series / Live TV ekranlarında kategori paneli focus ve selected netliğini doğrula

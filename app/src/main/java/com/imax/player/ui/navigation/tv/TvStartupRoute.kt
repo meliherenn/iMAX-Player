@@ -19,7 +19,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 data class TvStartupState(
@@ -37,27 +37,26 @@ class TvStartupViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            playlistRepository.getAllPlaylists().collectLatest { playlists ->
-                val activePlaylist = playlists.firstOrNull { it.isActive && it.isUsableForTvStartup() }
-                val fallbackPlaylist = playlists.firstOrNull { it.isUsableForTvStartup() }
+            val playlists = playlistRepository.getAllPlaylists().first()
+            val activePlaylist = playlists.firstOrNull { it.isActive && it.isUsableForTvStartup() }
+            val fallbackPlaylist = playlists.firstOrNull { it.isUsableForTvStartup() }
 
-                val targetRoute = when {
-                    activePlaylist != null -> Routes.HOME
-                    fallbackPlaylist != null -> {
-                        if (!fallbackPlaylist.isActive) {
-                            playlistRepository.activatePlaylist(fallbackPlaylist.id)
-                        }
-                        Routes.HOME
+            val targetRoute = when {
+                activePlaylist != null -> Routes.HOME
+                fallbackPlaylist != null -> {
+                    if (!fallbackPlaylist.isActive) {
+                        playlistRepository.activatePlaylist(fallbackPlaylist.id)
                     }
-
-                    else -> Routes.PLAYLISTS
+                    Routes.HOME
                 }
 
-                _state.value = TvStartupState(
-                    isLoading = false,
-                    targetRoute = targetRoute
-                )
+                else -> Routes.PLAYLISTS
             }
+
+            _state.value = TvStartupState(
+                isLoading = false,
+                targetRoute = targetRoute
+            )
         }
     }
 }

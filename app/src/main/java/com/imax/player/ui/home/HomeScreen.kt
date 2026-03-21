@@ -6,6 +6,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -13,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -46,23 +48,23 @@ fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    var isDrawerExpanded by remember { mutableStateOf(false) }
 
     if (isTv) {
         ImaxDrawer(
-            isExpanded = isDrawerExpanded,
+            isExpanded = false,
             selectedRoute = Routes.HOME,
             isTv = true,
-            onToggle = { isDrawerExpanded = !isDrawerExpanded },
+            onToggle = {},
             onNavigate = { route ->
                 if (route == "exit") onNavigate(Routes.ONBOARDING) else onNavigate(route)
             }
         ) {
-            if (state.isLoading) {
-                LoadingScreen()
-            } else {
-                TvHomeContent(state, onContentClick, onPlayContent) { viewModel.selectContent(it) }
-            }
+            TvHomeContent(
+                state = state,
+                isLoading = state.isLoading,
+                onContentClick = onContentClick,
+                onPlayContent = onPlayContent
+            ) { viewModel.selectContent(it) }
         }
     } else {
         if (state.isLoading) {
@@ -80,94 +82,178 @@ fun HomeScreen(
 @Composable
 private fun TvHomeContent(
     state: HomeState,
+    isLoading: Boolean,
     onContentClick: (Long, String) -> Unit,
     onPlayContent: (String, String, Long, String, Long) -> Unit,
     onFocusChange: (Any?) -> Unit
 ) {
     val dimens = LocalImaxDimens.current
-    val scrollState = rememberScrollState()
-    val latestMovies = remember(state.allMovies) {
-        state.allMovies
-            .sortedByDescending { it.id }
-            .take(20)
+    val latestMovies = remember(state.recentMovies, state.allMovies) {
+        state.recentMovies
+            .ifEmpty { state.allMovies }
+            .take(18)
     }
     val latestSeries = remember(state.allSeries) {
         state.allSeries
-            .sortedByDescending { it.id }
-            .take(20)
+            .take(18)
+    }
+    val favoriteMovies = remember(state.favoriteMovies) { state.favoriteMovies.take(18) }
+    val recentChannels = remember(state.recentChannels) { state.recentChannels.take(16) }
+    val hasVisibleContent = remember(
+        state.continueWatching,
+        latestMovies,
+        latestSeries,
+        recentChannels,
+        favoriteMovies
+    ) {
+        state.continueWatching.isNotEmpty() ||
+            latestMovies.isNotEmpty() ||
+            latestSeries.isNotEmpty() ||
+            recentChannels.isNotEmpty() ||
+            favoriteMovies.isNotEmpty()
+    }
+    val backdropUrl = remember(state.selectedContent, latestMovies) {
+        when (val selected = state.selectedContent) {
+            is Movie -> selected.backdropUrl.ifBlank { selected.posterUrl }
+            is Series -> selected.backdropUrl.ifBlank { selected.posterUrl }
+            else -> latestMovies.firstOrNull()?.backdropUrl
+                ?.ifBlank { latestMovies.firstOrNull()?.posterUrl.orEmpty() }
+                .orEmpty()
+        }
+    }
+    var showBackdrop by remember(backdropUrl) { mutableStateOf(false) }
+
+    LaunchedEffect(backdropUrl) {
+        showBackdrop = false
+        if (backdropUrl.isNotBlank()) {
+            withFrameNanos {
+                showBackdrop = true
+            }
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Dynamic backdrop
-        val backdropUrl = when (val selected = state.selectedContent) {
-            is Movie -> selected.backdropUrl.ifBlank { selected.posterUrl }
-            is Series -> selected.backdropUrl.ifBlank { selected.posterUrl }
-            else -> state.allMovies.firstOrNull()?.posterUrl ?: ""
-        }
-        if (backdropUrl.isNotBlank()) {
+        if (showBackdrop && backdropUrl.isNotBlank()) {
             PosterImage(
                 url = backdropUrl,
                 contentDescription = "Backdrop",
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxWidth().height(400.dp).blur(20.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(360.dp)
+                    .blur(14.dp)
             )
             Box(
-                modifier = Modifier.fillMaxWidth().height(400.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(360.dp)
                     .background(Brush.verticalGradient(listOf(ImaxColors.OverlayDark, ImaxColors.Background)))
             )
         }
 
-        Column(
-            modifier = Modifier.fillMaxSize().verticalScroll(scrollState)
-                .padding(vertical = dimens.screenPadding)
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(vertical = dimens.screenPadding),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            if (isLoading && !hasVisibleContent) {
+                item(key = "tv-home-loading") {
+                    TvHomeLoadingState()
+                }
+            }
+
             if (state.continueWatching.isNotEmpty()) {
-                ContentRail(stringResource(R.string.section_continue_watching), dimens.screenPadding) {
-                    items(state.continueWatching) { item ->
-                        ContinueWatchingCard(item, true,
-                            onClick = { onPlayContent(item.streamUrl, item.title, item.contentId, item.contentType.name, item.position) },
-                            onFocus = { onFocusChange(item) })
+                item(key = "tv-home-continue-watching") {
+                    ContentRail(stringResource(R.string.section_continue_watching), dimens.screenPadding) {
+                        items(
+                            items = state.continueWatching,
+                            key = { "${it.contentType.name}-${it.id}" }
+                        ) { item ->
+                            ContinueWatchingCard(item, true,
+                                onClick = { onPlayContent(item.streamUrl, item.title, item.contentId, item.contentType.name, item.position) },
+                                onFocus = { onFocusChange(item) })
+                        }
                     }
                 }
-                Spacer(modifier = Modifier.height(16.dp))
             }
             if (latestMovies.isNotEmpty()) {
-                ContentRail(stringResource(R.string.nav_movies), dimens.screenPadding) {
-                    items(latestMovies) { movie ->
-                        ContentPosterCard(title = movie.name, posterUrl = movie.posterUrl, rating = movie.rating, year = movie.year, isTv = true,
-                            onClick = { onContentClick(movie.id, "MOVIE") })
+                item(key = "tv-home-movies") {
+                    ContentRail(stringResource(R.string.nav_movies), dimens.screenPadding) {
+                        items(latestMovies, key = { it.id }) { movie ->
+                            ContentPosterCard(title = movie.name, posterUrl = movie.posterUrl, rating = movie.rating, year = movie.year, isTv = true,
+                                onClick = { onContentClick(movie.id, "MOVIE") })
+                        }
                     }
                 }
-                Spacer(modifier = Modifier.height(16.dp))
             }
             if (latestSeries.isNotEmpty()) {
-                ContentRail(stringResource(R.string.nav_series), dimens.screenPadding) {
-                    items(latestSeries) { series ->
-                        ContentPosterCard(title = series.name, posterUrl = series.posterUrl, rating = series.rating, year = series.year, isTv = true,
-                            onClick = { onContentClick(series.id, "SERIES") })
-                    }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-            if (state.recentChannels.isNotEmpty()) {
-                ContentRail(stringResource(R.string.section_recent_channels), dimens.screenPadding) {
-                    items(state.recentChannels) { ch ->
-                        ChannelCard(ch, true,
-                            onClick = { onPlayContent(ch.streamUrl, ch.name, ch.id, "LIVE", 0) },
-                            onFocus = { onFocusChange(ch) })
-                    }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-            if (state.favoriteMovies.isNotEmpty()) {
-                ContentRail(stringResource(R.string.section_favorites), dimens.screenPadding) {
-                    items(state.favoriteMovies) { movie ->
-                        ContentPosterCard(title = movie.name, posterUrl = movie.posterUrl, rating = movie.rating, year = movie.year, isTv = true,
-                            onClick = { onContentClick(movie.id, "MOVIE") })
+                item(key = "tv-home-series") {
+                    ContentRail(stringResource(R.string.nav_series), dimens.screenPadding) {
+                        items(latestSeries, key = { it.id }) { series ->
+                            ContentPosterCard(title = series.name, posterUrl = series.posterUrl, rating = series.rating, year = series.year, isTv = true,
+                                onClick = { onContentClick(series.id, "SERIES") })
+                        }
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(32.dp))
+            if (recentChannels.isNotEmpty()) {
+                item(key = "tv-home-recent-channels") {
+                    ContentRail(stringResource(R.string.section_recent_channels), dimens.screenPadding) {
+                        items(recentChannels, key = { it.id }) { ch ->
+                            ChannelCard(ch, true,
+                                onClick = { onPlayContent(ch.streamUrl, ch.name, ch.id, "LIVE", 0) },
+                                onFocus = { onFocusChange(ch) })
+                        }
+                    }
+                }
+            }
+            if (favoriteMovies.isNotEmpty()) {
+                item(key = "tv-home-favorites") {
+                    ContentRail(stringResource(R.string.section_favorites), dimens.screenPadding) {
+                        items(favoriteMovies, key = { it.id }) { movie ->
+                            ContentPosterCard(title = movie.name, posterUrl = movie.posterUrl, rating = movie.rating, year = movie.year, isTv = true,
+                                onClick = { onContentClick(movie.id, "MOVIE") })
+                        }
+                    }
+                }
+            }
+            item(key = "tv-home-footer-space") {
+                Spacer(modifier = Modifier.height(32.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvHomeLoadingState() {
+    val dimens = LocalImaxDimens.current
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = dimens.screenPadding, vertical = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(18.dp)
+    ) {
+        Text(
+            text = stringResource(R.string.nav_home),
+            style = MaterialTheme.typography.headlineMedium,
+            color = ImaxColors.TextPrimary
+        )
+        LinearProgressIndicator(
+            modifier = Modifier
+                .fillMaxWidth(0.42f)
+                .height(6.dp)
+                .clip(RoundedCornerShape(999.dp)),
+            color = ImaxColors.Primary,
+            trackColor = ImaxColors.SurfaceVariant
+        )
+        repeat(2) {
+            ShimmerBox(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(170.dp)
+                    .clip(RoundedCornerShape(22.dp))
+            )
         }
     }
 }
@@ -658,7 +744,8 @@ private fun ChannelCard(
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(text = channel.name, style = MaterialTheme.typography.titleSmall,
-            color = ImaxColors.TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis,
+            color = ImaxColors.TextPrimary,
+            maxLines = 2, overflow = TextOverflow.Ellipsis,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center)
     }
 }

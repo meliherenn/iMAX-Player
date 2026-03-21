@@ -39,6 +39,8 @@
     <string name="confirm_delete">Bu oynatma listesini silmek istediğinizden emin misiniz?</string>
     <string name="yes">Evet</string>
     <string name="no">Hayır</string>
+    <string name="tv_exit_action">Çık</string>
+    <string name="tv_exit_confirmation_message">Uygulamadan çıkmak istiyor musunuz?</string>
     <string name="play">Oynat</string>
     <string name="add_to_favorites">Favorilere Ekle</string>
     <string name="remove_from_favorites">Favorilerden Çıkar</string>
