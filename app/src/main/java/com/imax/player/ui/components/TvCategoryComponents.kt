@@ -99,40 +99,42 @@ fun TvRailCategoryItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     var isFocused by remember { mutableStateOf(false) }
     val itemShape = RoundedCornerShape(18.dp)
-    val focusState = rememberTvFocusVisualState(
-        isFocused = isFocused,
-        isSelected = isSelected,
-        defaultSurface = Color.Transparent,
-        selectedSurface = Color(0xFF2D1D16),
-        focusedSurface = Color(0xFF85502B),
-        selectedFocusedSurface = Color(0xFFAF6535),
-        defaultContentColor = ImaxColors.TextSecondary,
-        defaultSecondaryContentColor = ImaxColors.TextSecondary,
-        selectedContentColor = Color(0xFFFFDFC9),
-        focusedContentColor = Color(0xFFFFFCF8),
-        selectedFocusedContentColor = Color(0xFFFFFCF8),
-        selectedBorderColor = Color(0xFF8F6A52),
-        focusedBorderColor = Color(0xFFFFD49C),
-        selectedFocusedBorderColor = Color(0xFFFFE6C0),
-        selectedAccentColor = Color(0xFFD69C73),
-        focusedAccentColor = Color(0xFFFFDDA0),
-        selectedFocusedAccentColor = Color(0xFFFFE8C8)
+
+    val backgroundColor by animateColorAsState(
+        targetValue = when {
+            isFocused -> Color.White
+            isSelected -> Color.White.copy(alpha = 0.12f)
+            else -> Color.Transparent
+        },
+        animationSpec = tween(180),
+        label = "tvCategoryBg"
     )
+
+    val contentColor by animateColorAsState(
+        targetValue = when {
+            isFocused -> Color.Black
+            isSelected -> Color.White
+            else -> ImaxColors.TextSecondary
+        },
+        animationSpec = tween(180),
+        label = "tvCategoryText"
+    )
+
     val trailingGlowColor by animateColorAsState(
         targetValue = when {
-            isFocused && isSelected -> Color(0x60FFE7C3)
-            isFocused -> Color(0x48FFD49A)
-            isSelected -> Color(0x22D69C73)
+            isFocused -> Color.Black.copy(alpha = 0.2f)
+            isSelected -> Color.White.copy(alpha = 0.2f)
             else -> Color.Transparent
         },
         animationSpec = tween(180),
         label = "tvCategoryGlow"
     )
+
     val effectiveScale by animateFloatAsState(
         targetValue = when {
-            isFocused && isSelected -> 1.10f
             isFocused -> 1.08f
             isSelected -> 1.02f
             else -> 1f
@@ -140,53 +142,70 @@ fun TvRailCategoryItem(
         animationSpec = tween(180),
         label = "tvCategoryEffectiveScale"
     )
+
     val effectiveBorderWidth by animateDpAsState(
         targetValue = when {
-            isFocused && isSelected -> 4.5.dp
-            isFocused -> 3.5.dp
-            isSelected -> 1.5.dp
+            isFocused -> 0.dp
+            isSelected -> 1.dp
             else -> 0.dp
         },
         animationSpec = tween(180),
         label = "tvCategoryEffectiveBorderWidth"
     )
 
+    val borderColor by animateColorAsState(
+        targetValue = when {
+            isSelected -> Color.White.copy(alpha = 0.4f)
+            else -> Color.Transparent
+        },
+        animationSpec = tween(180),
+        label = "tvCategoryBorderColor"
+    )
+
+    val accentWidth by animateDpAsState(
+        targetValue = if (isSelected) 4.dp else 0.dp,
+        animationSpec = tween(180),
+        label = "tvCategoryAccentWidth"
+    )
+
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .heightIn(min = 82.dp)
+            .heightIn(min = 68.dp)
             .graphicsLayer {
                 scaleX = effectiveScale
                 scaleY = effectiveScale
                 this.shape = itemShape
                 clip = false
-                shadowElevation = focusState.shadowElevation.toPx()
+                shadowElevation = if (isFocused) 16.dp.toPx() else 0f
+                ambientShadowColor = Color.White
             }
             .clip(itemShape)
-            .background(focusState.backgroundColor)
-            .border(effectiveBorderWidth, focusState.borderColor, itemShape)
-            .clickable(onClick = onClick)
+            .background(backgroundColor)
+            .border(effectiveBorderWidth, borderColor, itemShape)
             .onFocusChanged { isFocused = it.isFocused }
-            .focusable()
-            .padding(horizontal = 18.dp, vertical = 15.dp),
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
+            .padding(horizontal = 14.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
-                .width(focusState.accentWidth)
-                .height(48.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(focusState.accentColor)
+                .width(accentWidth)
+                .height(36.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(if (isFocused) Color.Black else Color.White)
         )
-        Spacer(modifier = Modifier.width(if (focusState.accentWidth > 0.dp) 16.dp else 10.dp))
+        Spacer(modifier = Modifier.width(if (accentWidth > 0.dp) 12.dp else 6.dp))
         Text(
             text = name,
             style = MaterialTheme.typography.titleMedium,
-            color = focusState.contentColor,
+            color = contentColor,
             fontWeight = when {
-                isFocused && isSelected -> FontWeight.ExtraBold
-                isFocused -> FontWeight.Bold
-                isSelected -> FontWeight.SemiBold
+                isFocused || isSelected -> FontWeight.Bold
                 else -> FontWeight.Medium
             },
             modifier = Modifier.weight(1f),
@@ -197,8 +216,8 @@ fun TvRailCategoryItem(
             Spacer(modifier = Modifier.width(10.dp))
             Box(
                 modifier = Modifier
-                    .width(10.dp)
-                    .height(36.dp)
+                    .width(8.dp)
+                    .height(28.dp)
                     .clip(RoundedCornerShape(999.dp))
                     .background(trailingGlowColor)
             )

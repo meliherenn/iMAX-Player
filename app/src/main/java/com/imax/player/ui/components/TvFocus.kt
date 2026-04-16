@@ -24,7 +24,10 @@ data class TvFocusVisualState(
     val secondaryContentColor: Color,
     val accentColor: Color,
     val accentWidth: Dp
-)
+) {
+    val elevation: Dp
+        get() = shadowElevation
+}
 
 @Composable
 fun rememberTvFocusVisualState(
@@ -47,11 +50,13 @@ fun rememberTvFocusVisualState(
     selectedFocusedAccentColor: Color = Color(0xFFFFE1C8)
 ): TvFocusVisualState {
     val isFocusedAndSelected = isFocused && isSelected
+    val animationSpec = tween<Dp>(180)
+
     val scale by animateFloatAsState(
         targetValue = when {
-            isFocusedAndSelected -> 1.08f
-            isFocused -> 1.055f
-            isSelected -> 1.015f
+            isFocusedAndSelected -> 1.12f
+            isFocused -> 1.10f
+            isSelected -> 1f
             else -> 1f
         },
         animationSpec = tween(180),
@@ -59,22 +64,22 @@ fun rememberTvFocusVisualState(
     )
     val shadowElevation by animateDpAsState(
         targetValue = when {
-            isFocusedAndSelected -> 24.dp
-            isFocused -> 18.dp
-            isSelected -> 6.dp
+            isFocusedAndSelected -> 30.dp
+            isFocused -> 28.dp
+            isSelected -> 0.dp
             else -> 0.dp
         },
-        animationSpec = tween(180),
+        animationSpec = animationSpec,
         label = "tvFocusShadow"
     )
     val borderWidth by animateDpAsState(
         targetValue = when {
             isFocusedAndSelected -> 4.dp
-            isFocused -> 3.dp
-            isSelected -> 1.5.dp
+            isFocused -> 3.5.dp
+            isSelected -> 1.dp
             else -> 0.dp
         },
-        animationSpec = tween(180),
+        animationSpec = animationSpec,
         label = "tvFocusBorderWidth"
     )
     val backgroundColor by animateColorAsState(
@@ -134,7 +139,7 @@ fun rememberTvFocusVisualState(
             isSelected -> 5.dp
             else -> 0.dp
         },
-        animationSpec = tween(180),
+        animationSpec = animationSpec,
         label = "tvFocusAccentWidth"
     )
 
@@ -144,7 +149,12 @@ fun rememberTvFocusVisualState(
         borderWidth = borderWidth,
         backgroundColor = backgroundColor,
         borderColor = borderColor,
-        glowColor = borderColor.copy(alpha = 0.58f),
+        glowColor = when {
+            isFocusedAndSelected -> selectedFocusedBorderColor.copy(alpha = 0.78f)
+            isFocused -> focusedBorderColor.copy(alpha = 0.72f)
+            isSelected -> selectedBorderColor.copy(alpha = 0.38f)
+            else -> Color.Transparent
+        },
         contentColor = contentColor,
         secondaryContentColor = secondaryContentColor,
         accentColor = accentColor,

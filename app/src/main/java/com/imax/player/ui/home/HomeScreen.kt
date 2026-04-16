@@ -398,15 +398,11 @@ private fun TvHeroBanner(
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         GradientButton(text = stringResource(R.string.action_play), icon = Icons.Filled.PlayArrow,
                             onClick = { onPlay(featured.streamUrl, featured.name, featured.id, "MOVIE", featured.lastPosition) })
-                        OutlinedButton(
-                            onClick = { onDetail(featured.id, "MOVIE") },
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = ImaxColors.TextPrimary),
-                            border = BorderStroke(1.dp, ImaxColors.GlassBorder)
-                        ) {
-                            Icon(Icons.Filled.Info, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(stringResource(R.string.action_details))
-                        }
+                        ImaxOutlinedButton(
+                            text = stringResource(R.string.action_details),
+                            icon = Icons.Filled.Info,
+                            onClick = { onDetail(featured.id, "MOVIE") }
+                        )
                     }
                 }
             }
@@ -531,25 +527,33 @@ private fun ContinueWatchingCard(
     val subtitle = remember(item) { continueWatchingSubtitle(item) }
     val progressLabel = remember(item) { continueWatchingProgressLabel(item) }
     val progress = item.progress.coerceIn(0f, 1f)
+    
+    val tvFocusState = if (isTv) {
+        rememberTvFocusVisualState(
+            isFocused = isFocused,
+            defaultSurface = ImaxColors.CardBackground,
+            selectedSurface = ImaxColors.CardBackground,
+            focusedSurface = ImaxColors.SurfaceElevated,
+            selectedFocusedSurface = Color(0xFF5C3C2C)
+        )
+    } else null
+
     val scale by animateFloatAsState(
-        targetValue = if (isTv && isFocused) 1.06f else 1f,
+        targetValue = tvFocusState?.scale ?: if (isFocused) 1.02f else 1f,
         animationSpec = tween(180),
         label = "continueWatchingScale"
     )
     val borderWidth by animateDpAsState(
-        targetValue = if (isTv && isFocused) 3.dp else if (isFocused) dimens.focusBorderWidth else 0.dp,
+        targetValue = tvFocusState?.borderWidth ?: if (isFocused) dimens.focusBorderWidth else 0.dp,
         animationSpec = tween(180),
         label = "continueWatchingBorder"
     )
     val backgroundColor by animateColorAsState(
-        targetValue = when {
-            isTv && isFocused -> ImaxColors.SurfaceElevated
-            isFocused -> ImaxColors.SurfaceVariant
-            else -> ImaxColors.CardBackground
-        },
+        targetValue = tvFocusState?.backgroundColor ?: if (isFocused) ImaxColors.SurfaceVariant else ImaxColors.CardBackground,
         animationSpec = tween(180),
         label = "continueWatchingBackground"
     )
+    val borderColor = tvFocusState?.borderColor ?: ImaxColors.FocusBorder
 
     Column(
         modifier = Modifier
@@ -561,11 +565,11 @@ private fun ContinueWatchingCard(
             .clip(RoundedCornerShape(dimens.borderRadius))
             .background(backgroundColor)
             .then(
-                if (isTv && isFocused) {
+                if (isTv && isFocused && tvFocusState != null) {
                     Modifier.shadow(
-                        elevation = 18.dp,
+                        elevation = tvFocusState.shadowElevation,
                         shape = RoundedCornerShape(dimens.borderRadius),
-                        spotColor = ImaxColors.FocusGlow
+                        spotColor = tvFocusState.glowColor
                     )
                 } else {
                     Modifier
@@ -573,7 +577,7 @@ private fun ContinueWatchingCard(
             )
             .border(
                 width = borderWidth,
-                color = ImaxColors.FocusBorder,
+                color = borderColor,
                 shape = RoundedCornerShape(dimens.borderRadius)
             )
             .clickable(onClick = onClick)
@@ -716,14 +720,54 @@ private fun ChannelCard(
     val dimens = LocalImaxDimens.current
     var isFocused by remember { mutableStateOf(false) }
 
+    val tvFocusState = if (isTv) {
+        rememberTvFocusVisualState(
+            isFocused = isFocused,
+            defaultSurface = ImaxColors.CardBackground,
+            selectedSurface = ImaxColors.CardBackground,
+            focusedSurface = ImaxColors.SurfaceElevated,
+            selectedFocusedSurface = Color(0xFF5C3C2C)
+        )
+    } else null
+
+    val scale by animateFloatAsState(
+        targetValue = tvFocusState?.scale ?: if (isFocused) 1.02f else 1f,
+        animationSpec = tween(180),
+        label = "channelScale"
+    )
+    val borderWidth by animateDpAsState(
+        targetValue = tvFocusState?.borderWidth ?: if (isFocused) dimens.focusBorderWidth else 0.dp,
+        animationSpec = tween(180),
+        label = "channelBorder"
+    )
+    val backgroundColor by animateColorAsState(
+        targetValue = tvFocusState?.backgroundColor ?: if (isFocused) ImaxColors.SurfaceVariant else ImaxColors.CardBackground,
+        animationSpec = tween(180),
+        label = "channelBackground"
+    )
+    val borderColor = tvFocusState?.borderColor ?: ImaxColors.FocusBorder
+
     Column(
         modifier = Modifier
             .width(if (isTv) 160.dp else 110.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
             .clip(RoundedCornerShape(dimens.borderRadius))
-            .background(ImaxColors.CardBackground)
+            .background(backgroundColor)
+            .then(
+                if (isTv && isFocused && tvFocusState != null) {
+                    Modifier.shadow(
+                        elevation = tvFocusState.shadowElevation,
+                        shape = RoundedCornerShape(dimens.borderRadius),
+                        spotColor = tvFocusState.glowColor
+                    )
+                } else Modifier
+            )
             .border(
-                width = if (isFocused) dimens.focusBorderWidth else 0.dp,
-                color = ImaxColors.FocusBorder,
+                width = borderWidth,
+                color = borderColor,
                 shape = RoundedCornerShape(dimens.borderRadius)
             )
             .clickable(onClick = onClick)

@@ -51,13 +51,14 @@ fun ImaxCard(
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.05f else 1f,
+        targetValue = if (isFocused) { if (isTv) 1.08f else 1.05f } else 1f,
         animationSpec = tween(200), label = "cardScale"
     )
     val borderColor by animateColorAsState(
         targetValue = if (isFocused) ImaxColors.FocusBorder else ImaxColors.CardBorder,
         animationSpec = tween(200), label = "cardBorder"
     )
+    val borderWidth = if (isFocused) { if (isTv) 3.dp else 2.dp } else 1.dp
 
     Card(
         modifier = modifier
@@ -69,8 +70,8 @@ fun ImaxCard(
             .focusable(),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = ImaxColors.CardBackground),
-        border = BorderStroke(if (isFocused) 2.dp else 1.dp, borderColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp, focusedElevation = 12.dp),
+        border = BorderStroke(borderWidth, borderColor),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp, focusedElevation = if (isTv) 16.dp else 12.dp),
         onClick = onClick
     ) {
         Column(content = content)
@@ -332,11 +333,12 @@ fun GradientButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    isTv: Boolean = false
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.05f else 1f,
+        targetValue = if (isFocused) { if (isTv) 1.10f else 1.05f } else 1f,
         animationSpec = tween(150), label = "btnScale"
     )
     val dimens = LocalImaxDimens.current
@@ -347,7 +349,7 @@ fun GradientButton(
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .onFocusChanged { isFocused = it.isFocused }
             .then(
-                if (isFocused) Modifier.border(2.dp, ImaxColors.FocusBorder, RoundedCornerShape(12.dp))
+                if (isFocused) Modifier.border(if (isTv) 3.dp else 2.dp, ImaxColors.FocusBorder, RoundedCornerShape(12.dp))
                 else Modifier
             ),
         enabled = enabled,
@@ -379,6 +381,53 @@ fun GradientButton(
                 }
                 Text(text = text, style = MaterialTheme.typography.labelLarge, color = Color.White)
             }
+        }
+    }
+}
+
+@Composable
+fun ImaxOutlinedButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+    enabled: Boolean = true,
+    isTv: Boolean = false
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused) { if (isTv) 1.10f else 1.05f } else 1f,
+        animationSpec = tween(150), label = "outBtnScale"
+    )
+
+    OutlinedButton(
+        onClick = onClick,
+        modifier = modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .onFocusChanged { isFocused = it.isFocused }
+            .then(
+                if (isFocused) Modifier.border(if (isTv) 3.dp else 2.dp, ImaxColors.FocusBorder, RoundedCornerShape(12.dp))
+                else Modifier
+            ),
+        enabled = enabled,
+        shape = RoundedCornerShape(12.dp),
+        colors = ButtonDefaults.outlinedButtonColors(
+            contentColor = ImaxColors.TextPrimary,
+            disabledContentColor = ImaxColors.TextSecondary
+        ),
+        border = BorderStroke(1.dp, if (isFocused) Color.Transparent else ImaxColors.GlassBorder),
+        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+            modifier = Modifier.defaultMinSize(minHeight = 24.dp)
+        ) {
+            if (icon != null) {
+                Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+            }
+            Text(text = text, style = MaterialTheme.typography.labelLarge)
         }
     }
 }

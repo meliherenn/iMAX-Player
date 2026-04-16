@@ -1,5 +1,9 @@
 package com.imax.player.ui.tv
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -43,9 +47,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
@@ -68,9 +74,12 @@ import com.imax.player.data.repository.ContentRepository
 import com.imax.player.data.repository.PlaylistRepository
 import com.imax.player.ui.components.ContentPosterCard
 import com.imax.player.ui.components.EmptyScreen
+import com.imax.player.ui.components.GradientButton
 import com.imax.player.ui.components.ImaxDrawer
+import com.imax.player.ui.components.ImaxOutlinedButton
 import com.imax.player.ui.components.LoadingScreen
 import com.imax.player.ui.components.PosterImage
+import com.imax.player.ui.components.rememberTvFocusVisualState
 import com.imax.player.ui.navigation.Routes
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -336,18 +345,18 @@ private fun TvContinueWatchingHero(
             }
             Spacer(modifier = Modifier.height(24.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                Button(onClick = onResume) {
-                    Icon(
-                        imageVector = Icons.Filled.PlayArrow,
-                        contentDescription = null
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(stringResource(R.string.action_resume))
-                }
+                GradientButton(
+                    text = stringResource(R.string.action_resume),
+                    icon = Icons.Filled.PlayArrow,
+                    onClick = onResume,
+                    isTv = true
+                )
                 if (item.contentType != ContentType.LIVE) {
-                    OutlinedButton(onClick = onOpenDetail) {
-                        Text(stringResource(R.string.action_details))
-                    }
+                    ImaxOutlinedButton(
+                        text = stringResource(R.string.action_details),
+                        onClick = onOpenDetail,
+                        isTv = true
+                    )
                 }
             }
         }
@@ -404,14 +413,39 @@ private fun TvHistoryCard(
     val progress = item.progress.coerceIn(0f, 1f)
     val title = item.seriesName.ifBlank { item.title }
 
+    val tvFocusState = rememberTvFocusVisualState(
+        isFocused = isFocused,
+        defaultSurface = ImaxColors.CardBackground,
+        selectedSurface = ImaxColors.CardBackground,
+        focusedSurface = ImaxColors.SurfaceElevated,
+        selectedFocusedSurface = Color(0xFF5C3C2C)
+    )
+
+    val scale by animateFloatAsState(targetValue = tvFocusState.scale, animationSpec = tween(180), label = "tcScale")
+    val borderWidth by animateDpAsState(targetValue = tvFocusState.borderWidth.coerceAtLeast(if (isFocused) dimens.focusBorderWidth else 0.dp), animationSpec = tween(180), label = "tcBorderWidth")
+    val backgroundColor by animateColorAsState(targetValue = tvFocusState.backgroundColor, animationSpec = tween(180), label = "tcBackground")
+
     Column(
         modifier = Modifier
             .width(240.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
             .clip(RoundedCornerShape(22.dp))
-            .background(ImaxColors.CardBackground)
+            .background(backgroundColor)
+            .then(
+                if (isFocused) {
+                    Modifier.shadow(
+                        elevation = tvFocusState.shadowElevation,
+                        shape = RoundedCornerShape(22.dp),
+                        spotColor = tvFocusState.glowColor
+                    )
+                } else Modifier
+            )
             .border(
-                width = if (isFocused) dimens.focusBorderWidth else 0.dp,
-                color = ImaxColors.FocusBorder,
+                width = borderWidth,
+                color = tvFocusState.borderColor.takeIf { isFocused } ?: Color.Transparent,
                 shape = RoundedCornerShape(22.dp)
             )
             .clickable(onClick = onResume)
@@ -498,15 +532,11 @@ private fun TvHistoryCard(
                 overflow = TextOverflow.Ellipsis
             )
             Spacer(modifier = Modifier.height(12.dp))
-            OutlinedButton(onClick = onSecondaryAction) {
-                Text(
-                    text = if (item.contentType == ContentType.LIVE) {
-                        stringResource(R.string.action_play)
-                    } else {
-                        stringResource(R.string.action_details)
-                    }
-                )
-            }
+            ImaxOutlinedButton(
+                text = if (item.contentType == ContentType.LIVE) stringResource(R.string.action_play) else stringResource(R.string.action_details),
+                onClick = onSecondaryAction,
+                isTv = true
+            )
         }
     }
 }
@@ -766,14 +796,39 @@ private fun TvFavoriteChannelCard(
     val dimens = LocalImaxDimens.current
     var isFocused by remember { mutableStateOf(false) }
 
+    val tvFocusState = rememberTvFocusVisualState(
+        isFocused = isFocused,
+        defaultSurface = ImaxColors.CardBackground,
+        selectedSurface = ImaxColors.CardBackground,
+        focusedSurface = ImaxColors.SurfaceElevated,
+        selectedFocusedSurface = Color(0xFF5C3C2C)
+    )
+
+    val scale by animateFloatAsState(targetValue = tvFocusState.scale, animationSpec = tween(180), label = "fcScale")
+    val borderWidth by animateDpAsState(targetValue = tvFocusState.borderWidth.coerceAtLeast(if (isFocused) dimens.focusBorderWidth else 0.dp), animationSpec = tween(180), label = "fcBorder")
+    val backgroundColor by animateColorAsState(targetValue = tvFocusState.backgroundColor, animationSpec = tween(180), label = "fcBackground")
+
     Column(
         modifier = Modifier
             .width(170.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
             .clip(RoundedCornerShape(20.dp))
-            .background(ImaxColors.CardBackground)
+            .background(backgroundColor)
+            .then(
+                if (isFocused) {
+                    Modifier.shadow(
+                        elevation = tvFocusState.shadowElevation,
+                        shape = RoundedCornerShape(20.dp),
+                        spotColor = tvFocusState.glowColor
+                    )
+                } else Modifier
+            )
             .border(
-                width = if (isFocused) dimens.focusBorderWidth else 0.dp,
-                color = ImaxColors.FocusBorder,
+                width = borderWidth,
+                color = tvFocusState.borderColor.takeIf { isFocused } ?: Color.Transparent,
                 shape = RoundedCornerShape(20.dp)
             )
             .clickable(onClick = onClick)

@@ -45,6 +45,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import com.imax.player.core.designsystem.theme.ImaxColors
 import com.imax.player.core.designsystem.theme.LocalImaxDimens
 import com.imax.player.ui.navigation.Routes
@@ -134,12 +135,12 @@ fun TvDrawerLayout(
         }
     }
 
-    LaunchedEffect(isExpanded, focusedDrawerTarget) {
-        if (isExpanded || focusedDrawerTarget != null) {
+    LaunchedEffect(isExpanded) {
+        if (isExpanded) {
             drawerExpanded = true
         } else {
             delay(TV_DRAWER_COLLAPSE_DELAY_MS)
-            if (!isExpanded && focusedDrawerTarget == null) {
+            if (!isExpanded) {
                 drawerExpanded = false
             }
         }
@@ -304,6 +305,179 @@ private fun FocusRequester.requestFocusSafely(reason: String) {
 }
 
 @Composable
+private fun CollapsedDrawerPlate(
+    item: DrawerItem,
+    isSelected: Boolean,
+    isFocused: Boolean
+) {
+    val scale by animateFloatAsState(
+        targetValue = when {
+            isFocused && isSelected -> 1.15f
+            isFocused -> 1.12f
+            else -> 1f
+        },
+        animationSpec = tween(150),
+        label = "collapseScale"
+    )
+
+    val bgColor by animateColorAsState(
+        targetValue = when {
+            isFocused && isSelected -> ImaxColors.Primary
+            isFocused -> ImaxColors.SurfaceVariant
+            isSelected -> ImaxColors.Primary.copy(alpha = 0.20f)
+            else -> Color.Transparent
+        },
+        animationSpec = tween(150),
+        label = "collapseBg"
+    )
+
+    val contentColor by animateColorAsState(
+        targetValue = when {
+            isFocused && isSelected -> Color.White
+            isFocused -> Color.White
+            isSelected -> ImaxColors.Primary
+            else -> ImaxColors.TextSecondary
+        },
+        animationSpec = tween(150),
+        label = "collapseContent"
+    )
+
+    val itemShape = RoundedCornerShape(18.dp)
+
+    Box(
+        modifier = Modifier
+            .size(56.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                shadowElevation = if (isFocused) 12.dp.toPx() else 0f
+                shape = itemShape
+                clip = false
+            }
+            .clip(itemShape)
+            .background(bgColor)
+            .border(
+                width = if (isFocused) 2.dp else 0.dp,
+                color = if (isFocused) Color.White.copy(alpha = 0.8f) else Color.Transparent,
+                shape = itemShape
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = if (isSelected) item.selectedIcon else item.icon,
+            contentDescription = item.label,
+            tint = contentColor,
+            modifier = Modifier.size(28.dp)
+        )
+    }
+}
+
+@Composable
+private fun ExpandedDrawerPlate(
+    item: DrawerItem,
+    isSelected: Boolean,
+    isFocused: Boolean
+) {
+    val plateShape = RoundedCornerShape(12.dp)
+
+    val scale by animateFloatAsState(
+        targetValue = when {
+            isFocused && isSelected -> 1.08f
+            isFocused -> 1.06f
+            else -> 1f
+        },
+        animationSpec = tween(150),
+        label = "expandScale"
+    )
+
+    val bgColor by animateColorAsState(
+        targetValue = when {
+            isFocused && isSelected -> Color.White
+            isFocused -> Color.White.copy(alpha = 0.95f)
+            isSelected -> ImaxColors.Primary.copy(alpha = 0.15f)
+            else -> Color.Transparent
+        },
+        animationSpec = tween(150),
+        label = "expandBg"
+    )
+
+    val contentColor by animateColorAsState(
+        targetValue = when {
+            isFocused && isSelected -> ImaxColors.Primary
+            isFocused -> ImaxColors.Background
+            isSelected -> ImaxColors.Primary
+            else -> ImaxColors.TextSecondary
+        },
+        animationSpec = tween(150),
+        label = "expandContent"
+    )
+
+    val accentWidth by animateDpAsState(
+        targetValue = if (isFocused || isSelected) 5.dp else 0.dp,
+        animationSpec = tween(150),
+        label = "expandAccentWidth"
+    )
+
+    val accentColor by animateColorAsState(
+        targetValue = if (isFocused) Color.White else ImaxColors.Primary,
+        animationSpec = tween(150),
+        label = "expandAccentColor"
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(52.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                shadowElevation = if (isFocused) 12.dp.toPx() else 0f
+                shape = plateShape
+                clip = false
+            }
+            .clip(plateShape)
+            .background(bgColor)
+            .border(
+                width = if (isFocused) 1.5.dp else 0.dp,
+                color = if (isFocused) Color.White.copy(alpha = 0.3f) else Color.Transparent,
+                shape = plateShape
+            ),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .width(accentWidth)
+                .fillMaxHeight()
+                .background(accentColor)
+        )
+
+        Box(
+            modifier = Modifier
+                .padding(vertical = 12.dp)
+                .padding(start = if (accentWidth > 0.dp) 14.dp else 19.dp, end = 12.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = if (isSelected) item.selectedIcon else item.icon,
+                contentDescription = item.label,
+                tint = contentColor,
+                modifier = Modifier.size(26.dp)
+            )
+        }
+
+        Text(
+            text = item.label,
+            style = MaterialTheme.typography.titleMedium,
+            color = contentColor,
+            fontWeight = if (isFocused || isSelected) FontWeight.Bold else FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Spacer(modifier = Modifier.width(16.dp))
+    }
+}
+
+@Composable
 @OptIn(ExperimentalComposeUiApi::class)
 private fun TvDrawerItemRow(
     item: DrawerItem,
@@ -315,203 +489,44 @@ private fun TvDrawerItemRow(
     onFocusChanged: (Boolean) -> Unit,
     onClick: () -> Unit
 ) {
+    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     var isFocused by remember { mutableStateOf(false) }
-    val itemShape = RoundedCornerShape(if (isExpanded) 18.dp else 20.dp)
-    val isFocusedAndSelected = isFocused && isSelected
-    val focusState = rememberTvFocusVisualState(
-        isFocused = isFocused,
-        isSelected = isSelected,
-        defaultSurface = Color.Transparent,
-        selectedSurface = if (isExpanded) Color(0xFF25181D) else Color.Transparent,
-        focusedSurface = Color(0xFF7B3342),
-        selectedFocusedSurface = Color(0xFFA0475C),
-        defaultContentColor = ImaxColors.TextSecondary,
-        defaultSecondaryContentColor = ImaxColors.TextSecondary,
-        selectedContentColor = Color(0xFFFFD6E0),
-        focusedContentColor = Color(0xFFFFFAFB),
-        selectedFocusedContentColor = Color.White,
-        selectedBorderColor = if (isExpanded) Color(0xFF7E5A64) else Color.Transparent,
-        focusedBorderColor = Color(0xFFFFB7C8),
-        selectedFocusedBorderColor = Color(0xFFFFDEE5),
-        selectedAccentColor = Color(0xFFCC7B8B),
-        focusedAccentColor = Color(0xFFFFC0CD),
-        selectedFocusedAccentColor = Color(0xFFFFE1E7)
-    )
-    val effectiveScale by animateFloatAsState(
-        targetValue = when {
-            isFocusedAndSelected -> 1.12f
-            isFocused -> 1.10f
-            isSelected && isExpanded -> 1.02f
-            else -> 1f
-        },
-        animationSpec = tween(180),
-        label = "tvDrawerEffectiveScale"
-    )
-    val effectiveBackgroundColor by animateColorAsState(
-        targetValue = when {
-            isFocusedAndSelected -> Color(0xFFA0475C)
-            isFocused -> Color(0xFF7B3342)
-            isSelected && isExpanded -> Color(0xFF25181D)
-            else -> Color.Transparent
-        },
-        animationSpec = tween(180),
-        label = "tvDrawerEffectiveBackground"
-    )
-    val effectiveBorderWidth by animateDpAsState(
-        targetValue = when {
-            isFocusedAndSelected -> 4.5.dp
-            isFocused -> 4.dp
-            isSelected && isExpanded -> 1.5.dp
-            else -> 0.dp
-        },
-        animationSpec = tween(180),
-        label = "tvDrawerEffectiveBorderWidth"
-    )
-    val effectiveBorderColor by animateColorAsState(
-        targetValue = when {
-            isFocusedAndSelected -> Color(0xFFFFDEE5)
-            isFocused -> Color(0xFFFFC0CD)
-            isSelected && isExpanded -> Color(0xFF7E5A64)
-            else -> Color.Transparent
-        },
-        animationSpec = tween(180),
-        label = "tvDrawerEffectiveBorderColor"
-    )
-    val indicatorWidth by animateDpAsState(
-        targetValue = when {
-            isFocusedAndSelected -> if (isExpanded) 14.dp else 9.dp
-            isFocused -> if (isExpanded) 12.dp else 8.dp
-            isSelected -> if (isExpanded) 6.dp else 4.dp
-            else -> 0.dp
-        },
-        animationSpec = tween(180),
-        label = "tvDrawerIndicatorWidth"
-    )
-    val iconPlateColor by animateColorAsState(
-        targetValue = when {
-            isFocusedAndSelected -> Color.White.copy(alpha = 0.26f)
-            isFocused -> Color.White.copy(alpha = 0.2f)
-            isSelected -> Color.White.copy(alpha = if (isExpanded) 0.08f else 0.06f)
-            else -> Color.Transparent
-        },
-        animationSpec = tween(180),
-        label = "tvDrawerIconPlateBackground"
-    )
-    val iconPlateBorderColor by animateColorAsState(
-        targetValue = when {
-            isFocusedAndSelected -> Color(0xFFFFE1E7)
-            isFocused -> Color(0xFFFFCBD5)
-            isSelected -> Color(0xFFC68592)
-            else -> Color.Transparent
-        },
-        animationSpec = tween(180),
-        label = "tvDrawerIconPlateBorder"
-    )
-    val trailingFocusGlowColor by animateColorAsState(
-        targetValue = when {
-            !isExpanded -> Color.Transparent
-            isFocusedAndSelected -> Color(0x66FFE1E7)
-            isFocused -> Color(0x52FFC0CD)
-            isSelected -> Color(0x20CC7B8B)
-            else -> Color.Transparent
-        },
-        animationSpec = tween(180),
-        label = "tvDrawerTrailingFocusGlow"
-    )
 
-    Row(
+    // Invisible shell that securely connects DPAD interaction states without enforcing layout shape limitations.
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .graphicsLayer {
-                scaleX = effectiveScale
-                scaleY = effectiveScale
-                this.shape = itemShape
-                clip = false
-                shadowElevation = focusState.shadowElevation.toPx()
+            .height(60.dp)
+            .zIndex(if (isFocused) 1f else 0f)
+            .onFocusChanged {
+                isFocused = it.isFocused
+                onFocusChanged(it.isFocused)
             }
-            .padding(horizontal = 4.dp, vertical = 1.dp)
-            .clip(itemShape)
-            .background(effectiveBackgroundColor)
-            .clickable(onClick = onClick)
-            .focusRequester(focusRequester)
             .focusProperties {
                 left = FocusRequester.Cancel
                 up = previousFocusRequester ?: FocusRequester.Cancel
                 down = nextFocusRequester ?: FocusRequester.Cancel
             }
-            .onFocusChanged {
-                isFocused = it.isFocused
-                onFocusChanged(it.isFocused)
-            }
-            .focusable()
-            .border(effectiveBorderWidth, effectiveBorderColor, itemShape)
-            .padding(
-                horizontal = if (isExpanded) 16.dp else 10.dp,
-                vertical = if (isExpanded) 16.dp else 12.dp
+            .focusRequester(focusRequester)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
             ),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = if (isExpanded) Arrangement.Start else Arrangement.Center
+        contentAlignment = if (isExpanded) Alignment.CenterStart else Alignment.Center
     ) {
-        Box(
-            modifier = Modifier
-                .width(indicatorWidth)
-                .height(if (isExpanded) 42.dp else 40.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(focusState.accentColor)
-        )
-        if (indicatorWidth > 0.dp) {
-            Spacer(modifier = Modifier.width(if (isExpanded) 14.dp else 8.dp))
-        }
-        Box(
-            modifier = Modifier
-                .size(if (isExpanded) 44.dp else 48.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(iconPlateColor)
-                .border(
-                    width = if (isFocused || isSelected) 1.5.dp else 0.dp,
-                    color = iconPlateBorderColor,
-                    shape = RoundedCornerShape(16.dp)
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = if (isSelected) item.selectedIcon else item.icon,
-                contentDescription = item.label,
-                tint = focusState.contentColor,
-                modifier = Modifier.size(26.dp)
+        if (isExpanded) {
+            ExpandedDrawerPlate(
+                item = item,
+                isSelected = isSelected,
+                isFocused = isFocused
             )
-        }
-        AnimatedVisibility(
-            visible = isExpanded,
-            enter = fadeIn(animationSpec = tween(160)) + expandHorizontally(animationSpec = tween(160)),
-            exit = fadeOut(animationSpec = tween(120)) + shrinkHorizontally(animationSpec = tween(120))
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Spacer(modifier = Modifier.width(14.dp))
-                Text(
-                    text = item.label,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = focusState.contentColor,
-                    fontWeight = when {
-                        isFocusedAndSelected -> FontWeight.ExtraBold
-                        isFocused -> FontWeight.Bold
-                        isSelected -> FontWeight.SemiBold
-                        else -> FontWeight.Medium
-                    },
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (trailingFocusGlowColor != Color.Transparent) {
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Box(
-                        modifier = Modifier
-                            .width(10.dp)
-                            .height(34.dp)
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(trailingFocusGlowColor)
-                    )
-                }
-            }
+        } else {
+            CollapsedDrawerPlate(
+                item = item,
+                isSelected = isSelected,
+                isFocused = isFocused
+            )
         }
     }
 }

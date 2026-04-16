@@ -117,8 +117,14 @@ class OnboardingViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            playlistRepository.getAllPlaylists().collect { playlists ->
-                _state.update { it.copy(playlists = playlists, isLoading = false) }
+            try {
+                android.util.Log.e("IMAX_DEBUG", "Starting playlist collection...")
+                playlistRepository.getAllPlaylists().collect { playlists ->
+                    android.util.Log.e("IMAX_DEBUG", "Collected playlists: count=${playlists.size}")
+                    _state.update { it.copy(playlists = playlists, isLoading = false) }
+                }
+            } catch(e: Exception) {
+                android.util.Log.e("IMAX_DEBUG", "Error collecting playlists", e)
             }
         }
     }
@@ -132,19 +138,32 @@ class OnboardingViewModel @Inject constructor(
         url: String,
         server: String,
         username: String,
-        password: String
+        password: String,
+        onSuccess: () -> Unit
     ) {
+        android.util.Log.e("IMAX_DEBUG", "addPlaylist called with name=$name")
         viewModelScope.launch {
-            val playlist = Playlist(
-                name = name,
-                type = type,
-                url = url,
-                serverUrl = server,
-                username = username,
-                password = password
-            )
-            playlistRepository.savePlaylist(playlist)
-            _state.update { it.copy(showAddDialog = false) }
+            try {
+                android.util.Log.e("IMAX_DEBUG", "Starting playlist creation...")
+                val playlist = Playlist(
+                    name = name,
+                    type = type,
+                    url = if (type == PlaylistType.M3U_URL) url else "",
+                    filePath = if (type == PlaylistType.M3U_FILE) url else "",
+                    serverUrl = server,
+                    username = username,
+                    password = password
+                )
+                android.util.Log.e("IMAX_DEBUG", "Saving to repository...")
+                val id = playlistRepository.savePlaylist(playlist)
+                val savedPlaylist = playlist.copy(id = id)
+                android.util.Log.e("IMAX_DEBUG", "Saved with ID: $id. Updating UI state...")
+                _state.update { it.copy(showAddDialog = false) }
+                android.util.Log.e("IMAX_DEBUG", "UI state updated successfully.")
+                selectPlaylist(savedPlaylist, onSuccess)
+            } catch (e: Exception) {
+                android.util.Log.e("IMAX_DEBUG", "Failed to add playlist", e)
+            }
         }
     }
 
@@ -324,7 +343,7 @@ private fun MobileOnboardingContent(
                 isTv = false,
                 onDismiss = { viewModel.hideAddDialog() },
                 onAdd = { name, type, url, server, user, pass ->
-                    viewModel.addPlaylist(name, type, url, server, user, pass)
+                    viewModel.addPlaylist(name, type, url, server, user, pass, onPlaylistSelected)
                 },
                 onTest = { _, _, _, _, _, _, _ -> }
             )
@@ -490,7 +509,7 @@ private fun TvOnboardingContent(
                 isTv = true,
                 onDismiss = { viewModel.hideAddDialog() },
                 onAdd = { name, type, url, server, user, pass ->
-                    viewModel.addPlaylist(name, type, url, server, user, pass)
+                    viewModel.addPlaylist(name, type, url, server, user, pass, onPlaylistSelected)
                 },
                 onTest = { name, type, url, server, user, pass, onResult ->
                     viewModel.testDraftConnection(name, type, url, server, user, pass, onResult)
@@ -746,6 +765,17 @@ private fun MobileAddPlaylistDialog(
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
 
+    val canSave = remember(selectedType, name, url, server, username, password) {
+        isDraftValid(
+            name = name,
+            type = selectedType,
+            url = url,
+            server = server,
+            username = username,
+            password = password
+        )
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = ImaxColors.Surface,
@@ -838,8 +868,9 @@ private fun MobileAddPlaylistDialog(
         confirmButton = {
             GradientButton(
                 text = "Add",
+                enabled = canSave,
                 onClick = {
-                    if (name.isNotBlank()) {
+                    if (canSave) {
                         onAdd(name, selectedType, url, server, username, password)
                     }
                 }
@@ -1153,54 +1184,62 @@ private fun TvDialogTextField(
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
-        targetValue = if (isFocused) 1.015f else 1f,
+        targetValue = if (isFocused) 1.02f else 1f,
         animationSpec = spring(stiffness = 320f),
         label = "tvDialogFieldScale"
     )
 
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        label = {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.titleMedium
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = if (isFocused) androidx.compose.ui.text.font.FontWeight.Bold else null,
+            color = if (isFocused) ImaxColors.Primary else ImaxColors.TextSecondary,
+            modifier = Modifier.padding(start = 4.dp)
+        )
+
+        OutlinedTextField(
+            value = value,
+            onValueChange = onValueChange,
+            placeholder = {
+                Text(
+                    text = placeholder,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (isFocused) Color.DarkGray else ImaxColors.TextTertiary
+                )
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer(scaleX = scale, scaleY = scale)
+                .shadow(
+                    elevation = if (isFocused) 16.dp else 0.dp,
+                    shape = RoundedCornerShape(22.dp),
+                    ambientColor = Color.Black,
+                    spotColor = Color.Black
+                )
+                .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+                .onFocusChanged { isFocused = it.isFocused },
+            singleLine = true,
+            shape = RoundedCornerShape(22.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color.White,
+                unfocusedBorderColor = Color.Transparent,
+                focusedContainerColor = Color.White.copy(alpha = 0.98f),
+                unfocusedContainerColor = ImaxColors.SurfaceVariant.copy(alpha = 0.5f),
+                cursorColor = ImaxColors.Primary,
+                focusedTextColor = Color.Black,
+                unfocusedTextColor = ImaxColors.TextPrimary
+            ),
+            keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = ImeAction.Next),
+            // EXPLICIT override so typography doesn't force white text
+            textStyle = MaterialTheme.typography.titleLarge.copy(
+                color = if (isFocused) Color.Black else ImaxColors.TextPrimary
             )
-        },
-        placeholder = {
-            Text(
-                text = placeholder,
-                style = MaterialTheme.typography.bodyMedium,
-                color = ImaxColors.TextTertiary
-            )
-        },
-        modifier = Modifier
-            .fillMaxWidth()
-            .graphicsLayer(scaleX = scale, scaleY = scale)
-            .shadow(
-                elevation = if (isFocused) 18.dp else 0.dp,
-                shape = RoundedCornerShape(22.dp),
-                ambientColor = ImaxColors.FocusGlow,
-                spotColor = ImaxColors.FocusGlow
-            )
-            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-            .onFocusChanged { isFocused = it.isFocused },
-        singleLine = true,
-        shape = RoundedCornerShape(22.dp),
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = ImaxColors.FocusBorder,
-            unfocusedBorderColor = ImaxColors.CardBorder,
-            focusedContainerColor = ImaxColors.SurfaceVariant,
-            unfocusedContainerColor = ImaxColors.CardBackground,
-            focusedLabelColor = ImaxColors.TextPrimary,
-            unfocusedLabelColor = ImaxColors.TextSecondary,
-            cursorColor = ImaxColors.Primary,
-            focusedTextColor = ImaxColors.TextPrimary,
-            unfocusedTextColor = ImaxColors.TextPrimary
-        ),
-        keyboardOptions = KeyboardOptions(keyboardType = keyboardType, imeAction = ImeAction.Next),
-        textStyle = MaterialTheme.typography.titleLarge
-    )
+        )
+    }
 }
 
 @Composable
@@ -1210,6 +1249,9 @@ private fun TvTypeCard(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
+    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    var isFocused by remember { mutableStateOf(false) }
+
     val icon = playlistTypeIcon(type)
     val title = playlistTypeLabel(type)
     val subtitle = when (type) {
@@ -1218,46 +1260,98 @@ private fun TvTypeCard(
         PlaylistType.M3U_FILE -> "Local file path"
     }
 
-    TvFocusableCard(
-        modifier = modifier,
-        onClick = onClick,
-        isSelected = isSelected
+    val isFocusedAndSelected = isFocused && isSelected
+    val scale by animateFloatAsState(if (isFocused) 1.05f else 1f)
+    val borderWidth by animateDpAsState(if (isFocused) 2.dp else if (isSelected) 1.dp else 0.dp)
+    
+    val bgColor by animateColorAsState(
+        targetValue = when {
+            isFocusedAndSelected -> Color.White
+            isFocused -> Color.White.copy(alpha = 0.96f)
+            isSelected -> ImaxColors.Primary.copy(alpha = 0.15f)
+            else -> ImaxColors.SurfaceVariant.copy(alpha = 0.4f)
+        }
+    )
+    val borderColor by animateColorAsState(
+        targetValue = when {
+            isFocused -> Color.White
+            isSelected -> ImaxColors.Primary.copy(alpha = 0.5f)
+            else -> Color.Transparent
+        }
+    )
+    val contentColor by animateColorAsState(
+        targetValue = if (isFocused) Color.Black else ImaxColors.TextPrimary
+    )
+    val secondaryContentColor by animateColorAsState(
+        targetValue = if (isFocused) Color.DarkGray else ImaxColors.TextSecondary
+    )
+    val iconBgColor by animateColorAsState(
+        targetValue = when {
+            isFocused -> ImaxColors.Primary.copy(alpha = 0.12f)
+            isSelected -> ImaxColors.Primary.copy(alpha = 0.25f)
+            else -> ImaxColors.Surface
+        }
+    )
+    val iconColor by animateColorAsState(
+        targetValue = if (isFocused) ImaxColors.Primary else if (isSelected) ImaxColors.Primary else ImaxColors.TextSecondary
+    )
+
+    Box(
+        modifier = modifier
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                shape = RoundedCornerShape(24.dp)
+                clip = true
+            }
+            .shadow(
+                elevation = if (isFocused) 16.dp else 0.dp,
+                shape = RoundedCornerShape(24.dp),
+                ambientColor = Color.Black,
+                spotColor = Color.Black
+            )
+            .background(bgColor)
+            .border(borderWidth, borderColor, RoundedCornerShape(24.dp))
+            .onFocusChanged { isFocused = it.isFocused }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+                .padding(horizontal = 24.dp, vertical = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Box(
                 modifier = Modifier
-                    .size(52.dp)
+                    .size(56.dp)
                     .clip(CircleShape)
-                    .background(
-                        if (isSelected) {
-                            ImaxColors.Primary.copy(alpha = 0.22f)
-                        } else {
-                            ImaxColors.SurfaceVariant
-                        }
-                    ),
+                    .background(iconBgColor),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
-                    tint = if (isSelected) ImaxColors.Primary else ImaxColors.TextPrimary
+                    tint = iconColor,
+                    modifier = Modifier.size(28.dp)
                 )
             }
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge,
-                color = ImaxColors.TextPrimary
-            )
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.bodyMedium,
-                color = ImaxColors.TextSecondary
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = contentColor,
+                    fontWeight = if (isFocused || isSelected) androidx.compose.ui.text.font.FontWeight.Bold else null
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = secondaryContentColor
+                )
+            }
         }
     }
 }
@@ -1403,6 +1497,7 @@ private fun TvActionButton(
     isSecondary: Boolean = false,
     isDestructive: Boolean = false
 ) {
+    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     var isFocused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
         targetValue = if (isFocused) 1.04f else 1f,
@@ -1412,16 +1507,22 @@ private fun TvActionButton(
 
     val backgroundColor = when {
         !enabled -> ImaxColors.SurfaceVariant.copy(alpha = 0.5f)
-        isDestructive -> ImaxColors.Error.copy(alpha = if (isFocused) 0.28f else 0.18f)
+        isDestructive -> ImaxColors.Error.copy(alpha = if (isFocused) 0.6f else 0.18f)
         isSecondary -> ImaxColors.SurfaceVariant
-        else -> if (isFocused) ImaxColors.Primary.copy(alpha = 0.24f) else ImaxColors.Primary.copy(alpha = 0.16f)
+        else -> if (isFocused) Color.White else ImaxColors.SurfaceVariant.copy(alpha = 0.5f)
     }
     val borderColor = when {
         !enabled -> ImaxColors.CardBorder
         isDestructive && isFocused -> ImaxColors.Error
-        isFocused -> ImaxColors.FocusBorder
+        isFocused -> Color.White
         isSecondary -> ImaxColors.CardBorder
-        else -> ImaxColors.Primary.copy(alpha = 0.55f)
+        else -> Color.Transparent
+    }
+    val textColor = when {
+        !enabled -> ImaxColors.TextTertiary
+        isFocused && !isDestructive -> Color.Black
+        isFocused && isDestructive -> Color.White
+        else -> ImaxColors.TextPrimary
     }
 
     Box(
@@ -1430,22 +1531,26 @@ private fun TvActionButton(
             .shadow(
                 elevation = if (isFocused && enabled) 16.dp else 0.dp,
                 shape = RoundedCornerShape(20.dp),
-                ambientColor = if (isDestructive) ImaxColors.Error else ImaxColors.FocusGlow,
-                spotColor = if (isDestructive) ImaxColors.Error else ImaxColors.FocusGlow
+                ambientColor = Color.Black,
+                spotColor = Color.Black
             )
-            .clip(RoundedCornerShape(20.dp))
-            .background(backgroundColor)
-            .border(2.dp, borderColor, RoundedCornerShape(20.dp))
-            .clickable(enabled = enabled, onClick = onClick)
+            .background(backgroundColor, RoundedCornerShape(20.dp))
+            .border(if (isFocused) 0.dp else 1.dp, borderColor, RoundedCornerShape(20.dp))
             .onFocusChanged { isFocused = it.isFocused }
-            .focusable(enabled = enabled)
-            .padding(horizontal = 18.dp, vertical = 16.dp),
+            .clickable(
+                enabled = enabled,
+                onClick = onClick,
+                interactionSource = interactionSource,
+                indication = null
+            )
+            .padding(horizontal = 24.dp, vertical = 14.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = text,
             style = MaterialTheme.typography.titleMedium,
-            color = if (enabled) ImaxColors.TextPrimary else ImaxColors.TextTertiary,
+            fontWeight = if (isFocused) androidx.compose.ui.text.font.FontWeight.Bold else null,
+            color = textColor,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )

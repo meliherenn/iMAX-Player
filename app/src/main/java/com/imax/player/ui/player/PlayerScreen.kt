@@ -72,6 +72,8 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.withTimeout
+import timber.log.Timber
 import javax.inject.Inject
 
 data class PlayerSessionState(
@@ -470,39 +472,72 @@ class PlayerViewModel @Inject constructor(
                 delay(if (attempt == 0) 160L else 240L)
                 playerManager.play(candidate, startPosition)
 
-                val enteredTransitionState = withTimeoutOrNull(3_500L) {
+                // Wait to see if it throws an explicit error quickly.
+                // If it hits PLAYING or stays in BUFFERING without erroring,
+                // we consider it active and let the player handle it naturally.
+                val targetState = withTimeoutOrNull(5_500L) {
                     state
                         .map { it.playbackState }
                         .drop(1)
                         .first { playbackState ->
-                            playbackState == PlaybackState.BUFFERING ||
-                                playbackState == PlaybackState.PLAYING ||
+                            playbackState == PlaybackState.PLAYING ||
                                 playbackState == PlaybackState.ERROR
                         }
                 }
 
-                when (enteredTransitionState) {
-                    PlaybackState.PLAYING -> {
-                        currentUrl = candidate
-                        return true
-                    }
+                if (targetState != PlaybackState.ERROR) {
+                    currentUrl = candidate
+                    return true
+                }
+            }
+        }
 
-                    PlaybackState.BUFFERING -> {
-                        val settledState = withTimeoutOrNull(8_500L) {
-                            state
-                                .map { it.playbackState }
-                                .first { playbackState ->
-                                    playbackState == PlaybackState.PLAYING ||
-                                        playbackState == PlaybackState.ERROR
-                                }
-                        }
-                        if (settledState == PlaybackState.PLAYING) {
-                            currentUrl = candidate
-                            return true
-                        }
-                    }
+        // Auto Silent Fallback: If ExoPlayer crashed on all candidates (due to MP2/Unsupported Codecs),
+        // switch to VLC and retry all candidates synchronously.
+        if (playerManager.engineName == "ExoPlayer") {
+            Timber.d("All candidates failed on ExoPlayer, attempting silent VLC fallback")
+            playerManager.tryFallback(persistent = false)
 
-                    else -> Unit
+            // Wait for the async engine switch to actually complete
+            try {
+                withTimeout(8_000L) {
+                    playerManager.switchState.first { switchState ->
+                        switchState == EngineSwitchState.SUCCESS ||
+                            switchState == EngineSwitchState.FAILED
+                    }
+                }
+            } catch (_: Exception) {
+                Timber.w("Timed out waiting for engine switch")
+                return false
+            }
+
+            if (playerManager.engineName != "VLC") {
+                Timber.w("Engine switch to VLC failed")
+                return false
+            }
+
+            Timber.d("VLC engine active, retrying candidates")
+
+            // Retry all candidates on VLC
+            for (candidate in uniqueCandidates) {
+                playerManager.getEngine().stop()
+                delay(200L)
+                playerManager.play(candidate, startPosition)
+
+                val vlcState = withTimeoutOrNull(8_000L) {
+                    state
+                        .map { it.playbackState }
+                        .drop(1)
+                        .first { playbackState ->
+                            playbackState == PlaybackState.PLAYING ||
+                                playbackState == PlaybackState.ERROR
+                        }
+                }
+
+                if (vlcState != PlaybackState.ERROR) {
+                    currentUrl = candidate
+                    Timber.d("VLC fallback succeeded on: $candidate")
+                    return true
                 }
             }
         }

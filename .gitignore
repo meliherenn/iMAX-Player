@@ -17,3 +17,8 @@ app/build/
 local.properties
 *.hprof
 *.log
+# AI agent / local workflow files
+agents.md
+AGENTS.md
+.codex/
+.antigravity/

@@ -767,9 +767,12 @@ private fun TvPlayerVideoSurface(
                                 playerView.player = exoPlayer
                                 playerView.keepScreenOn = playbackActive
                                 playerView.resizeMode = engine.getResizeModeFor(playerState.aspectRatioMode)
-                                playerView.videoSurfaceView?.keepScreenOn = playbackActive
-                                playerView.videoSurfaceView?.isFocusable = false
-                                playerView.videoSurfaceView?.isFocusableInTouchMode = false
+                                (playerView.videoSurfaceView as? SurfaceView)?.apply {
+                                    keepScreenOn = playbackActive
+                                    isFocusable = false
+                                    isFocusableInTouchMode = false
+                                    setZOrderMediaOverlay(true)
+                                }
                             },
                             modifier = playerViewportModifier(
                                 targetAspectRatio = engine.getViewportAspectRatio(playerState.aspectRatioMode),

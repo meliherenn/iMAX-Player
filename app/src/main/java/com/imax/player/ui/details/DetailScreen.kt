@@ -855,7 +855,7 @@ private fun DetailActionButtons(
 
             val nextEpisode = state.nextEpisode
             if (nextEpisode != null) {
-                OutlinedButton(
+                ImaxOutlinedButton(
                     onClick = {
                         onPlay(
                             nextEpisode.streamUrl,
@@ -865,13 +865,9 @@ private fun DetailActionButtons(
                             nextEpisode.lastPosition
                         )
                     },
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = ImaxColors.TextPrimary),
-                    border = BorderStroke(1.dp, ImaxColors.GlassBorder)
-                ) {
-                    Icon(Icons.Filled.SkipNext, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(stringResource(R.string.next_episode))
-                }
+                    text = stringResource(R.string.next_episode),
+                    icon = Icons.Filled.SkipNext
+                )
             }
         }
 

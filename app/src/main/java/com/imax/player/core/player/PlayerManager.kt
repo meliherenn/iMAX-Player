@@ -155,7 +155,7 @@ class PlayerManager @Inject constructor(
      *
      * If anything fails → rollback to old engine
      */
-    fun switchEngine() {
+    fun switchEngine(persistent: Boolean = true) {
         // Re-entrancy guard — if already switching, ignore
         if (!isSwitching.compareAndSet(false, true)) {
             Timber.w("Engine switch already in progress, ignoring duplicate call")
@@ -248,9 +248,11 @@ class PlayerManager @Inject constructor(
                 }
 
                 // Step 7: Persist selection
-                launch {
-                    val engineType = if (newEngine is ExoPlayerEngine) PlayerEngineType.EXOPLAYER else PlayerEngineType.VLC
-                    settingsDataStore.updatePlayerEngine(engineType)
+                if (persistent) {
+                    launch {
+                        val engineType = if (newEngine is ExoPlayerEngine) PlayerEngineType.EXOPLAYER else PlayerEngineType.VLC
+                        settingsDataStore.updatePlayerEngine(engineType)
+                    }
                 }
 
                 _switchState.value = EngineSwitchState.SUCCESS
@@ -299,10 +301,10 @@ class PlayerManager @Inject constructor(
         currentEngine.selectVideoTrack(index)
     }
 
-    fun tryFallback(): Boolean {
+    fun tryFallback(persistent: Boolean = true): Boolean {
         if ((currentEngine is ExoPlayerEngine && vlcPlayerEngine.isAvailable()) || currentEngine is VlcPlayerEngine) {
             Timber.d("Attempting player engine fallback from ${currentEngine.engineName}")
-            switchEngine()
+            switchEngine(persistent)
             return true
         }
         return false
