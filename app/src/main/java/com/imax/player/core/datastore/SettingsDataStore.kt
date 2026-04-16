@@ -19,7 +19,7 @@ data class AppSettings(
     val appLanguage: String = "tr",
 
     // Player
-    val playerEngine: PlayerEngineType = PlayerEngineType.EXOPLAYER,
+    val playerEngine: PlayerEngineType = PlayerEngineType.VLC,
     val seekForwardMs: Long = Constants.DEFAULT_SEEK_FORWARD_MS,
     val seekBackwardMs: Long = Constants.DEFAULT_SEEK_BACKWARD_MS,
     val aspectRatio: String = "fit",
@@ -114,8 +114,8 @@ class SettingsDataStore @Inject constructor(
         AppSettings(
             appLanguage = prefs[Keys.APP_LANGUAGE] ?: "tr",
             playerEngine = prefs[Keys.PLAYER_ENGINE]?.let {
-                try { PlayerEngineType.valueOf(it) } catch (_: Exception) { PlayerEngineType.EXOPLAYER }
-            } ?: PlayerEngineType.EXOPLAYER,
+                try { PlayerEngineType.valueOf(it) } catch (_: Exception) { PlayerEngineType.VLC }
+            } ?: PlayerEngineType.VLC,
             seekForwardMs = prefs[Keys.SEEK_FORWARD] ?: Constants.DEFAULT_SEEK_FORWARD_MS,
             seekBackwardMs = prefs[Keys.SEEK_BACKWARD] ?: Constants.DEFAULT_SEEK_BACKWARD_MS,
             aspectRatio = prefs[Keys.ASPECT_RATIO] ?: "fit",

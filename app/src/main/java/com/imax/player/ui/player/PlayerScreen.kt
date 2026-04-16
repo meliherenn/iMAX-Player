@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
@@ -177,15 +178,21 @@ class PlayerViewModel @Inject constructor(
             }
             refreshSessionContext(url, title, contentId, contentType, groupContext)
 
+            Timber.d("PlayerVM.init: enableTvPlaybackWorkarounds=$enableTvPlaybackWorkarounds, contentType=$contentType, candidates=${playbackCandidates.size}")
+
             val playbackStarted = if (
                 enableTvPlaybackWorkarounds &&
                 contentType.equals(ContentType.LIVE.name, ignoreCase = true)
             ) {
+                Timber.d("PlayerVM.init: Using startLiveChannelPlayback path")
                 startLiveChannelPlayback(playbackCandidates, startPos)
             } else {
+                Timber.d("PlayerVM.init: Using direct play path (no TV workarounds)")
                 playerManager.play(resolvedUrl, startPos)
                 true
             }
+
+            Timber.d("PlayerVM.init: playbackStarted=$playbackStarted")
 
             if (playbackStarted && contentType == ContentType.LIVE.name && contentId > 0L) {
                 contentRepository.updateChannelLastWatched(contentId)
@@ -468,13 +475,11 @@ class PlayerViewModel @Inject constructor(
             val attempts = if (candidateIndex == 0) 2 else 1
 
             repeat(attempts) { attempt ->
+                Timber.d("LivePlayback: trying candidate[$candidateIndex] attempt[$attempt] engine=${playerManager.engineName} url=$candidate")
                 playerManager.getEngine().stop()
                 delay(if (attempt == 0) 160L else 240L)
                 playerManager.play(candidate, startPosition)
 
-                // Wait to see if it throws an explicit error quickly.
-                // If it hits PLAYING or stays in BUFFERING without erroring,
-                // we consider it active and let the player handle it naturally.
                 val targetState = withTimeoutOrNull(5_500L) {
                     state
                         .map { it.playbackState }
@@ -485,58 +490,11 @@ class PlayerViewModel @Inject constructor(
                         }
                 }
 
+                Timber.d("LivePlayback: candidate[$candidateIndex] attempt[$attempt] result=$targetState")
+
                 if (targetState != PlaybackState.ERROR) {
                     currentUrl = candidate
-                    return true
-                }
-            }
-        }
-
-        // Auto Silent Fallback: If ExoPlayer crashed on all candidates (due to MP2/Unsupported Codecs),
-        // switch to VLC and retry all candidates synchronously.
-        if (playerManager.engineName == "ExoPlayer") {
-            Timber.d("All candidates failed on ExoPlayer, attempting silent VLC fallback")
-            playerManager.tryFallback(persistent = false)
-
-            // Wait for the async engine switch to actually complete
-            try {
-                withTimeout(8_000L) {
-                    playerManager.switchState.first { switchState ->
-                        switchState == EngineSwitchState.SUCCESS ||
-                            switchState == EngineSwitchState.FAILED
-                    }
-                }
-            } catch (_: Exception) {
-                Timber.w("Timed out waiting for engine switch")
-                return false
-            }
-
-            if (playerManager.engineName != "VLC") {
-                Timber.w("Engine switch to VLC failed")
-                return false
-            }
-
-            Timber.d("VLC engine active, retrying candidates")
-
-            // Retry all candidates on VLC
-            for (candidate in uniqueCandidates) {
-                playerManager.getEngine().stop()
-                delay(200L)
-                playerManager.play(candidate, startPosition)
-
-                val vlcState = withTimeoutOrNull(8_000L) {
-                    state
-                        .map { it.playbackState }
-                        .drop(1)
-                        .first { playbackState ->
-                            playbackState == PlaybackState.PLAYING ||
-                                playbackState == PlaybackState.ERROR
-                        }
-                }
-
-                if (vlcState != PlaybackState.ERROR) {
-                    currentUrl = candidate
-                    Timber.d("VLC fallback succeeded on: $candidate")
+                    Timber.d("LivePlayback: SUCCESS on candidate[$candidateIndex]")
                     return true
                 }
             }
@@ -927,10 +885,27 @@ fun PlayerScreen(
                                 }
                                 Key.DirectionRight -> { viewModel.seekForward(); controlsVisible = true; true }
                                 Key.DirectionLeft -> { viewModel.seekBackward(); controlsVisible = true; true }
-                                Key.DirectionUp, Key.DirectionDown -> { controlsVisible = true; true }
+                                Key.DirectionUp -> {
+                                    if (!controlsVisible && isLivePlayback && !isChannelSwitching) {
+                                        viewModel.playNextChannel()
+                                        true
+                                    } else {
+                                        controlsVisible = true; true
+                                    }
+                                }
+                                Key.DirectionDown -> {
+                                    if (!controlsVisible && isLivePlayback && !isChannelSwitching) {
+                                        viewModel.playPreviousChannel()
+                                        true
+                                    } else {
+                                        controlsVisible = true; true
+                                    }
+                                }
                                 Key.Back, Key.Escape -> {
                                     if (showSettingsSheet) {
                                         showSettingsSheet = false; true
+                                    } else if (showChannelSheet) {
+                                        showChannelSheet = false; true
                                     } else if (controlsVisible) {
                                         controlsVisible = false; true
                                     } else {
@@ -1075,6 +1050,39 @@ fun PlayerScreen(
                         }
                     }
                     }
+                is MpvPlayerEngine -> {
+                    // MPV rendering via SurfaceView from getView()
+                    BoxWithConstraints(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val viewportAspectRatio = if (maxHeight > 0.dp) {
+                            maxWidth.value / maxHeight.value
+                        } else {
+                            null
+                        }
+                        val viewportModifier = playerViewportModifier(
+                            targetAspectRatio = forcedViewportAspectRatio(
+                                mode = playerState.aspectRatioMode,
+                                videoWidth = playerState.videoWidth,
+                                videoHeight = playerState.videoHeight
+                            ),
+                            viewportAspectRatio = viewportAspectRatio
+                        )
+
+                        AndroidView(
+                            factory = { _ ->
+                                (engine.getView() as? SurfaceView) ?: SurfaceView(context).also {
+                                    Timber.w("MpvPlayerEngine.getView() returned null, using fallback SurfaceView")
+                                }
+                            },
+                            update = { surfaceView ->
+                                surfaceView.keepScreenOn = playbackActive
+                            },
+                            modifier = viewportModifier
+                        )
+                    }
+                    }
                 }
             }
         }
@@ -1111,6 +1119,16 @@ fun PlayerScreen(
                         onClick = { viewModel.switchEngine() },
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = ImaxColors.TextPrimary)
                     ) { Text("Switch Engine") }
+                    OutlinedButton(
+                        onClick = {
+                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                                setDataAndType(android.net.Uri.parse(url), "video/*")
+                            }
+                            context.startActivity(android.content.Intent.createChooser(intent, "Play in External Player"))
+                            viewModel.togglePlayPause() // Pause internally
+                        },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ImaxColors.TextPrimary)
+                    ) { Text("External Player") }
                 }
             }
         }
@@ -1441,7 +1459,7 @@ fun PlayerScreen(
                             onClick = { /* handled in settings sheet */ showSettingsSheet = true }
                         )
 
-                        if (!isTv && isLivePlayback) {
+                        if (isLivePlayback) {
                             Spacer(modifier = Modifier.width(4.dp))
                             PlayerControlButton(
                                 icon = Icons.Filled.List,
@@ -1485,6 +1503,7 @@ fun PlayerScreen(
             channels = session.availableChannels,
             currentChannelId = liveChannelSwitch.targetChannelId ?: session.currentChannel?.id ?: contentId,
             isSwitching = isChannelSwitching,
+            isTv = isTv,
             onDismiss = {
                 if (!isChannelSwitching) {
                     showChannelSheet = false
@@ -1503,6 +1522,7 @@ fun PlayerScreen(
         PlayerSettingsSheet(
             playerState = playerState,
             engineName = activeEngineName,
+            isTv = isTv,
             onDismiss = { showSettingsSheet = false },
             onSetAspectRatio = { viewModel.setAspectRatio(it) },
             onSetSpeed = { viewModel.setSpeed(it) },
@@ -1511,7 +1531,16 @@ fun PlayerScreen(
             onSelectAudio = { viewModel.selectAudio(it) },
             onSelectSubtitle = { viewModel.selectSubtitle(it) },
             onDisableSubtitles = { viewModel.disableSubtitles() },
-            onSwitchEngine = { viewModel.switchEngine(); showSettingsSheet = false }
+            onSwitchEngine = { viewModel.switchEngine(); showSettingsSheet = false },
+            onPlayInExternalPlayer = { 
+                showSettingsSheet = false
+                controlsVisible = false
+                viewModel.togglePlayPause() // Pause playback
+                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                    setDataAndType(android.net.Uri.parse(url), "video/*")
+                }
+                context.startActivity(android.content.Intent.createChooser(intent, "Play in External Player"))
+            }
         )
     }
 }
@@ -1563,11 +1592,12 @@ private fun playerViewportModifier(
 // Player Settings Bottom Sheet
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalComposeUiApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun PlayerSettingsSheet(
     playerState: PlayerState,
     engineName: String,
+    isTv: Boolean,
     onDismiss: () -> Unit,
     onSetAspectRatio: (AspectRatioMode) -> Unit,
     onSetSpeed: (Float) -> Unit,
@@ -1576,11 +1606,49 @@ private fun PlayerSettingsSheet(
     onSelectAudio: (Int) -> Unit,
     onSelectSubtitle: (Int) -> Unit,
     onDisableSubtitles: () -> Unit,
-    onSwitchEngine: () -> Unit
+    onSwitchEngine: () -> Unit,
+    onPlayInExternalPlayer: () -> Unit
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var activeSection by remember { mutableStateOf<String?>(null) }
 
+    if (isTv) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = onDismiss,
+            properties = androidx.compose.ui.window.DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false
+            )
+        ) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.CenterEnd) {
+                Surface(
+                    modifier = Modifier.fillMaxHeight().width(340.dp).padding(16.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = ImaxColors.Surface.copy(alpha = 0.95f),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                ) {
+                    PlayerSettingsContent(
+                        playerState = playerState,
+                        engineName = engineName,
+                        isTv = true,
+                        activeSection = activeSection,
+                        onSectionChange = { activeSection = it },
+                        onSetAspectRatio = onSetAspectRatio,
+                        onSetSpeed = onSetSpeed,
+                        onSetQualityMode = onSetQualityMode,
+                        onSelectVideoTrack = onSelectVideoTrack,
+                        onSelectAudio = onSelectAudio,
+                        onSelectSubtitle = onSelectSubtitle,
+                        onDisableSubtitles = onDisableSubtitles,
+                        onSwitchEngine = onSwitchEngine,
+                        onPlayInExternalPlayer = onPlayInExternalPlayer
+                    )
+                }
+            }
+        }
+        return
+    }
+
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -1593,6 +1661,42 @@ private fun PlayerSettingsSheet(
             }
         }
     ) {
+        PlayerSettingsContent(
+            playerState = playerState,
+            engineName = engineName,
+            isTv = false,
+            activeSection = activeSection,
+            onSectionChange = { activeSection = it },
+            onSetAspectRatio = onSetAspectRatio,
+            onSetSpeed = onSetSpeed,
+            onSetQualityMode = onSetQualityMode,
+            onSelectVideoTrack = onSelectVideoTrack,
+            onSelectAudio = onSelectAudio,
+            onSelectSubtitle = onSelectSubtitle,
+            onDisableSubtitles = onDisableSubtitles,
+            onSwitchEngine = onSwitchEngine,
+            onPlayInExternalPlayer = onPlayInExternalPlayer
+        )
+    }
+}
+
+@Composable
+private fun PlayerSettingsContent(
+    playerState: PlayerState,
+    engineName: String,
+    isTv: Boolean,
+    activeSection: String?,
+    onSectionChange: (String?) -> Unit,
+    onSetAspectRatio: (AspectRatioMode) -> Unit,
+    onSetSpeed: (Float) -> Unit,
+    onSetQualityMode: (VideoQualityMode) -> Unit,
+    onSelectVideoTrack: (Int) -> Unit,
+    onSelectAudio: (Int) -> Unit,
+    onSelectSubtitle: (Int) -> Unit,
+    onDisableSubtitles: () -> Unit,
+    onSwitchEngine: () -> Unit,
+    onPlayInExternalPlayer: () -> Unit
+) {
         Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.7f)) {
             // Header
             Text(stringResource(R.string.nav_settings), style = MaterialTheme.typography.headlineSmall, color = ImaxColors.TextPrimary,
@@ -1607,7 +1711,8 @@ private fun PlayerSettingsSheet(
                             icon = Icons.Filled.AspectRatio,
                             title = stringResource(R.string.setting_display_mode),
                             subtitle = playerState.aspectRatioMode.label,
-                            onClick = { activeSection = "aspect" }
+                            isTv = isTv,
+                            onClick = { onSectionChange("aspect") }
                         )
                     }
 
@@ -1619,7 +1724,8 @@ private fun PlayerSettingsSheet(
                             subtitle = if (playerState.availableQualities.isNotEmpty())
                                 playerState.videoQualityMode.label
                             else "Not available",
-                            onClick = { activeSection = "quality" }
+                            isTv = isTv,
+                            onClick = { onSectionChange("quality") }
                         )
                     }
 
@@ -1629,7 +1735,8 @@ private fun PlayerSettingsSheet(
                             icon = Icons.Filled.Speed,
                             title = stringResource(R.string.setting_playback_speed),
                             subtitle = "${playerState.playbackSpeed}x",
-                            onClick = { activeSection = "speed" }
+                            isTv = isTv,
+                            onClick = { onSectionChange("speed") }
                         )
                     }
 
@@ -1641,7 +1748,8 @@ private fun PlayerSettingsSheet(
                                 icon = Icons.Filled.Audiotrack,
                                 title = stringResource(R.string.setting_audio_track),
                                 subtitle = selectedAudio?.name ?: "Default",
-                                onClick = { activeSection = "audio" }
+                                isTv = isTv,
+                                onClick = { onSectionChange("audio") }
                             )
                         }
                     }
@@ -1653,7 +1761,8 @@ private fun PlayerSettingsSheet(
                             icon = Icons.Filled.Subtitles,
                             title = stringResource(R.string.setting_subtitles),
                             subtitle = selectedSub?.name ?: "Off",
-                            onClick = { activeSection = "subtitle" }
+                            isTv = isTv,
+                            onClick = { onSectionChange("subtitle") }
                         )
                     }
 
@@ -1663,7 +1772,19 @@ private fun PlayerSettingsSheet(
                             icon = Icons.Filled.SwitchVideo,
                             title = stringResource(R.string.setting_player_engine),
                             subtitle = engineName,
+                            isTv = isTv,
                             onClick = onSwitchEngine
+                        )
+                    }
+
+                    // External Player
+                    item {
+                        SettingsMenuItem(
+                            icon = Icons.Filled.OpenInNew,
+                            title = "Play in External Player",
+                            subtitle = "Use outside player",
+                            isTv = isTv,
+                            onClick = onPlayInExternalPlayer
                         )
                     }
 
@@ -1673,7 +1794,8 @@ private fun PlayerSettingsSheet(
                             icon = Icons.Filled.Info,
                             title = stringResource(R.string.setting_stream_info),
                             subtitle = if (playerState.currentVideoResolution.isNotBlank()) playerState.currentVideoResolution else "—",
-                            onClick = { activeSection = "info" }
+                            isTv = isTv,
+                            onClick = { onSectionChange("info") }
                         )
                     }
                 }
@@ -1683,7 +1805,14 @@ private fun PlayerSettingsSheet(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = { activeSection = null }) {
+                    var isBackFocused by remember { mutableStateOf(false) }
+                    IconButton(
+                        onClick = { onSectionChange(null) },
+                        modifier = Modifier
+                            .onFocusChanged { isBackFocused = it.isFocused }
+                            .focusable()
+                            .background(if(isBackFocused) Color.White.copy(alpha=0.1f) else Color.Transparent, CircleShape)
+                    ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = ImaxColors.TextPrimary)
                     }
                     Text(
@@ -1710,7 +1839,8 @@ private fun PlayerSettingsSheet(
                                 SettingsOptionItem(
                                     label = mode.label,
                                     isSelected = playerState.aspectRatioMode == mode,
-                                    onClick = { onSetAspectRatio(mode); activeSection = null }
+                                    isTv = isTv,
+                                    onClick = { onSetAspectRatio(mode); onSectionChange(null) }
                                 )
                             }
                         }
@@ -1720,7 +1850,8 @@ private fun PlayerSettingsSheet(
                                 SettingsOptionItem(
                                     label = mode.label,
                                     isSelected = playerState.videoQualityMode == mode,
-                                    onClick = { onSetQualityMode(mode); activeSection = null }
+                                    isTv = isTv,
+                                    onClick = { onSetQualityMode(mode); onSectionChange(null) }
                                 )
                             }
                             // Specific resolutions
@@ -1736,7 +1867,8 @@ private fun PlayerSettingsSheet(
                                         label = q.label,
                                         subtitle = if (q.bitrate > 0) "${q.bitrate / 1000} kbps" else null,
                                         isSelected = q.isSelected,
-                                        onClick = { onSelectVideoTrack(q.index); activeSection = null }
+                                        isTv = isTv,
+                                        onClick = { onSelectVideoTrack(q.index); onSectionChange(null) }
                                     )
                                 }
                             }
@@ -1746,7 +1878,8 @@ private fun PlayerSettingsSheet(
                                 SettingsOptionItem(
                                     label = "${speed}x",
                                     isSelected = playerState.playbackSpeed == speed,
-                                    onClick = { onSetSpeed(speed); activeSection = null }
+                                    isTv = isTv,
+                                    onClick = { onSetSpeed(speed); onSectionChange(null) }
                                 )
                             }
                         }
@@ -1756,7 +1889,8 @@ private fun PlayerSettingsSheet(
                                     label = track.name,
                                     subtitle = track.language.ifEmpty { null },
                                     isSelected = track.isSelected,
-                                    onClick = { onSelectAudio(track.index); activeSection = null }
+                                    isTv = isTv,
+                                    onClick = { onSelectAudio(track.index); onSectionChange(null) }
                                 )
                             }
                         }
@@ -1765,7 +1899,8 @@ private fun PlayerSettingsSheet(
                                 SettingsOptionItem(
                                     label = "Off",
                                     isSelected = playerState.selectedSubtitleTrack == -1,
-                                    onClick = { onDisableSubtitles(); activeSection = null }
+                                    isTv = isTv,
+                                    onClick = { onDisableSubtitles(); onSectionChange(null) }
                                 )
                             }
                             items(playerState.subtitleTracks) { track ->
@@ -1773,7 +1908,8 @@ private fun PlayerSettingsSheet(
                                     label = track.name,
                                     subtitle = track.language.ifEmpty { null },
                                     isSelected = track.isSelected,
-                                    onClick = { onSelectSubtitle(track.index); activeSection = null }
+                                    isTv = isTv,
+                                    onClick = { onSelectSubtitle(track.index); onSectionChange(null) }
                                 )
                             }
                         }
@@ -1798,29 +1934,34 @@ private fun PlayerSettingsSheet(
             }
         }
     }
-}
 
 @Composable
 private fun SettingsMenuItem(
     icon: ImageVector,
     title: String,
     subtitle: String,
+    isTv: Boolean = false,
     onClick: () -> Unit
 ) {
+    var isFocused by remember { mutableStateOf(false) }
+    
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .onFocusChanged { isFocused = it.isFocused }
+            .focusable()
             .clickable(onClick = onClick)
+            .background(if (isFocused) Color.White else Color.Transparent)
             .padding(horizontal = 20.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Icon(icon, contentDescription = null, tint = ImaxColors.TextSecondary, modifier = Modifier.size(22.dp))
+        Icon(icon, contentDescription = null, tint = if (isFocused) Color.Black else ImaxColors.TextSecondary, modifier = Modifier.size(22.dp))
         Spacer(modifier = Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge, color = ImaxColors.TextPrimary)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = ImaxColors.TextTertiary)
+            Text(title, style = MaterialTheme.typography.bodyLarge, color = if (isFocused) Color.Black else ImaxColors.TextPrimary)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = if (isFocused) Color.DarkGray else ImaxColors.TextTertiary)
         }
-        Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = ImaxColors.TextTertiary, modifier = Modifier.size(20.dp))
+        Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = if (isFocused) Color.Black else ImaxColors.TextTertiary, modifier = Modifier.size(20.dp))
     }
 }
 
@@ -1829,25 +1970,30 @@ private fun SettingsOptionItem(
     label: String,
     isSelected: Boolean,
     onClick: () -> Unit,
+    isTv: Boolean = false,
     subtitle: String? = null
 ) {
+    var isFocused by remember { mutableStateOf(false) }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .onFocusChanged { isFocused = it.isFocused }
+            .focusable()
             .clickable(onClick = onClick)
-            .background(if (isSelected) ImaxColors.Primary.copy(alpha = 0.1f) else Color.Transparent)
+            .background(if (isFocused) Color.White else if (isSelected) ImaxColors.Primary.copy(alpha = 0.1f) else Color.Transparent)
             .padding(horizontal = 20.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(label, style = MaterialTheme.typography.bodyLarge,
-                color = if (isSelected) ImaxColors.Primary else ImaxColors.TextPrimary)
+                color = if (isFocused) Color.Black else if (isSelected) ImaxColors.Primary else ImaxColors.TextPrimary)
             if (subtitle != null) {
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = ImaxColors.TextTertiary)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = if (isFocused) Color.DarkGray else ImaxColors.TextTertiary)
             }
         }
         if (isSelected) {
-            Icon(Icons.Filled.Check, contentDescription = null, tint = ImaxColors.Primary, modifier = Modifier.size(20.dp))
+            Icon(Icons.Filled.Check, contentDescription = null, tint = if (isFocused) Color.Black else ImaxColors.Primary, modifier = Modifier.size(20.dp))
         }
     }
 }
@@ -1917,15 +2063,107 @@ private fun episodeLabel(episode: Episode): String {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalComposeUiApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun ChannelSwitchSheet(
     channels: List<Channel>,
     currentChannelId: Long,
     isSwitching: Boolean,
+    isTv: Boolean,
     onDismiss: () -> Unit,
     onChannelSelected: (Channel) -> Unit
 ) {
+    if (isTv) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = onDismiss,
+            properties = androidx.compose.ui.window.DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false
+            )
+        ) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.CenterEnd) {
+                Surface(
+                    modifier = Modifier.fillMaxHeight().width(340.dp).padding(vertical = 16.dp).padding(end = 16.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = ImaxColors.Surface.copy(alpha = 0.95f),
+                    border = BorderStroke(1.dp, Color.White.copy(alpha = 0.1f))
+                ) {
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        Text(
+                            text = stringResource(R.string.channel_list),
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = ImaxColors.TextPrimary,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp)
+                        )
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(channels, key = { it.id }) { channel ->
+                                val isCurrent = channel.id == currentChannelId
+                                var isFocused by remember { mutableStateOf(false) }
+                                
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (isFocused) Color.White else if (isCurrent) ImaxColors.Primary.copy(alpha = 0.14f) else ImaxColors.SurfaceVariant,
+                                    border = BorderStroke(
+                                        width = if (isFocused) 0.dp else if (isCurrent) 1.dp else 0.dp,
+                                        color = if (isCurrent && !isFocused) ImaxColors.Primary else Color.Transparent
+                                    ),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .onFocusChanged { isFocused = it.isFocused }
+                                        .focusable(enabled = !isCurrent && !isSwitching)
+                                        .clickable(enabled = !isCurrent && !isSwitching) { onChannelSelected(channel) }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = channel.name,
+                                                style = MaterialTheme.typography.titleMedium,
+                                                color = if (isFocused) Color.Black else ImaxColors.TextPrimary,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            if (channel.groupTitle.isNotBlank()) {
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    text = channel.groupTitle,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = if (isFocused) Color.DarkGray else ImaxColors.TextTertiary,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                        if (isCurrent) {
+                                            Text(
+                                                text = stringResource(R.string.now_playing),
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = if (isFocused) Color.Black else ImaxColors.Primary
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Filled.PlayArrow,
+                                                contentDescription = null,
+                                                tint = if (isFocused) Color.Black else ImaxColors.Primary
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return
+    }
+
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     ModalBottomSheet(

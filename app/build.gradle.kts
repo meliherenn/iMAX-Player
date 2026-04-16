@@ -20,7 +20,7 @@ android {
 
     defaultConfig {
         applicationId = "com.imax.player"
-        minSdk = 24
+        minSdk = 26
         targetSdk = 35
         versionCode = 1
         versionName = "1.0.0"
@@ -69,6 +69,7 @@ android {
         }
         jniLibs {
             useLegacyPackaging = true
+            pickFirsts += setOf("lib/*/libc++_shared.so")
         }
     }
 }
@@ -139,8 +140,9 @@ dependencies {
     implementation(libs.media3.common)
     implementation(libs.media3.datasource.okhttp)
 
-    // VLC
+    // VLC & MPV
     implementation(libs.libvlc)
+    implementation(libs.libmpv)
 
     // Image Loading
     implementation(libs.coil)

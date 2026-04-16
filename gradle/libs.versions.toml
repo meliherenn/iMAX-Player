@@ -25,6 +25,7 @@ leanback = "1.0.0"
 startup = "1.2.0"
 splashscreen = "1.0.1"
 libvlc = "3.6.0"
+libmpv = "0.4.1"
 junit = "4.13.2"
 mockk = "1.13.13"
 turbine = "1.2.0"
@@ -99,8 +100,9 @@ media3-session = { group = "androidx.media3", name = "media3-session", version.r
 media3-common = { group = "androidx.media3", name = "media3-common", version.ref = "media3" }
 media3-datasource-okhttp = { group = "androidx.media3", name = "media3-datasource-okhttp", version.ref = "media3" }
 
-# VLC
+# VLC & MPV
 libvlc = { group = "org.videolan.android", name = "libvlc-all", version.ref = "libvlc" }
+libmpv = { group = "dev.jdtech.mpv", name = "libmpv", version.ref = "libmpv" }
 
 # Image Loading
 coil = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }

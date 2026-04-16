@@ -16,6 +16,7 @@ enum class ContentType {
 
 enum class PlayerEngineType {
     EXOPLAYER,
+    MPV,
     VLC
 }
 

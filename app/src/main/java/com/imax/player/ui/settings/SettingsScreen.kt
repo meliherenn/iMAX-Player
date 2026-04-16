@@ -182,6 +182,188 @@ private fun SettingsContent(
         }
 
 
+        // ══════════════════════════════════════════════
+        // A) PLAYER
+        // ══════════════════════════════════════════════
+        SettingsSection(
+            icon = Icons.Filled.PlayCircle,
+            title = stringResource(R.string.settings_player),
+            isTv = isTv
+        ) {
+            // Engine selection
+            val engineOptions = PlayerEngineType.entries.map { it.name }
+            SettingsDropdown(
+                label = stringResource(R.string.setting_player_engine),
+                value = settings.playerEngine.name,
+                options = engineOptions,
+                isTv = isTv,
+                onSelect = { name ->
+                    val type = PlayerEngineType.entries.firstOrNull { it.name == name } ?: PlayerEngineType.EXOPLAYER
+                    viewModel.updatePlayerEngine(type)
+                }
+            )
+
+            // Display mode
+            val displayModes = AspectRatioMode.entries.map { it.name to it.label }
+            SettingsDropdown(
+                label = stringResource(R.string.setting_display_mode),
+                value = displayModes.find { it.first.equals(settings.defaultDisplayMode, ignoreCase = true) }?.second ?: "Fit to Screen",
+                options = displayModes.map { it.second },
+                isTv = isTv,
+                onSelect = { label ->
+                    val mode = displayModes.find { it.second == label }?.first ?: "FIT"
+                    viewModel.updateDisplayMode(mode)
+                }
+            )
+
+            // Playback speed
+            val speeds = listOf(0.5f, 0.75f, 1f, 1.25f, 1.5f, 2f)
+            SettingsDropdown(
+                label = stringResource(R.string.setting_playback_speed),
+                value = "${settings.defaultPlaybackSpeed}x",
+                options = speeds.map { "${it}x" },
+                isTv = isTv,
+                onSelect = { label ->
+                    val speed = label.removeSuffix("x").toFloatOrNull() ?: 1f
+                    viewModel.updateDefaultSpeed(speed)
+                }
+            )
+
+            SettingsSwitch(
+                label = stringResource(R.string.settings_auto_resume),
+                checked = settings.autoResumePlayback,
+                isTv = isTv,
+                onCheckedChange = { viewModel.updateAutoResume(it) }
+            )
+            SettingsSwitch(
+                label = stringResource(R.string.settings_continue_watching),
+                checked = settings.continueWatching,
+                isTv = isTv,
+                onCheckedChange = { viewModel.updateContinueWatching(it) }
+            )
+            SettingsSwitch(
+                label = stringResource(R.string.settings_auto_play_next),
+                checked = settings.autoPlayNextEpisode,
+                isTv = isTv,
+                onCheckedChange = { viewModel.updateAutoPlayNext(it) }
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ══════════════════════════════════════════════
+        // B) AUDIO & SUBTITLES
+        // ══════════════════════════════════════════════
+        SettingsSection(
+            icon = Icons.Filled.Subtitles,
+            title = stringResource(R.string.settings_audio_subtitle),
+            isTv = isTv
+        ) {
+            val subtitleLangs = listOf("off", "tr", "en", "de", "fr", "ar", "system")
+            SettingsDropdown(
+                label = stringResource(R.string.setting_subtitles),
+                value = settings.defaultSubtitleLanguage,
+                options = subtitleLangs,
+                isTv = isTv,
+                onSelect = { viewModel.updateSubtitleLang(it) }
+            )
+
+            val audioLangs = listOf("system", "tr", "en", "de", "fr", "ar")
+            SettingsDropdown(
+                label = stringResource(R.string.setting_audio_track),
+                value = settings.defaultAudioLanguage,
+                options = audioLangs,
+                isTv = isTv,
+                onSelect = { viewModel.updateAudioLang(it) }
+            )
+
+            SettingsSwitch(
+                label = stringResource(R.string.settings_auto_enable_subtitles),
+                checked = settings.autoEnableSubtitles,
+                isTv = isTv,
+                onCheckedChange = { viewModel.updateAutoEnableSubtitles(it) }
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ══════════════════════════════════════════════
+        // C) VIDEO QUALITY
+        // ══════════════════════════════════════════════
+        SettingsSection(
+            icon = Icons.Filled.HighQuality,
+            title = stringResource(R.string.settings_video_quality),
+            isTv = isTv
+        ) {
+            val qualityModes = VideoQualityMode.entries.map { it.name to it.label }
+            SettingsDropdown(
+                label = stringResource(R.string.setting_video_quality),
+                value = qualityModes.find { it.first.equals(settings.videoQualityMode, ignoreCase = true) }?.second ?: "Auto",
+                options = qualityModes.map { it.second },
+                isTv = isTv,
+                onSelect = { label ->
+                    val mode = qualityModes.find { it.second == label }?.first ?: "AUTO"
+                    viewModel.updateQualityMode(mode)
+                }
+            )
+
+            SettingsSwitch(
+                label = stringResource(R.string.settings_prefer_hw_decoding),
+                checked = settings.preferHwDecoding,
+                isTv = isTv,
+                onCheckedChange = { viewModel.updatePreferHw(it) }
+            )
+            SettingsSwitch(
+                label = stringResource(R.string.settings_allow_quality_fallback),
+                checked = settings.allowQualityFallback,
+                isTv = isTv,
+                onCheckedChange = { viewModel.updateAllowFallback(it) }
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ══════════════════════════════════════════════
+        // D) LIVE TV
+        // ══════════════════════════════════════════════
+        SettingsSection(
+            icon = Icons.Filled.LiveTv,
+            title = stringResource(R.string.settings_live_tv),
+            isTv = isTv
+        ) {
+            val latencyModes = LiveLatencyMode.entries.map { it.name to it.label }
+            SettingsDropdown(
+                label = stringResource(R.string.settings_live_latency),
+                value = latencyModes.find { it.first.equals(settings.liveLatencyMode, ignoreCase = true) }?.second ?: "Balanced",
+                options = latencyModes.map { it.second },
+                isTv = isTv,
+                onSelect = { label ->
+                    val mode = latencyModes.find { it.second == label }?.first ?: "BALANCED"
+                    viewModel.updateLiveMode(mode)
+                }
+            )
+
+            SettingsSwitch(
+                label = stringResource(R.string.settings_live_reconnect),
+                checked = settings.liveReconnectOnFailure,
+                isTv = isTv,
+                onCheckedChange = { viewModel.updateLiveReconnect(it) }
+            )
+            SettingsSwitch(
+                label = stringResource(R.string.settings_remember_channel),
+                checked = settings.rememberLastChannel,
+                isTv = isTv,
+                onCheckedChange = { viewModel.updateRememberChannel(it) }
+            )
+            SettingsSwitch(
+                label = stringResource(R.string.settings_start_fullscreen),
+                checked = settings.startFullscreenLive,
+                isTv = isTv,
+                onCheckedChange = { viewModel.updateStartFullscreen(it) }
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
 
         // ══════════════════════════════════════════════
         // E) PLAYLIST / ACCOUNT

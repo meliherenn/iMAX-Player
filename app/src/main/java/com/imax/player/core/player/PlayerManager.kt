@@ -25,6 +25,7 @@ enum class EngineSwitchState {
 @Singleton
 class PlayerManager @Inject constructor(
     private val exoPlayerEngine: ExoPlayerEngine,
+    private val mpvPlayerEngine: MpvPlayerEngine,
     private val vlcPlayerEngine: VlcPlayerEngine,
     private val settingsDataStore: SettingsDataStore
 ) {
@@ -82,6 +83,7 @@ class PlayerManager @Inject constructor(
 
         currentEngine = when (settings.playerEngine) {
             PlayerEngineType.EXOPLAYER -> exoPlayerEngine
+            PlayerEngineType.MPV -> mpvPlayerEngine
             PlayerEngineType.VLC -> {
                 if (vlcPlayerEngine.isAvailable()) vlcPlayerEngine
                 else {
@@ -155,7 +157,7 @@ class PlayerManager @Inject constructor(
      *
      * If anything fails → rollback to old engine
      */
-    fun switchEngine(persistent: Boolean = true) {
+    fun switchEngine(persistent: Boolean = true, targetType: PlayerEngineType? = null) {
         // Re-entrancy guard — if already switching, ignore
         if (!isSwitching.compareAndSet(false, true)) {
             Timber.w("Engine switch already in progress, ignoring duplicate call")
@@ -201,16 +203,22 @@ class PlayerManager @Inject constructor(
                 }
 
                 // Step 3: Determine new engine
-                val newEngine = if (oldEngine is ExoPlayerEngine) {
-                    if (!vlcPlayerEngine.isAvailable()) {
-                        throw IllegalStateException("VLC engine not available on this device")
+                val newEngine = if (targetType != null) {
+                    when (targetType) {
+                        PlayerEngineType.EXOPLAYER -> exoPlayerEngine
+                        PlayerEngineType.MPV -> mpvPlayerEngine
+                        PlayerEngineType.VLC -> vlcPlayerEngine
                     }
-                    Timber.d("Switching to VLC engine")
-                    vlcPlayerEngine
                 } else {
-                    Timber.d("Switching to ExoPlayer engine")
-                    exoPlayerEngine
+                    // Manual cycle: ExoPlayer -> MPV -> VLC -> ExoPlayer
+                    when (oldEngine) {
+                        is ExoPlayerEngine -> mpvPlayerEngine
+                        is MpvPlayerEngine -> if (vlcPlayerEngine.isAvailable()) vlcPlayerEngine else exoPlayerEngine
+                        else -> exoPlayerEngine
+                    }
                 }
+
+                Timber.d("Switching to ${newEngine.engineName}")
 
                 // Step 4: Initialize new engine (VLC on IO, Exo on Main)
                 currentEngine = newEngine
@@ -250,7 +258,11 @@ class PlayerManager @Inject constructor(
                 // Step 7: Persist selection
                 if (persistent) {
                     launch {
-                        val engineType = if (newEngine is ExoPlayerEngine) PlayerEngineType.EXOPLAYER else PlayerEngineType.VLC
+                        val engineType = when (newEngine) {
+                            is ExoPlayerEngine -> PlayerEngineType.EXOPLAYER
+                            is MpvPlayerEngine -> PlayerEngineType.MPV
+                            else -> PlayerEngineType.VLC
+                        }
                         settingsDataStore.updatePlayerEngine(engineType)
                     }
                 }
@@ -302,9 +314,13 @@ class PlayerManager @Inject constructor(
     }
 
     fun tryFallback(persistent: Boolean = true): Boolean {
-        if ((currentEngine is ExoPlayerEngine && vlcPlayerEngine.isAvailable()) || currentEngine is VlcPlayerEngine) {
-            Timber.d("Attempting player engine fallback from ${currentEngine.engineName}")
-            switchEngine(persistent)
+        if (currentEngine is ExoPlayerEngine) {
+            Timber.d("Attempting player engine fallback from ExoPlayer -> MPV")
+            switchEngine(persistent, targetType = PlayerEngineType.MPV)
+            return true
+        } else if (currentEngine is MpvPlayerEngine && vlcPlayerEngine.isAvailable()) {
+            Timber.d("Attempting player engine fallback from MPV -> VLC")
+            switchEngine(persistent, targetType = PlayerEngineType.VLC)
             return true
         }
         return false

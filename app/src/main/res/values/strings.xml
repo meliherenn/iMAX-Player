@@ -142,4 +142,22 @@
     <string name="no_data_fallback">Belirtilmemiş</string>
     <string name="season_format">%1$d. Sezon</string>
     <string name="episode_format">%1$d. Bölüm — %2$s</string>
+
+    <!-- Settings Sections -->
+    <string name="settings_player">Oynatıcı</string>
+    <string name="settings_audio_subtitle">Ses &amp; Altyazı</string>
+    <string name="settings_video_quality">Video Kalitesi</string>
+    <string name="settings_live_tv">Canlı TV</string>
+
+    <!-- Settings Toggles -->
+    <string name="settings_auto_resume">Kaldığı Yerden Devam</string>
+    <string name="settings_continue_watching">İzlemeye Devam Et</string>
+    <string name="settings_auto_play_next">Sonraki Bölümü Otomatik Oynat</string>
+    <string name="settings_auto_enable_subtitles">Altyazıyı Otomatik Aç</string>
+    <string name="settings_prefer_hw_decoding">Donanım Çözücü Tercih Et</string>
+    <string name="settings_allow_quality_fallback">Kalite Düşüşüne İzin Ver</string>
+    <string name="settings_live_latency">Canlı Yayın Gecikmesi</string>
+    <string name="settings_live_reconnect">Hatada Otomatik Yeniden Bağlan</string>
+    <string name="settings_remember_channel">Son Kanalı Hatırla</string>
+    <string name="settings_start_fullscreen">Tam Ekranda Başla</string>
 </resources>
