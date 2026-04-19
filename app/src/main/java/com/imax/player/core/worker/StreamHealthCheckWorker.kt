@@ -16,12 +16,10 @@ import java.util.concurrent.TimeUnit
  * Checks stream health for all channels in a playlist using HTTP HEAD requests.
  *
  * - Runs once after playlist sync
- * - Marks unreachable streams in DB (isOnline = false via sortOrder sentinel)
- * - Uses a shorter OkHttpClient timeout for fast pings
- *
- * NOTE: ChannelEntity doesn't yet have an `isOnline` field.
- * We use `sortOrder` sentinel: sortOrder = -1 means dead stream.
- * A future migration can add a proper `isOnline Boolean` column.
+ * - Marks unreachable streams as [ChannelEntity.isOnline] = false in the DB
+ *   (persisted via MIGRATION_2_3 which adds the `isOnline` column)
+ * - Uses a shorter OkHttpClient timeout (5s) for fast pings
+ * - Channels checked in batches of 10 with 200ms inter-batch delay
  */
 @HiltWorker
 class StreamHealthCheckWorker @AssistedInject constructor(
