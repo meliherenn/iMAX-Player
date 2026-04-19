@@ -136,4 +136,13 @@
     <string name="no_data_fallback">Belirtilmemiş</string>
     <string name="season_format">%1$d. Sezon</string>
     <string name="episode_format">%1$d. Bölüm — %2$s</string>
+
+    <!-- EPG -->
+    <string name="settings_epg">Program Rehberi (EPG)</string>
+    <string name="epg_url_hint">EPG URL (XMLTV)</string>
+    <string name="settings_epg_auto_sync">EPG Otomatik Güncelle</string>
+    <string name="epg_sync_now">EPG Şimdi Güncelle</string>
+    <string name="epg_last_sync_time">Son EPG Güncellemesi: %1$s</string>
+    <string name="epg_no_data">Program bilgisi yok</string>
+    <string name="channel_number_hint">Kanal No</string>
 </resources>

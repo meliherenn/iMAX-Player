@@ -1,0 +1,24 @@
+--------- beginning of crash
+04-19 15:27:51.279  4456  4509 E AndroidRuntime: FATAL EXCEPTION: DefaultDispatcher-worker-7
+04-19 15:27:51.279  4456  4509 E AndroidRuntime: Process: com.imax.player.debug, PID: 4456
+04-19 15:27:51.279  4456  4509 E AndroidRuntime: java.lang.NoClassDefFoundError: dev.jdtech.mpv.MPVLib
+04-19 15:27:51.279  4456  4509 E AndroidRuntime: 	at dev.jdtech.mpv.MPVLib.command(Native Method)
+04-19 15:27:51.279  4456  4509 E AndroidRuntime: 	at com.imax.player.core.player.MpvPlayerEngine$play$1.invokeSuspend(MpvPlayerEngine.kt:109)
+04-19 15:27:51.279  4456  4509 E AndroidRuntime: 	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:33)
+04-19 15:27:51.279  4456  4509 E AndroidRuntime: 	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:101)
+04-19 15:27:51.279  4456  4509 E AndroidRuntime: 	at kotlinx.coroutines.internal.LimitedDispatcher$Worker.run(LimitedDispatcher.kt:113)
+04-19 15:27:51.279  4456  4509 E AndroidRuntime: 	at kotlinx.coroutines.scheduling.TaskImpl.run(Tasks.kt:89)
+04-19 15:27:51.279  4456  4509 E AndroidRuntime: 	at kotlinx.coroutines.scheduling.CoroutineScheduler.runSafely(CoroutineScheduler.kt:589)
+04-19 15:27:51.279  4456  4509 E AndroidRuntime: 	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.executeTask(CoroutineScheduler.kt:823)
+04-19 15:27:51.279  4456  4509 E AndroidRuntime: 	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.runWorker(CoroutineScheduler.kt:720)
+04-19 15:27:51.279  4456  4509 E AndroidRuntime: 	at kotlinx.coroutines.scheduling.CoroutineScheduler$Worker.run(CoroutineScheduler.kt:707)
+04-19 15:27:51.279  4456  4509 E AndroidRuntime: 	Suppressed: kotlinx.coroutines.internal.DiagnosticCoroutineContextException: [StandaloneCoroutine{Cancelling}@91c3738, Dispatchers.IO]
+04-19 15:27:51.279  4456  4509 E AndroidRuntime: Caused by: java.lang.UnsatisfiedLinkError: dlopen failed: cannot locate symbol "_ZNSt6__ndk18to_charsEPcS0_f" referenced by "/data/app/~~PEpUZmPuV50SDKaP9-ymkg==/com.imax.player.debug-T_UMQHKvnuiDQRdSVCr39w==/lib/arm/libmpv.so"...
+04-19 15:27:51.279  4456  4509 E AndroidRuntime: 	at java.lang.Runtime.loadLibrary0(Runtime.java:1087)
+04-19 15:27:51.279  4456  4509 E AndroidRuntime: 	at java.lang.Runtime.loadLibrary0(Runtime.java:1008)
+04-19 15:27:51.279  4456  4509 E AndroidRuntime: 	at java.lang.System.loadLibrary(System.java:1664)
+04-19 15:27:51.279  4456  4509 E AndroidRuntime: 	at dev.jdtech.mpv.MPVLib.<clinit>(MPVLib.java:22)
+04-19 15:27:51.279  4456  4509 E AndroidRuntime: 	at dev.jdtech.mpv.MPVLib.create(Native Method)
+04-19 15:27:51.279  4456  4509 E AndroidRuntime: 	at com.imax.player.core.player.MpvPlayerEngine.initialize(MpvPlayerEngine.kt:50)
+04-19 15:27:51.279  4456  4509 E AndroidRuntime: 	at com.imax.player.core.player.PlayerManager$initializeWithSettings$4.invokeSuspend(PlayerManager.kt:107)
+04-19 15:27:51.279  4456  4509 E AndroidRuntime: 	... 8 more

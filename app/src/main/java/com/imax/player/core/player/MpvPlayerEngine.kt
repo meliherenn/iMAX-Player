@@ -9,6 +9,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.jdtech.mpv.MPVLib
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,9 +31,13 @@ class MpvPlayerEngine @Inject constructor(
     private var surfaceView: SurfaceView? = null
     private var isInitialized = false
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var scope: CoroutineScope? = null
     
     private var duration: Long = 0
     private var isPlaybackPaused = false
+
+    // Lazy olarak bir kez test edilir, sonuç cache'lenir
+    private var _isAvailable: Boolean? = null
 
     // Configuration
     private var configuredBufferMs: Long = 30_000L
@@ -44,11 +50,43 @@ class MpvPlayerEngine @Inject constructor(
         this.configuredPreferHw = preferHwDecoding
     }
 
+    override fun isAvailable(): Boolean {
+        if (_isAvailable != null) return _isAvailable!!
+        _isAvailable = try {
+            // Class yüklenmesi JVM'nin native lib'i load etmesini tetikler.
+            // UnsatisfiedLinkError burada fırlarsa MPV bu cihazda kullanılamaz.
+            Class.forName("dev.jdtech.mpv.MPVLib")
+            true
+        } catch (e: UnsatisfiedLinkError) {
+            Timber.w("MPV native library unavailable on this device: ${e.message}")
+            false
+        } catch (e: NoClassDefFoundError) {
+            Timber.w("MPV class not found (native init failed): ${e.message}")
+            false
+        } catch (e: Exception) {
+            Timber.w("MPV availability check failed: ${e.message}")
+            false
+        }
+        return _isAvailable!!
+    }
+
     override fun initialize() {
         if (isInitialized) return
+
+        // isAvailable() false ise hiç deneme — crash önlenir
+        if (!isAvailable()) {
+            Timber.w("MpvPlayerEngine.initialize() skipped — MPV not available on this device")
+            _state.value = _state.value.copy(
+                playbackState = PlaybackState.ERROR,
+                errorMessage = "MPV bu cihazda desteklenmiyor"
+            )
+            return
+        }
+
+        scope?.cancel()
+        scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
         try {
             MPVLib.create(context)
-            // Enforce hardware decoding
             if (configuredPreferHw) {
                 MPVLib.setOptionString("hwdec", "mediacodec-copy")
             } else {
@@ -56,30 +94,45 @@ class MpvPlayerEngine @Inject constructor(
             }
             MPVLib.setOptionString("vo", "gpu")
             MPVLib.setOptionString("gpu-context", "android")
-            // Optimize for IPTV latency
             MPVLib.setOptionString("profile", "fast")
             MPVLib.setOptionString("cache", "yes")
-            
             MPVLib.init()
             MPVLib.addObserver(this)
-            
-            // Observe necessary properties
             MPVLib.observeProperty("time-pos", MPVLib.MPV_FORMAT_DOUBLE)
             MPVLib.observeProperty("duration", MPVLib.MPV_FORMAT_DOUBLE)
             MPVLib.observeProperty("pause", MPVLib.MPV_FORMAT_FLAG)
             MPVLib.observeProperty("core-idle", MPVLib.MPV_FORMAT_FLAG)
             MPVLib.observeProperty("eof-reached", MPVLib.MPV_FORMAT_FLAG)
-            
             isInitialized = true
             Timber.tag("MpvPlayerEngine").d("MPVLib initialized successfully")
+        } catch (e: UnsatisfiedLinkError) {
+            // Native kütüphane yüklenemedi — bu cihazda MPV kullanılamaz
+            _isAvailable = false
+            Timber.e(e, "MPV UnsatisfiedLinkError — marking as unavailable")
+            _state.value = _state.value.copy(
+                playbackState = PlaybackState.ERROR,
+                errorMessage = "MPV bu cihazda desteklenmiyor (native hata)"
+            )
+        } catch (e: NoClassDefFoundError) {
+            _isAvailable = false
+            Timber.e(e, "MPV NoClassDefFoundError — marking as unavailable")
+            _state.value = _state.value.copy(
+                playbackState = PlaybackState.ERROR,
+                errorMessage = "MPV kütüphanesi yüklenemedi"
+            )
         } catch (e: Throwable) {
             Timber.e(e, "Error initializing MPVLib")
-            _state.value = _state.value.copy(playbackState = PlaybackState.ERROR, errorMessage = e.message)
+            _state.value = _state.value.copy(
+                playbackState = PlaybackState.ERROR,
+                errorMessage = e.message
+            )
         }
     }
 
     override fun release() {
         if (!isInitialized) return
+        scope?.cancel()
+        scope = null
         try {
             stop()
             MPVLib.removeObserver(this)
@@ -101,7 +154,7 @@ class MpvPlayerEngine @Inject constructor(
             errorMessage = null
         )
         
-        CoroutineScope(Dispatchers.IO).launch {
+        scope?.launch(Dispatchers.IO) {
             try {
                 if (startPosition > 0) {
                     MPVLib.command(arrayOf("loadfile", url, "replace", "start=${startPosition / 1000}"))

@@ -83,7 +83,18 @@ class PlayerManager @Inject constructor(
 
         currentEngine = when (settings.playerEngine) {
             PlayerEngineType.EXOPLAYER -> exoPlayerEngine
-            PlayerEngineType.MPV -> mpvPlayerEngine
+            PlayerEngineType.MPV -> {
+                if (mpvPlayerEngine.isAvailable()) {
+                    mpvPlayerEngine
+                } else {
+                    Timber.w("MPV not available on this device, falling back to ExoPlayer")
+                    // Kalıcı olarak ExoPlayer'a dön — bir daha MPV seçilmesin
+                    managerScope.launch {
+                        settingsDataStore.updatePlayerEngine(PlayerEngineType.EXOPLAYER)
+                    }
+                    exoPlayerEngine
+                }
+            }
             PlayerEngineType.VLC -> {
                 if (vlcPlayerEngine.isAvailable()) vlcPlayerEngine
                 else {
@@ -234,14 +245,33 @@ class PlayerManager @Inject constructor(
                 val newEngine = if (targetType != null) {
                     when (targetType) {
                         PlayerEngineType.EXOPLAYER -> exoPlayerEngine
-                        PlayerEngineType.MPV -> mpvPlayerEngine
-                        PlayerEngineType.VLC -> vlcPlayerEngine
+                        PlayerEngineType.MPV -> {
+                            if (mpvPlayerEngine.isAvailable()) mpvPlayerEngine
+                            else {
+                                Timber.w("Requested MPV but not available, using ExoPlayer")
+                                exoPlayerEngine
+                            }
+                        }
+                        PlayerEngineType.VLC -> {
+                            if (vlcPlayerEngine.isAvailable()) vlcPlayerEngine
+                            else {
+                                Timber.w("Requested VLC but not available, using ExoPlayer")
+                                exoPlayerEngine
+                            }
+                        }
                     }
                 } else {
-                    // Manual cycle: ExoPlayer -> MPV -> VLC -> ExoPlayer
+                    // Manual cycle: ExoPlayer -> MPV (varsa) -> VLC (varsa) -> ExoPlayer
                     when (oldEngine) {
-                        is ExoPlayerEngine -> mpvPlayerEngine
-                        is MpvPlayerEngine -> if (vlcPlayerEngine.isAvailable()) vlcPlayerEngine else exoPlayerEngine
+                        is ExoPlayerEngine -> {
+                            if (mpvPlayerEngine.isAvailable()) mpvPlayerEngine
+                            else if (vlcPlayerEngine.isAvailable()) vlcPlayerEngine
+                            else exoPlayerEngine
+                        }
+                        is MpvPlayerEngine -> {
+                            if (vlcPlayerEngine.isAvailable()) vlcPlayerEngine
+                            else exoPlayerEngine
+                        }
                         else -> exoPlayerEngine
                     }
                 }
@@ -342,16 +372,42 @@ class PlayerManager @Inject constructor(
     }
 
     fun tryFallback(persistent: Boolean = true): Boolean {
-        if (currentEngine is ExoPlayerEngine) {
-            Timber.d("Attempting player engine fallback from ExoPlayer -> MPV")
-            switchEngine(persistent, targetType = PlayerEngineType.MPV)
-            return true
-        } else if (currentEngine is MpvPlayerEngine && vlcPlayerEngine.isAvailable()) {
-            Timber.d("Attempting player engine fallback from MPV -> VLC")
-            switchEngine(persistent, targetType = PlayerEngineType.VLC)
-            return true
+        return when {
+            currentEngine is ExoPlayerEngine -> {
+                // ExoPlayer başarısız → MPV dene (sadece isAvailable ise)
+                if (mpvPlayerEngine.isAvailable()) {
+                    Timber.d("Fallback: ExoPlayer -> MPV")
+                    switchEngine(persistent, targetType = PlayerEngineType.MPV)
+                    true
+                } else if (vlcPlayerEngine.isAvailable()) {
+                    // MPV yoksa direkt VLC
+                    Timber.d("Fallback: ExoPlayer -> VLC (MPV unavailable)")
+                    switchEngine(persistent, targetType = PlayerEngineType.VLC)
+                    true
+                } else {
+                    Timber.w("No fallback engine available")
+                    false
+                }
+            }
+            currentEngine is MpvPlayerEngine -> {
+                if (vlcPlayerEngine.isAvailable()) {
+                    Timber.d("Fallback: MPV -> VLC")
+                    switchEngine(persistent, targetType = PlayerEngineType.VLC)
+                    true
+                } else {
+                    Timber.d("Fallback: MPV -> ExoPlayer (VLC unavailable)")
+                    switchEngine(persistent, targetType = PlayerEngineType.EXOPLAYER)
+                    true
+                }
+            }
+            currentEngine is VlcPlayerEngine -> {
+                // VLC başarısız → ExoPlayer'a dön
+                Timber.d("Fallback: VLC -> ExoPlayer")
+                switchEngine(persistent, targetType = PlayerEngineType.EXOPLAYER)
+                true
+            }
+            else -> false
         }
-        return false
     }
 
     /**

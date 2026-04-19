@@ -1,6 +1,8 @@
 package com.imax.player.core.service
 
 import android.content.Intent
+import androidx.lifecycle.LifecycleService
+import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
@@ -8,6 +10,7 @@ import androidx.media3.session.MediaSessionService
 import com.imax.player.core.player.ExoPlayerEngine
 import com.imax.player.core.player.PlayerManager
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
 
@@ -20,29 +23,28 @@ import javax.inject.Inject
  *
  * The service is bound automatically by the OS when a [MediaController] is created.
  * It is started when the player becomes active and stopped when the app exits.
+ *
+ * Engine-aware: Listens to [PlayerManager.activeEngineName] and recreates the
+ * MediaSession when the engine switches back to ExoPlayer.
  */
 @AndroidEntryPoint
 @UnstableApi
-class ImaxPlaybackService : MediaSessionService() {
+class ImaxPlaybackService : MediaSessionService(), androidx.lifecycle.LifecycleOwner {
 
     @Inject
     lateinit var playerManager: PlayerManager
 
     private var mediaSession: MediaSession? = null
 
+    /** Delegate that provides lifecycle events for coroutine scoping. */
+    private val lifecycleDelegate = LifecycleService()
+
     // ─── Lifecycle ───────────────────────────────────────────────────────────────
 
     override fun onCreate() {
         super.onCreate()
-        val exoPlayer = resolveExoPlayer()
-        if (exoPlayer != null) {
-            mediaSession = MediaSession.Builder(this, exoPlayer)
-                .setId("imax_media_session")
-                .build()
-            Timber.d("ImaxPlaybackService: MediaSession created")
-        } else {
-            Timber.w("ImaxPlaybackService: ExoPlayer not available, session not created")
-        }
+        createSessionIfPossible()
+        observeEngineChanges()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -54,13 +56,56 @@ class ImaxPlaybackService : MediaSessionService() {
         mediaSession
 
     override fun onDestroy() {
+        releaseSession()
+        super.onDestroy()
+        Timber.d("ImaxPlaybackService: destroyed")
+    }
+
+    override val lifecycle: androidx.lifecycle.Lifecycle
+        get() = lifecycleDelegate.lifecycle
+
+    // ─── Engine observation ──────────────────────────────────────────────────────
+
+    /**
+     * Observes engine name changes. When the active engine switches,
+     * the MediaSession is rebuilt if an ExoPlayer instance is available,
+     * or released if not.
+     */
+    private fun observeEngineChanges() {
+        kotlinx.coroutines.MainScope().launch {
+            var lastEngineName: String? = null
+            playerManager.activeEngineName
+                .collect { engineName ->
+                    if (engineName != lastEngineName) {
+                        lastEngineName = engineName
+                        Timber.d("ImaxPlaybackService: engine changed to $engineName")
+                        releaseSession()
+                        createSessionIfPossible()
+                    }
+                }
+        }
+    }
+
+    // ─── Session management ──────────────────────────────────────────────────────
+
+    private fun createSessionIfPossible() {
+        val exoPlayer = resolveExoPlayer()
+        if (exoPlayer != null) {
+            mediaSession = MediaSession.Builder(this, exoPlayer)
+                .setId("imax_media_session")
+                .build()
+            Timber.d("ImaxPlaybackService: MediaSession created")
+        } else {
+            Timber.w("ImaxPlaybackService: ExoPlayer not available, session not created")
+        }
+    }
+
+    private fun releaseSession() {
         mediaSession?.run {
-            player.release()
+            // Don't release the player — it's managed by PlayerManager
             release()
         }
         mediaSession = null
-        super.onDestroy()
-        Timber.d("ImaxPlaybackService: destroyed")
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────────

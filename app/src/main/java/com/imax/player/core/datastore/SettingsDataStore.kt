@@ -57,7 +57,12 @@ data class AppSettings(
     val lastPlaylistId: Long = -1,
 
     // Quality per channel (legacy)
-    val rememberQualityPerChannel: Boolean = false
+    val rememberQualityPerChannel: Boolean = false,
+
+    // EPG
+    val epgUrl: String = "",
+    val epgLastSync: Long = 0L,
+    val epgAutoSync: Boolean = true
 )
 
 @Singleton
@@ -108,6 +113,11 @@ class SettingsDataStore @Inject constructor(
         val OPEN_LAST_PLAYLIST = booleanPreferencesKey("open_last_playlist")
         val LAST_PLAYLIST_ID = longPreferencesKey("last_playlist_id")
         val REMEMBER_QUALITY = booleanPreferencesKey("remember_quality_per_channel")
+
+        // EPG
+        val EPG_URL = stringPreferencesKey("epg_url")
+        val EPG_LAST_SYNC = longPreferencesKey("epg_last_sync")
+        val EPG_AUTO_SYNC = booleanPreferencesKey("epg_auto_sync")
     }
 
     val settings: Flow<AppSettings> = store.data.map { prefs ->
@@ -147,7 +157,11 @@ class SettingsDataStore @Inject constructor(
 
             openLastPlaylist = prefs[Keys.OPEN_LAST_PLAYLIST] ?: false,
             lastPlaylistId = prefs[Keys.LAST_PLAYLIST_ID] ?: -1,
-            rememberQualityPerChannel = prefs[Keys.REMEMBER_QUALITY] ?: false
+            rememberQualityPerChannel = prefs[Keys.REMEMBER_QUALITY] ?: false,
+
+            epgUrl = prefs[Keys.EPG_URL] ?: "",
+            epgLastSync = prefs[Keys.EPG_LAST_SYNC] ?: 0L,
+            epgAutoSync = prefs[Keys.EPG_AUTO_SYNC] ?: true
         )
     }
 
@@ -189,6 +203,11 @@ class SettingsDataStore @Inject constructor(
     suspend fun updateOpenLastPlaylist(enabled: Boolean) { store.edit { it[Keys.OPEN_LAST_PLAYLIST] = enabled } }
     suspend fun updateLastPlaylistId(id: Long) { store.edit { it[Keys.LAST_PLAYLIST_ID] = id } }
     suspend fun updateRememberQuality(enabled: Boolean) { store.edit { it[Keys.REMEMBER_QUALITY] = enabled } }
+
+    // ━━━━━━ EPG ━━━━━━
+    suspend fun updateEpgUrl(url: String) { store.edit { it[Keys.EPG_URL] = url } }
+    suspend fun updateEpgLastSync(time: Long) { store.edit { it[Keys.EPG_LAST_SYNC] = time } }
+    suspend fun updateEpgAutoSync(enabled: Boolean) { store.edit { it[Keys.EPG_AUTO_SYNC] = enabled } }
 
     // ━━━━━━ Bulk clear ━━━━━━
     suspend fun clearWatchHistory() {

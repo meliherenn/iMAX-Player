@@ -156,6 +156,9 @@ class PlayerViewModel @Inject constructor(
                 .distinctUntilChanged()
                 .collect { playbackState ->
                     if (playbackState == PlaybackState.ERROR && !retryManager.state.value.isRetrying) {
+                        // MPV native hatası ise otomatik fallback dene
+                        handlePlaybackError(state.value.errorMessage)
+
                         val autoRetry = settings.value.liveReconnectOnFailure
                         if (autoRetry && currentContentType == ContentType.LIVE.name) {
                             retryManager.startRetry(
@@ -168,6 +171,25 @@ class PlayerViewModel @Inject constructor(
                         retryManager.onPlaybackSuccess()
                     }
                 }
+        }
+    }
+
+    // Hata geldiğinde otomatik fallback dene
+    private fun handlePlaybackError(errorMessage: String?) {
+        val isMpvUnavailable = errorMessage?.contains("MPV bu cihazda desteklenmiyor") == true
+        val isMpvNativeError = errorMessage?.contains("native hata") == true
+        val isMpvLibError = errorMessage?.contains("MPV kütüphanesi yüklenemedi") == true
+
+        if (isMpvUnavailable || isMpvNativeError || isMpvLibError) {
+            // Engine hatasıysa fallback dene
+            viewModelScope.launch {
+                delay(500)
+                val fallbackSuccess = playerManager.tryFallback(persistent = true)
+                if (fallbackSuccess && currentUrl.isNotEmpty()) {
+                    delay(300)
+                    playerManager.play(currentUrl, 0)
+                }
+            }
         }
     }
 
@@ -1385,6 +1407,11 @@ fun PlayerScreen(
                             color = Color.White,
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+                        Text(
+                            text = "Motor: $activeEngineName",
+                            color = Color.White.copy(alpha = 0.5f),
+                            style = MaterialTheme.typography.bodySmall
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             OutlinedButton(

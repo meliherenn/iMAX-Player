@@ -230,6 +230,7 @@ fun TvPlayerScreen(
     var requestedOverlayAction by rememberSaveable { mutableStateOf(TvOverlayAction.PLAY_PAUSE) }
     var interactionVersion by remember { mutableIntStateOf(0) }
     var isExiting by rememberSaveable { mutableStateOf(false) }
+    var channelNumberInput by remember { mutableStateOf("") }
 
     fun registerInteraction() {
         interactionVersion += 1
@@ -392,6 +393,22 @@ fun TvPlayerScreen(
 
     BackHandler(enabled = !isExiting, onBack = ::handleBack)
 
+    // Channel number input timeout — navigate after 2 seconds
+    LaunchedEffect(channelNumberInput) {
+        if (channelNumberInput.isNotBlank() && isLivePlayback) {
+            kotlinx.coroutines.delay(2000)
+            val targetNumber = channelNumberInput.toIntOrNull()
+            channelNumberInput = ""
+            if (targetNumber != null && targetNumber > 0) {
+                val channels = session.availableChannels
+                val targetIndex = targetNumber - 1
+                if (targetIndex in channels.indices) {
+                    viewModel.playChannel(channels[targetIndex])
+                }
+            }
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -470,7 +487,33 @@ fun TvPlayerScreen(
                         }
                     }
 
-                    else -> false
+                    else -> {
+                        // Digit keys for channel number input (TV remote)
+                        if (isLivePlayback && activePanel == TvPlayerPanel.NONE) {
+                            val digit = when (event.key) {
+                                Key.Zero, Key(7) -> "0"
+                                Key.One, Key(8) -> "1"
+                                Key.Two, Key(9) -> "2"
+                                Key.Three, Key(10) -> "3"
+                                Key.Four, Key(11) -> "4"
+                                Key.Five, Key(12) -> "5"
+                                Key.Six, Key(13) -> "6"
+                                Key.Seven, Key(14) -> "7"
+                                Key.Eight, Key(15) -> "8"
+                                Key.Nine, Key(16) -> "9"
+                                else -> null
+                            }
+                            if (digit != null && channelNumberInput.length < 4) {
+                                channelNumberInput += digit
+                                registerInteraction()
+                                true
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                    }
                 }
             }
     ) {
@@ -552,6 +595,7 @@ fun TvPlayerScreen(
                 message = liveChannelSwitch.errorMessage
                     ?: playerState.errorMessage
                     ?: stringResource(R.string.playback_error),
+                engineName = activeEngineName,
                 onRetry = {
                     showOverlay(TvOverlayAction.PLAY_PAUSE)
                     viewModel.clearLiveChannelSwitchError()
@@ -700,6 +744,28 @@ fun TvPlayerScreen(
                     closePanel()
                 }
             )
+        }
+
+        // Channel number overlay
+        AnimatedVisibility(
+            visible = channelNumberInput.isNotBlank(),
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.TopEnd).padding(40.dp)
+        ) {
+            Surface(
+                color = Color.Black.copy(alpha = 0.85f),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(2.dp, ImaxColors.Primary)
+            ) {
+                Text(
+                    text = channelNumberInput,
+                    style = MaterialTheme.typography.displayMedium,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 28.dp, vertical = 14.dp)
+                )
+            }
         }
     }
 }
@@ -1497,6 +1563,7 @@ private fun TvInfoPanel(
 @Composable
 private fun TvErrorState(
     message: String,
+    engineName: String = "",
     onRetry: () -> Unit,
     onSwitchEngine: () -> Unit,
     onExit: () -> Unit
@@ -1535,6 +1602,13 @@ private fun TvErrorState(
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis
                 )
+                if (engineName.isNotBlank()) {
+                    Text(
+                        text = "Motor: $engineName",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.5f)
+                    )
+                }
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                     verticalAlignment = Alignment.CenterVertically

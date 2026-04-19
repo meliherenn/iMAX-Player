@@ -18,7 +18,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         FavoriteEntity::class,
         MetadataCacheEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class ImaxDatabase : RoomDatabase() {
@@ -48,6 +48,15 @@ abstract class ImaxDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 // Add stream health check column to channels (defaults to online)
                 db.execSQL("ALTER TABLE channels ADD COLUMN isOnline INTEGER NOT NULL DEFAULT 1")
+            }
+        }
+
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Composite indices for EPG query performance
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_epg_programs_channelId_endTime ON epg_programs (channelId, endTime)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_epg_programs_channelId_startTime ON epg_programs (channelId, startTime)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_epg_programs_endTime ON epg_programs (endTime)")
             }
         }
     }

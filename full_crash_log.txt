@@ -1,0 +1,1147 @@
+--------- beginning of kernel
+04-19 15:53:01.746     0     0 I [ 1715.261463@2]  binder: undelivered transaction 272632, process died.
+04-19 15:53:01.746     0     0 I [ 1715.261473@2]  binder: undelivered transaction 272649, process died.
+04-19 15:53:01.746     0     0 I [ 1715.261510@2]  binder: undelivered transaction 272604, process died.
+04-19 15:53:01.746     0     0 I [ 1715.261584@2]  binder: undelivered transaction 272600, process died.
+04-19 15:53:01.746     0     0 I [ 1715.261590@2]  binder: undelivered transaction 272607, process died.
+04-19 15:53:01.746     0     0 I [ 1715.262622@3]  [13]: reset mode: 1, es frames buffering: 19
+04-19 15:53:01.746     0     0 D         : [ 1715.262632@3]  vdec_v4l2_reset 1
+--------- beginning of main
+04-19 15:53:01.746   482  1048 D BufferPoolConnection: connection 2072321720358 closed on death
+04-19 15:53:01.747   482  1091 V C2Store : in ~ComponentModule
+04-19 15:53:01.747   482  1091 V C2Store : unloading dll
+04-19 15:53:01.748   482  1091 D BufferPoolAccessor2.0: Destruction - bufferpool2 0xee2c3628 cached: 0/0M, 0/0% in use; allocs: 456, 99% recycled; transfers: 456, 99% unfetched
+04-19 15:53:01.753     0     0 W         : [ 1715.263002@3]  vmh264 reset
+04-19 15:53:01.753     0     0 D [ 1715.263023@3]  0: h264_reset_bufmgr_v4l frame count 1 to skip 0
+04-19 15:53:01.753     0     0 D         : [ 1715.263023@3]
+04-19 15:53:01.753     0     0 W         : [ 1715.263055@3]  H264 sysinfo: 1920x1088 duration=3200, pts_outside=1
+04-19 15:53:01.753     0     0 D         : [ 1715.263060@3]  sync_outside=1, use_idr_framerate=0, is_used_v4l: 1
+04-19 15:53:01.753     0     0 D [ 1715.263068@3]  0: level_idc = 40 pic_size = 3133440 size = 4
+04-19 15:53:01.753     0     0 D [ 1715.263076@3]  0: AV_SCRATCH_1 = 841fe078, AV_SCRATCH_2 = 1a063, AV_SCRATCH_B: = 428
+04-19 15:53:01.753     0     0 D [ 1715.263114@3]  0: chroma_format_idc = 1 frame_mbs_only_flag 1, crop_bottom 8,  frame_height 1080,
+04-19 15:53:01.753     0     0 D [ 1715.263121@3]  0: mb_height 68,crop_right 0, frame_width 1920, mb_width 120
+04-19 15:53:01.753     0     0 D [ 1715.263128@3]  0: mb height/widht/total: 44/78/1fe0 level_idc 28 max_ref_num 4
+04-19 15:53:01.753     0     0 D [ 1715.263138@3]  0: vh264_set_params active_buf_spec_num 14 dec_dpb_size 5 collocate_buf_num 8
+04-19 15:53:01.753     0     0 W [ 1715.263144@3]  v4l: delay alloc the buffer.
+04-19 15:53:01.753     0     0 W [ 1715.264702@3]  v4l: delay alloc the buffer.
+04-19 15:53:01.753     0     0 D [ 1715.264725@3]  0: reset
+04-19 15:53:01.756   481  5249 I VDA     : [0] "Stop[0] state 3\n"
+04-19 15:53:01.756   481  5249 I VDA     : [0] "Stop[1] state 3\n"
+04-19 15:53:01.756   481  5249 I VDA     : [0] "Stop[2] state 1\n"
+04-19 15:53:01.756   481  5249 I VDA     : [0] "Stop[3] state 3\n"
+04-19 15:53:01.756   481  5249 I VDA     : [0] "Stop[4] state 1\n"
+04-19 15:53:01.756   481  5249 I VDA     : [0] "Stop[5] state 3\n"
+04-19 15:53:01.756   481  5249 I VDA     : [0] "Stop[6] state 3\n"
+04-19 15:53:01.756   481  5249 I VDA     : [0] "Stop[7] state 3\n"
+04-19 15:53:01.756   481  5249 I VDA     : [0] "Stop[8] state 3\n"
+04-19 15:53:01.756   481  5249 I VDA     : [0] "Stop[9] state 3\n"
+04-19 15:53:01.756   481  5249 I VDA     : [0] "Stop[10] state 3\n"
+04-19 15:53:01.756   481  5249 I VDA     : [0] "Stop[11] state 3\n"
+04-19 15:53:01.756   481  5249 I VDA     : [0] "Stop[12] state 1\n"
+04-19 15:53:01.756   481  5249 I VDA     : [0] "Stop[13] state 3\n"
+04-19 15:53:01.756   481  5249 I VDA     : [0] "StopInputStream input_streamon 1, input_buffer_map_.size 3\n"
+04-19 15:53:01.758     0     0 I [ 1715.272420@3]  [13]: fb_map_table_clean done
+04-19 15:53:01.758     0     0 I [ 1715.272434@3]  [13]: fb_token_clean done
+04-19 15:53:01.758     0     0 I [ 1715.272760@3]  [13]: seek force reset to drop es frames.
+04-19 15:53:01.758     0     0 I [ 1715.272779@3]  [13]: reset mode: 1, es frames buffering: 0
+04-19 15:53:01.758     0     0 D         : [ 1715.272785@3]  vdec_v4l2_reset 1
+04-19 15:53:01.758     0     0 W         : [ 1715.272832@3]  vmh264 reset
+04-19 15:53:01.758     0     0 D [ 1715.272843@3]  0: h264_reset_bufmgr_v4l frame count 1 to skip 0
+04-19 15:53:01.758     0     0 D         : [ 1715.272843@3]
+04-19 15:53:01.758     0     0 W         : [ 1715.272872@3]  H264 sysinfo: 1920x1088 duration=3200, pts_outside=1
+04-19 15:53:01.758     0     0 D         : [ 1715.272877@3]  sync_outside=1, use_idr_framerate=0, is_used_v4l: 1
+04-19 15:53:01.758     0     0 D [ 1715.272885@3]  0: level_idc = 40 pic_size = 3133440 size = 4
+04-19 15:53:01.758     0     0 D [ 1715.272893@3]  0: AV_SCRATCH_1 = 841fe078, AV_SCRATCH_2 = 1a063, AV_SCRATCH_B: = 428
+04-19 15:53:01.758     0     0 D [ 1715.272930@3]  0: chroma_format_idc = 1 frame_mbs_only_flag 1, crop_bottom 8,  frame_height 1080,
+04-19 15:53:01.758     0     0 D [ 1715.272937@3]  0: mb_height 68,crop_right 0, frame_width 1920, mb_width 120
+04-19 15:53:01.758     0     0 D [ 1715.272944@3]  0: mb height/widht/total: 44/78/1fe0 level_idc 28 max_ref_num 4
+04-19 15:53:01.758     0     0 D [ 1715.272952@3]  0: vh264_set_params active_buf_spec_num 14 dec_dpb_size 5 collocate_buf_num 8
+04-19 15:53:01.758     0     0 W [ 1715.272958@3]  v4l: delay alloc the buffer.
+04-19 15:53:01.762     0     0 W [ 1715.275381@3]  v4l: delay alloc the buffer.
+04-19 15:53:01.762     0     0 D [ 1715.275414@3]  0: reset
+04-19 15:53:01.764   481  5249 I VDA     : [0] "----stop input VIDIOC_STREAMOFF----\n"
+04-19 15:53:01.764   481  5249 I VDA     : [0] "SendPictureReady\n"
+04-19 15:53:01.764   481  5249 I VDA     : [0] "post ResetDoneTask\n"
+04-19 15:53:01.764   481  5249 I VDA     : [0] "ResetDoneTask\n"
+04-19 15:53:01.764   481  5249 I VDA     : [0] "StartDevicePoll\n"
+04-19 15:53:01.764   481  5249 I VDA     : [0] "NotifyResetDone\n"
+04-19 15:53:01.764   481  5243 I AmVideoDec: [0] "notifyResetDone\n"
+04-19 15:53:01.764   481  5243 V AmlogicVideoDecoderAwesome2: [25]NotifyResetDone:1938 >
+04-19 15:53:01.764   481  5241 D AmlogicVideoDecoderAwesome2: [25]"reset_2"
+04-19 15:53:01.764   481  5241 V AmlogicVideoDecoderAwesome2: [25]start:325 >
+04-19 15:53:01.764   481  5241 E ThreadWorker: pthread on exit wait clean
+04-19 15:53:01.765   481  5241 D AmlogicVideoDecoderAwesome2: [25]"mVideo start\n"
+04-19 15:53:01.765   481  5241 V AmlogicVideoDecoderAwesome2: [25]flushInput:983 >
+04-19 15:53:01.765   481  5241 I OmxComponent: OMX.amlogic.avc.decoder.awesome2: flush output
+04-19 15:53:01.765   481  5241 V AmlogicVideoDecoderAwesome2: [25]flushOutput:986 >
+04-19 15:53:01.765   481  5241 D AmlogicVideoDecoderAwesome2: [25]"__flushOutput__fillBufferDone:2 0xf47c0130\n"
+04-19 15:53:01.765   481  5241 D AmlogicVideoDecoderAwesome2: [25]"__flushOutput__fillBufferDone:4 0xf47c0bb0\n"
+04-19 15:53:01.765   481  5241 D AmlogicVideoDecoderAwesome2: [25]"__flushOutput__fillBufferDone:12 0xf47c0e50\n"
+04-19 15:53:01.765   481  5241 V AmlogicVideoDecoderAwesome2: [25]flushOutput:1061 >
+04-19 15:53:01.765   481  5241 D AmlogicVideoDecoderAwesome2: [25]"mVideo stop\n"
+04-19 15:53:01.765   481  5241 V AmlogicVideoDecoderAwesome2: [25]stop:350 >
+04-19 15:53:01.766   481  5263 V OMX_WorkerPeer: vendor/amlogic/common/omx/omx_framework/WorkerPeer.cpp:runWorkerStatic:155 --------------------
+04-19 15:53:01.766   481  5263 V OMX_WorkerPeer: vendor/amlogic/common/omx/omx_framework/WorkerPeer.cpp:runWorker:161 --------------------
+04-19 15:53:01.766   481  5241 I OmxComponent: OMX-32 STATE_TRANS: OMX_StateExecuting => OMX_StateIdle : OMX.amlogic.avc.decoder.awesome2
+04-19 15:53:01.766   481  5241 I OmxComponent: STATE_DONE:  OMX_StateExecuting => OMX_StateIdle : OMX.amlogic.avc.decoder.awesome2
+--------- beginning of system
+04-19 15:53:01.773   576  2302 D ConnectivityService: ConnectivityService NetworkRequestInfo binderDied(NetworkRequest [ LISTEN id=54, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&NOT_VPN&FOREGROUND Uid: 10091 AdministratorUids: [] RequestorUid: 10091 RequestorPackageName: com.imax.player.debug] ], android.os.BinderProxy@a177436)
+04-19 15:53:01.774   576  1354 I WindowManager: WIN DEATH: Window{12298db u0 com.imax.player.debug/com.imax.player.MainActivity}
+04-19 15:53:01.774   576  1354 I chatty  : uid=1000(system) Binder:576_F expire 1 line
+04-19 15:53:01.774   576  2290 I ActivityManager: Process com.imax.player.debug (pid 4935) has died: prcp TOP 
+04-19 15:53:01.779   347   347 I android.hardware.power-service.libperfmgr: Power setBoost: INTERACTION duration: 0
+04-19 15:53:01.779   347   347 I libperfmgr: Do Powerhint: INTERACTION
+04-19 15:53:01.779   576  1354 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:53:01.780   576  4535 I chatty  : uid=1000(system) Binder:576_1F expire 1 line
+04-19 15:53:01.782   477  5011 E mediaserver: unlinkToDeath: removed reference to death recipient but unlink failed.
+04-19 15:53:01.782   477  5011 E IPCThreadState: attemptIncStrongHandle(5): Not supported
+04-19 15:53:01.783   576  2284 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:53:01.786   300   300 I Zygote  : Process 4935 exited due to signal 9 (Killed)
+04-19 15:53:01.801   576   644 V LightsService: setLight #2: color=#ff000000: brightnessMode=0
+04-19 15:53:01.801   364   364 E lights  : setLightState for BUTTONS
+04-19 15:53:01.801   364   364 E lights  : writeLed test:/sys/class/leds/sys_led/brightness,color:0
+04-19 15:53:01.810   326   387 D SystemControl: [CPQControl]:onVframeSizeChange: event value = 8(0x8)!
+04-19 15:53:01.810   326   387 D SystemControl: [CPQControl]:onVframeSizeChange: not hdrInfo event.!
+04-19 15:53:01.818   576   604 I chatty  : uid=1000(system) ActivityManager expire 1 line
+04-19 15:53:01.826     0     0 I [ 1715.310810@1]  vc: [0]vc: set enable index=0, val=0
+04-19 15:53:01.827     0     0 I [ 1715.310843@1]  VID: store VD0 path_id changed 2->-1
+04-19 15:53:01.827     0     0 I         : [ 1715.310848@1]  dev->index =0, val=1
+04-19 15:53:01.827     0     0 I [ 1715.310852@1]  VID: VD1 off
+04-19 15:53:01.827     0     0 I [ 1715.310858@1]  VID: VD1 set global output as 0
+04-19 15:53:01.827     0     0 I         : [ 1715.310877@1]  common_vf_unreg_provider video_render.0: vd1 used: true, vd2 used: false, vd3 used: false, black_out:0, cur_buf:000000008a16e809
+04-19 15:53:01.845   481  5241 I OmxComponent: OMX_CommandStateSet 850 Cmd 0 nParam1 0x1
+04-19 15:53:01.845   481  5241 I OmxComponent: OMX-32 STATE_SET:   OMX_StateIdle => OMX_StateLoaded : OMX.amlogic.avc.decoder.awesome2
+04-19 15:53:01.845   481  5241 V AmlogicVideoDecoderAwesome2: [25]releaseResources:425 >
+04-19 15:53:01.845   481  5241 V AmlogicVideoDecoderAwesome2: [25]tearDown:769 >
+04-19 15:53:01.845   481  5241 V AmlogicVideoDecoderAwesome2: [25]tearDown:1471 >
+04-19 15:53:01.845   481  5241 V AmlogicVideoDecoderAwesome2: [25]initializeState_l:1519 >
+04-19 15:53:01.845   481  5241 D VideoDecWraper: destroy
+04-19 15:53:01.845   481  5243 I VDA     : [0] "Destroy"
+04-19 15:53:01.845   481  5249 I VDA     : [0] "DestroyTask(): IN[0,0], OUT[0,0,0] DEC[0->0] => DEVICE[3+0/3->0+0/14] => RR CLIENT[13]\n"
+04-19 15:53:01.845   481  5249 I VDA     : [0] "StopDevicePoll\n"
+04-19 15:53:01.846   481  5249 I VDA     : [0] "StopInputStream input_streamon 0, input_buffer_map_.size 3\n"
+04-19 15:53:01.846   481  5249 I VDA     : [0] "DestroyInputBuffers\n"
+04-19 15:53:01.849  2439  2439 I Finsky  : [2] Memory trim requested to level 80
+04-19 15:53:01.850  2724  2724 I Finsky:background: [2] Memory trim requested to level 80
+04-19 15:53:01.856  2439  2439 I Finsky  : [2] Flushing in-memory image cache
+04-19 15:53:01.870     0     0 I [ 1715.383244@0]  [13]: release decoder ffffff8043ba8000
+04-19 15:53:01.870     0     0 I [ 1715.383459@1]  [13]: reset mode: 1, es frames buffering: 0
+04-19 15:53:01.870     0     0 D         : [ 1715.383469@1]  vdec_v4l2_reset 1
+04-19 15:53:01.870     0     0 W         : [ 1715.383495@1]  vmh264 reset
+04-19 15:53:01.870     0     0 D [ 1715.383510@1]  0: h264_reset_bufmgr_v4l frame count 1 to skip 0
+04-19 15:53:01.870     0     0 D         : [ 1715.383510@1]
+04-19 15:53:01.870     0     0 W         : [ 1715.383538@1]  H264 sysinfo: 1920x1088 duration=3200, pts_outside=1
+04-19 15:53:01.870     0     0 D         : [ 1715.383542@1]  sync_outside=1, use_idr_framerate=0, is_used_v4l: 1
+04-19 15:53:01.870     0     0 D [ 1715.383551@1]  0: level_idc = 40 pic_size = 3133440 size = 4
+04-19 15:53:01.870     0     0 D [ 1715.383559@1]  0: AV_SCRATCH_1 = 841fe078, AV_SCRATCH_2 = 1a063, AV_SCRATCH_B: = 428
+04-19 15:53:01.870     0     0 D [ 1715.383595@1]  0: chroma_format_idc = 1 frame_mbs_only_flag 1, crop_bottom 8,  frame_height 1080,
+04-19 15:53:01.870     0     0 D [ 1715.383601@1]  0: mb_height 68,crop_right 0, frame_width 1920, mb_width 120
+04-19 15:53:01.870     0     0 D [ 1715.383609@1]  0: mb height/widht/total: 44/78/1fe0 level_idc 28 max_ref_num 4
+04-19 15:53:01.870     0     0 D [ 1715.383618@1]  0: vh264_set_params active_buf_spec_num 14 dec_dpb_size 5 collocate_buf_num 8
+04-19 15:53:01.870     0     0 W [ 1715.383624@1]  v4l: delay alloc the buffer.
+04-19 15:53:01.870     0     0 W [ 1715.386061@1]  v4l: delay alloc the buffer.
+04-19 15:53:01.870     0     0 D [ 1715.386091@1]  0: reset
+04-19 15:53:01.874   576   596 W ActivityManager: setHasOverlayUi called on unknown pid: 4935
+04-19 15:53:01.878  1294  1294 I katniss_interactor_TvSearchApp: onTrimMemory level=5
+04-19 15:53:01.883     0     0 I [ 1715.394113@1]  vframe_rate_uevent: sent uevent FRAME_RATE_HINT=0
+04-19 15:53:01.883     0     0 D         : [ 1715.394641@1]  vdec_disable_DMC input->target= 0x0
+04-19 15:53:01.883     0     0 D [ 1715.394757@1]  0: vh264_stop
+04-19 15:53:01.883     0     0 D         : [ 1715.395637@1]  vdec_release instance 00000000667417d3, total 1
+04-19 15:53:01.883     0     0 D         : [ 1715.395817@1]  the clk_vdec_mux    clock off, ref cnt: 0
+04-19 15:53:01.883     0     0 D         : [ 1715.395847@1]  the pwrc-vdec       power off
+04-19 15:53:01.883     0     0 D         : [ 1715.395857@1]  the vdec            clock off, ref cnt: 0
+04-19 15:53:01.883     0     0 I [ 1715.398603@1]  dim: di_destroy_instance:
+04-19 15:53:01.890     0     0 I [ 1715.404765@3]  dpre_can_exit: ch[2]:curr[2]:stat[IDLE] ret[1]
+04-19 15:53:01.890     0     0 I [ 1715.404799@3]  dpst_can_exit: ch[2]:curr[2]:stat[IDLE] ret[1]
+04-19 15:53:01.902     0     0 I [ 1715.414517@3]  di_unreg_variable:  
+04-19 15:53:01.902     0     0 I [ 1715.414539@3]  dim: qpat_in_ready_msk:0x0
+04-19 15:53:01.902     0     0 I [ 1715.414544@3]  dim: mem_release:blk_mst[0x0]
+04-19 15:53:01.902     0     0 I [ 1715.414548@3]  dim: mem_release:pat_mst[0x0]
+04-19 15:53:01.902     0     0 I [ 1715.414559@3]  dim: qiat_all_back2_ready:len[0]
+04-19 15:53:01.902     0     0 I [ 1715.414564@3]  dim: bufq_ndis_unreg:0
+04-19 15:53:01.902     0     0 I [ 1715.414570@3]  dim: sct_sw_off:no box
+04-19 15:53:01.910     0     0 I [ 1715.424663@3]  vpu: vpu: vpu_dev_clk_gate_off: unsupport vpu mod: 72
+04-19 15:53:01.910     0     0 I [ 1715.426069@3]  dim: unreg:use[28]ms
+04-19 15:53:01.910     0     0 I [ 1715.426082@3]  dim: di_destroy_instance:ch[2]:end
+04-19 15:53:01.910     0     0 I [ 1715.426100@3]  [13]: vpp destory inst count:0.
+04-19 15:53:01.910     0     0 I [ 1715.426119@3]  [13]: v4ldec has been destroyed.
+04-19 15:53:01.910   481  5241 D VideoDecWraper: ~VideoDecWraper
+04-19 15:53:01.910   481  5241 I AmVideoDec: [0] "~AmVideoDec IN[246:246] OUT[228:225]\n"
+04-19 15:53:01.910   481  5241 D OmxResManage: Release fd = 11
+04-19 15:53:01.910   481  5241 D resman  : release all, fd:11
+04-19 15:53:01.910   481  5241 I OmxComponent: OMX-32 STATE_TRANS: OMX_StateIdle => OMX_StateLoaded : OMX.amlogic.avc.decoder.awesome2
+04-19 15:53:01.910   481  5241 I OmxComponent: STATE_DONE:  OMX_StateIdle => OMX_StateLoaded : OMX.amlogic.avc.decoder.awesome2
+04-19 15:53:01.912  1200  1200 I TVLatinApp: TVLatinApp.onTrimMemory():538 onTrimMemory(): 5
+04-19 15:53:01.913  1200  1200 I KeyboardDefCache: MemoryFileCache$1.onTrimMemory():124 clearMemory() for trim memory: 5
+04-19 15:53:01.915  1200  1200 I KeyboardDefCache: MemoryFileCache.clearMemory():408 evictAll()
+04-19 15:53:01.915  1200  1200 I GoogleInputMethodService: GoogleInputMethodService.onTrimMemory():2784 onTrimMemory(): 5
+04-19 15:53:01.925  1455  1455 E Clearcut-EventLogger: Unexpected log parameter notification_indicator_total
+04-19 15:53:01.928  1345  1369 D lutts   : query widget
+04-19 15:53:01.934  1455  1455 W A2F     : App Foreground
+04-19 15:53:01.934  1455  1455 W A2F     : Data Refresh start
+04-19 15:53:01.934  1455  1659 W A2F     : Attempting CleanUp
+04-19 15:53:01.939   342   342 D memtrack_aml: sysfs path
+04-19 15:53:01.944   342   342 I chatty  : uid=1000(system) memtrack@1.0-se identical 61 lines
+04-19 15:53:01.946     0     0 I         : [ 1715.456036@3]  show_ctx_mem_pool_size
+04-19 15:53:01.946     0     0 I         : [ 1715.459523@1]  show_ctx_mem_pool_size
+04-19 15:53:01.946   342   342 D memtrack_aml: sysfs path
+04-19 15:53:01.952  1455  1455 W P2F     : Visible APPS_TAB
+04-19 15:53:01.954     0     0 I         : [ 1715.461331@1]  show_ctx_mem_pool_size
+04-19 15:53:01.954   342   342 D memtrack_aml: sysfs path
+04-19 15:53:01.957   342   342 D memtrack_aml: sysfs path
+04-19 15:53:01.957   342   342 D memtrack_aml: get task_name servicemanager
+04-19 15:53:01.958     0     0 I         : [ 1715.463472@1]  show_ctx_mem_pool_size
+04-19 15:53:01.958     0     0 I         : [ 1715.471695@3]  show_ctx_mem_pool_size
+04-19 15:53:01.959   481  5021 D OmxComponentManagerImpl: DecreaseEntryNumByName pEntry->mNum=1, pEntry->mMaxNum:9,componentName:OMX.amlogic.avc.decoder.awesome2
+04-19 15:53:01.959   481  5021 I omx_core: OMX_freeHandle_num_= 0
+04-19 15:53:01.960   481  5021 D OmxVideoDecoder: ~OmxVideoDecoder===pSidebandWindow:0x0
+04-19 15:53:01.960   481  5021 D OmxComponent: ~OmxComponent 281 : OMX.amlogic.avc.decoder.awesome2
+04-19 15:53:01.960   481  5021 I AmlogicVideoDecoderAwesome2: [25]"~AmlogicVideoDecoderAwesome2"
+04-19 15:53:01.960   481  5021 D AmlogicVideoDecoderAwesome2: [25]"~AmlogicVideoDecoder2"
+04-19 15:53:01.960   481  5021 D AmlogicVideoDecoderAwesome2: [25]"~AmlogicVideoDecoder2, mOmxInstancenum 0"
+04-19 15:53:01.960   481  5021 D OmxResManage: ~ResManWrapper fd = 11
+04-19 15:53:01.961   342   342 D memtrack_aml: sysfs path
+04-19 15:53:01.962   481  5021 D resman  : release all resource, fd = 11
+04-19 15:53:01.962     0     0 I         : [ 1715.474431@3]  show_ctx_mem_pool_size
+04-19 15:53:01.962     0     0 E         : [ 1715.476912@3]  disalbe fastplay
+04-19 15:53:01.963   342   342 D memtrack_aml: get task_name hwservicemanage
+04-19 15:53:01.967   342   342 D memtrack_aml: sysfs path
+04-19 15:53:01.972   342   342 D memtrack_aml: sysfs path
+04-19 15:53:01.974     0     0 I         : [ 1715.479592@1]  show_ctx_mem_pool_size
+04-19 15:53:01.974     0     0 I         : [ 1715.487477@0]  show_ctx_mem_pool_size
+04-19 15:53:01.978     0     0 I         : [ 1715.489515@0]  show_ctx_mem_pool_size
+04-19 15:53:01.982     0     0 I         : [ 1715.492226@0]  show_ctx_mem_pool_size
+04-19 15:53:01.982     0     0 I         : [ 1715.495531@2]  show_ctx_mem_pool_size
+04-19 15:53:01.983   342   342 D memtrack_aml: sysfs path
+04-19 15:53:01.983   342   342 D memtrack_aml: get task_name atrace@1.0-serv
+04-19 15:53:01.986   342   342 D memtrack_aml: sysfs path
+04-19 15:53:01.989   342   342 D memtrack_aml: sysfs path
+04-19 15:53:01.990   342   342 D memtrack_aml: get task_name keymaster@4.1-s
+04-19 15:53:01.990     0     0 I         : [ 1715.498042@0]  show_ctx_mem_pool_size
+04-19 15:53:01.990     0     0 I         : [ 1715.500526@3]  show_ctx_mem_pool_size
+04-19 15:53:01.990     0     0 I         : [ 1715.503419@3]  show_ctx_mem_pool_size
+04-19 15:53:01.992   342   342 D memtrack_aml: sysfs path
+04-19 15:53:01.994     0     0 I         : [ 1715.506955@0]  show_ctx_mem_pool_size
+04-19 15:53:01.998     0     0 I         : [ 1715.509819@0]  show_ctx_mem_pool_size
+04-19 15:53:02.000   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.001   576   644 V LightsService: setLight #2: color=#ffffffff: brightnessMode=0
+04-19 15:53:02.001   364   364 E lights  : setLightState for BUTTONS
+04-19 15:53:02.001   364   364 E lights  : writeLed test:/sys/class/leds/sys_led/brightness,color:255
+04-19 15:53:02.002     0     0 I         : [ 1715.511884@3]  show_ctx_mem_pool_size
+04-19 15:53:02.005   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.006     0     0 I         : [ 1715.516720@1]  show_ctx_mem_pool_size
+04-19 15:53:02.009   576  1333 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:53:02.017   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.018     0     0 I         : [ 1715.522056@0]  show_ctx_mem_pool_size
+04-19 15:53:02.018     0     0 I         : [ 1715.530524@1]  show_ctx_mem_pool_size
+04-19 15:53:02.022     0     0 I         : [ 1715.532718@1]  show_ctx_mem_pool_size
+04-19 15:53:02.022   576   596 W ActivityTaskManager: Activity top resumed state loss timeout for ActivityRecord{da63f0b u0 com.imax.player.debug/com.imax.player.MainActivity t-1 f}}
+04-19 15:53:02.023   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.023   342   342 D memtrack_aml: get task_name allocator@1.0-s
+04-19 15:53:02.023   342   342 I memtrack_aml: open /sys/class/misc/mali0/device/mem_pool_size success!
+04-19 15:53:02.025   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.026     0     0 I         : [ 1715.537652@1]  show_ctx_mem_pool_size
+04-19 15:53:02.026     0     0 I         : [ 1715.540140@0]  show_ctx_mem_pool_size
+04-19 15:53:02.030     0     0 I         : [ 1715.541760@3]  show_ctx_mem_pool_size
+04-19 15:53:02.034     0     0 I         : [ 1715.544657@3]  show_ctx_mem_pool_size
+04-19 15:53:02.036   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.037   367   497 W APM::AudioPolicyEngine: getDevicesForStrategy() unknown strategy: -1
+04-19 15:53:02.037   367   497 W APM::AudioPolicyEngine: getDevicesForStrategy() unknown strategy: -1
+04-19 15:53:02.038     0     0 I         : [ 1715.548166@3]  show_ctx_mem_pool_size
+04-19 15:53:02.038     0     0 I         : [ 1715.551519@1]  show_ctx_mem_pool_size
+04-19 15:53:02.038   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.042     0     0 I         : [ 1715.553595@3]  show_ctx_mem_pool_size
+04-19 15:53:02.042   576  1333 I chatty  : uid=1000(system) Binder:576_B expire 3 lines
+04-19 15:53:02.043   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.046     0     0 I         : [ 1715.555499@3]  show_ctx_mem_pool_size
+04-19 15:53:02.046     0     0 I         : [ 1715.559743@0]  show_ctx_mem_pool_size
+04-19 15:53:02.046   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.047   342   342 D memtrack_aml: get task_name gatekeeper@1.0-
+04-19 15:53:02.048   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.050     0     0 I         : [ 1715.561695@1]  show_ctx_mem_pool_size
+04-19 15:53:02.050     0     0 I         : [ 1715.563660@1]  show_ctx_mem_pool_size
+04-19 15:53:02.054     0     0 I         : [ 1715.565060@2]  show_ctx_mem_pool_size
+04-19 15:53:02.054     0     0 I         : [ 1715.568467@2]  show_ctx_mem_pool_size
+04-19 15:53:02.058   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.058   342   342 D memtrack_aml: get task_name ir@1.0-service
+04-19 15:53:02.062   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.062     0     0 I         : [ 1715.570670@2]  show_ctx_mem_pool_size
+04-19 15:53:02.062   342   342 D memtrack_aml: get task_name memtrack@1.0-se
+04-19 15:53:02.063  1200  1200 I GoogleInputMethodService: GoogleInputMethodService.onFinishInput():2084 
+04-19 15:53:02.063  1200  1200 I Module  : DeviceLockedStatusModuleProvider$Module.updateDeviceLockedStatus():101 repeatCheckTimes = 0, locked = false
+04-19 15:53:02.064   347   347 I android.hardware.power-service.libperfmgr: Power setBoost: INTERACTION duration: 0
+04-19 15:53:02.064   347   347 I libperfmgr: Do Powerhint: INTERACTION
+04-19 15:53:02.064   576   643 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:53:02.064  1200  1200 I GoogleInputMethodService: GoogleInputMethodService.onStartInput():1345 onStartInput(EditorInfo{EditorInfo{packageName=com.google.android.tvlauncher, inputType=0, inputTypeString=NULL, enableLearning=false, autoCorrection=false, autoComplete=false, imeOptions=0, privateImeOptions=null, actionName=UNSPECIFIED, actionLabel=null, initialSelStart=-1, initialSelEnd=-1, initialCapsMode=0, label=null, fieldId=2131428768, fieldName=null, extras=null, hintText=null, hintLocales=[]}}, false)
+04-19 15:53:02.064   347   347 I android.hardware.power-service.libperfmgr: Power setBoost: INTERACTION duration: 0
+04-19 15:53:02.064   347   347 I libperfmgr: Do Powerhint: INTERACTION
+04-19 15:53:02.065  1200  1200 I Module  : DeviceLockedStatusModuleProvider$Module.updateDeviceLockedStatus():101 repeatCheckTimes = 1, locked = false
+04-19 15:53:02.066     0     0 I         : [ 1715.575276@3]  show_ctx_mem_pool_size
+04-19 15:53:02.066   347   347 I android.hardware.power-service.libperfmgr: Power setBoost: INTERACTION duration: 0
+04-19 15:53:02.066   347   347 I libperfmgr: Do Powerhint: INTERACTION
+04-19 15:53:02.066   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.067   347   347 I android.hardware.power-service.libperfmgr: Power setBoost: INTERACTION duration: 0
+04-19 15:53:02.067   347   347 I libperfmgr: Do Powerhint: INTERACTION
+04-19 15:53:02.067   576   643 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:53:02.069   342   342 D memtrack_aml: get task_name oemlock@1.0-ser
+04-19 15:53:02.070     0     0 I         : [ 1715.579011@2]  show_ctx_mem_pool_size
+04-19 15:53:02.071   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.074     0     0 I         : [ 1715.585616@2]  show_ctx_mem_pool_size
+04-19 15:53:02.075   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.076   342   342 D memtrack_aml: get task_name thermal@2.0-ser
+04-19 15:53:02.077  1200  1200 I GoogleInputMethodService: GoogleInputMethodService.onFinishInput():2084 
+04-19 15:53:02.077  1200  1200 I Module  : DeviceLockedStatusModuleProvider$Module.updateDeviceLockedStatus():101 repeatCheckTimes = 0, locked = false
+04-19 15:53:02.078     0     0 I         : [ 1715.588188@2]  show_ctx_mem_pool_size
+04-19 15:53:02.078   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.078  1200  1200 I GoogleInputMethodService: GoogleInputMethodService.onStartInput():1345 onStartInput(EditorInfo{EditorInfo{packageName=com.google.android.tvlauncher, inputType=0, inputTypeString=NULL, enableLearning=false, autoCorrection=false, autoComplete=false, imeOptions=0, privateImeOptions=null, actionName=UNSPECIFIED, actionLabel=null, initialSelStart=-1, initialSelEnd=-1, initialCapsMode=0, label=null, fieldId=2131428768, fieldName=null, extras=null, hintText=null, hintLocales=[]}}, false)
+04-19 15:53:02.078   342   342 D memtrack_aml: get task_name cec@1.0-service
+04-19 15:53:02.079  1200  1200 I Module  : DeviceLockedStatusModuleProvider$Module.updateDeviceLockedStatus():101 repeatCheckTimes = 1, locked = false
+04-19 15:53:02.080   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.082     0     0 I         : [ 1715.592891@3]  show_ctx_mem_pool_size
+04-19 15:53:02.082     0     0 I         : [ 1715.595342@3]  show_ctx_mem_pool_size
+04-19 15:53:02.082   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.082   342   342 D memtrack_aml: get task_name usb@1.0-service
+04-19 15:53:02.083   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.086     0     0 I         : [ 1715.597099@2]  show_ctx_mem_pool_size
+04-19 15:53:02.086     0     0 I         : [ 1715.599150@3]  show_ctx_mem_pool_size
+04-19 15:53:02.086     0     0 I         : [ 1715.600582@3]  show_ctx_mem_pool_size
+04-19 15:53:02.087   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.088   342   342 D memtrack_aml: get task_name lights
+04-19 15:53:02.089  1200  1200 I GoogleInputMethodService: GoogleInputMethodService.onFinishInput():2084 
+04-19 15:53:02.090     0     0 I         : [ 1715.602598@3]  show_ctx_mem_pool_size
+04-19 15:53:02.090   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.092  1200  1200 I Module  : DeviceLockedStatusModuleProvider$Module.updateDeviceLockedStatus():101 repeatCheckTimes = 0, locked = false
+04-19 15:53:02.094     0     0 I         : [ 1715.604804@3]  show_ctx_mem_pool_size
+04-19 15:53:02.096  1200  1200 I GoogleInputMethodService: GoogleInputMethodService.onStartInput():1345 onStartInput(EditorInfo{EditorInfo{packageName=com.google.android.tvlauncher, inputType=0, inputTypeString=NULL, enableLearning=false, autoCorrection=false, autoComplete=false, imeOptions=0, privateImeOptions=null, actionName=UNSPECIFIED, actionLabel=null, initialSelStart=-1, initialSelEnd=-1, initialCapsMode=0, label=null, fieldId=2131428768, fieldName=null, extras=null, hintText=null, hintLocales=[]}}, false)
+04-19 15:53:02.097   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.098     0     0 I         : [ 1715.607334@3]  show_ctx_mem_pool_size
+04-19 15:53:02.098  1200  1200 I Module  : DeviceLockedStatusModuleProvider$Module.updateDeviceLockedStatus():101 repeatCheckTimes = 1, locked = false
+04-19 15:53:02.101   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.104     0     0 I         : [ 1715.614245@3]  show_ctx_mem_pool_size
+04-19 15:53:02.107   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.110     0     0 I         : [ 1715.617991@0]  show_ctx_mem_pool_size
+04-19 15:53:02.110     0     0 I         : [ 1715.624319@2]  show_ctx_mem_pool_size
+04-19 15:53:02.114     0     0 I         : [ 1715.626357@3]  show_ctx_mem_pool_size
+04-19 15:53:02.118     0     0 I         : [ 1715.628200@0]  show_ctx_mem_pool_size
+04-19 15:53:02.118     0     0 I         : [ 1715.630844@2]  show_ctx_mem_pool_size
+04-19 15:53:02.118     0     0 I         : [ 1715.632742@0]  show_ctx_mem_pool_size
+04-19 15:53:02.122     0     0 I         : [ 1715.634297@0]  show_ctx_mem_pool_size
+04-19 15:53:02.126     0     0 I         : [ 1715.636630@3]  show_ctx_mem_pool_size
+04-19 15:53:02.126     0     0 I         : [ 1715.638802@3]  show_ctx_mem_pool_size
+04-19 15:53:02.126     0     0 I         : [ 1715.640349@3]  show_ctx_mem_pool_size
+04-19 15:53:02.130     0     0 I         : [ 1715.642539@1]  show_ctx_mem_pool_size
+04-19 15:53:02.134     0     0 I         : [ 1715.644765@1]  show_ctx_mem_pool_size
+04-19 15:53:02.134     0     0 I         : [ 1715.647269@3]  show_ctx_mem_pool_size
+04-19 15:53:02.138     0     0 I         : [ 1715.649022@1]  show_ctx_mem_pool_size
+04-19 15:53:02.138     0     0 I         : [ 1715.651603@0]  show_ctx_mem_pool_size
+04-19 15:53:02.142     0     0 I         : [ 1715.653369@0]  show_ctx_mem_pool_size
+04-19 15:53:02.146     0     0 I         : [ 1715.656875@1]  show_ctx_mem_pool_size
+04-19 15:53:02.150     0     0 I         : [ 1715.661895@2]  show_ctx_mem_pool_size
+04-19 15:53:02.154     0     0 I         : [ 1715.664560@3]  show_ctx_mem_pool_size
+04-19 15:53:02.154     0     0 I         : [ 1715.666975@3]  show_ctx_mem_pool_size
+04-19 15:53:02.165     0     0 I         : [ 1715.670319@1]  show_ctx_mem_pool_size
+04-19 15:53:02.165     0     0 I         : [ 1715.674672@3]  show_ctx_mem_pool_size
+04-19 15:53:02.174     0     0 I         : [ 1715.679931@3]  show_ctx_mem_pool_size
+04-19 15:53:02.177   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.178     0     0 I         : [ 1715.686923@1]  show_ctx_mem_pool_size
+04-19 15:53:02.181   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.186     0     0 I         : [ 1715.693955@1]  show_ctx_mem_pool_size
+04-19 15:53:02.189   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=81664000
+04-19 15:53:02.191   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.194     0     0 I         : [ 1715.698571@1]  show_ctx_mem_pool_size
+04-19 15:53:02.210     0     0 I         : [ 1715.708124@0]  show_ctx_mem_pool_size
+04-19 15:53:02.218     0     0 I         : [ 1715.723443@0]  show_ctx_mem_pool_size
+04-19 15:53:02.226     0     0 I         : [ 1715.730828@3]  show_ctx_mem_pool_size
+04-19 15:53:02.234     0     0 I         : [ 1715.740713@2]  show_ctx_mem_pool_size
+04-19 15:53:02.242     0     0 I         : [ 1715.748376@2]  show_ctx_mem_pool_size
+04-19 15:53:02.250     0     0 I         : [ 1715.756552@2]  show_ctx_mem_pool_size
+04-19 15:53:02.258     0     0 I         : [ 1715.764469@3]  show_ctx_mem_pool_size
+04-19 15:53:02.266     0     0 I         : [ 1715.772709@0]  show_ctx_mem_pool_size
+04-19 15:53:02.274   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.277  1200  1200 I GoogleInputMethodService: GoogleInputMethodService.onFinishInput():2084 
+04-19 15:53:02.278     0     0 I         : [ 1715.781509@1]  show_ctx_mem_pool_size
+04-19 15:53:02.278  1200  1200 I Module  : DeviceLockedStatusModuleProvider$Module.updateDeviceLockedStatus():101 repeatCheckTimes = 0, locked = false
+04-19 15:53:02.279  1200  1200 I GoogleInputMethodService: GoogleInputMethodService.onStartInput():1345 onStartInput(EditorInfo{EditorInfo{packageName=com.google.android.tvlauncher, inputType=0, inputTypeString=NULL, enableLearning=false, autoCorrection=false, autoComplete=false, imeOptions=0, privateImeOptions=null, actionName=UNSPECIFIED, actionLabel=null, initialSelStart=-1, initialSelEnd=-1, initialCapsMode=0, label=null, fieldId=2131428768, fieldName=null, extras=null, hintText=null, hintLocales=[]}}, false)
+04-19 15:53:02.280  1200  1200 I Module  : DeviceLockedStatusModuleProvider$Module.updateDeviceLockedStatus():101 repeatCheckTimes = 1, locked = false
+04-19 15:53:02.283   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.284     0     0 I         : [ 1715.791116@1]  show_ctx_mem_pool_size
+04-19 15:53:02.294     0     0 I         : [ 1715.800505@1]  show_ctx_mem_pool_size
+04-19 15:53:02.302     0     0 I         : [ 1715.809170@3]  show_ctx_mem_pool_size
+04-19 15:53:02.310     0     0 I         : [ 1715.817244@3]  show_ctx_mem_pool_size
+04-19 15:53:02.318     0     0 I         : [ 1715.825100@1]  show_ctx_mem_pool_size
+04-19 15:53:02.326     0     0 I         : [ 1715.831568@0]  show_ctx_mem_pool_size
+04-19 15:53:02.338     0     0 I         : [ 1715.839524@1]  show_ctx_mem_pool_size
+04-19 15:53:02.346     0     0 I         : [ 1715.851125@3]  show_ctx_mem_pool_size
+04-19 15:53:02.354     0     0 I         : [ 1715.859564@3]  show_ctx_mem_pool_size
+04-19 15:53:02.362     0     0 I         : [ 1715.867989@2]  show_ctx_mem_pool_size
+04-19 15:53:02.374     0     0 I         : [ 1715.876040@2]  show_ctx_mem_pool_size
+04-19 15:53:02.386     0     0 I         : [ 1715.889937@3]  show_ctx_mem_pool_size
+04-19 15:53:02.398     0     0 I         : [ 1715.902012@2]  show_ctx_mem_pool_size
+04-19 15:53:02.414     0     0 I         : [ 1715.913978@2]  show_ctx_mem_pool_size
+04-19 15:53:02.430     0     0 I         : [ 1715.929941@0]  show_ctx_mem_pool_size
+04-19 15:53:02.438     0     0 I         : [ 1715.942591@2]  show_ctx_mem_pool_size
+04-19 15:53:02.450     0     0 I         : [ 1715.953932@1]  show_ctx_mem_pool_size
+04-19 15:53:02.457   342   342 D memtrack_aml: sysfs path
+04-19 15:53:02.462     0     0 I         : [ 1715.964418@2]  show_ctx_mem_pool_size
+04-19 15:53:02.475   576   601 D UsageStatsService_HaoR: MITV MOVE_TO_FOREGROUND
+04-19 15:53:02.476  1319  1346 I iaomi.tvservic: oneway function results will be dropped but finished with status OK and parcel size 4
+04-19 15:53:02.477  1319  1518 W ContextImpl: Calling a method in the system process without a qualified user: android.app.ContextImpl.sendBroadcast:1126 android.content.ContextWrapper.sendBroadcast:473 mitv.internal.PackageUsagePolicy.handleUsageEvent:50 mitv.internal.TvServiceDefaultImpl$EventHandler.handleMessage:1903 android.os.Handler.dispatchMessage:106 
+04-19 15:53:02.478  1319  1518 I MitvPolicyDatabaseManager: updatePackageUsage com.imax.player.debug/com.imax.player.MainActivity (1,1,130)
+04-19 15:53:02.478  1319  1319 D MiTv-TvService-Parent: current foreground packagename is com.google.android.tvlauncher mFgClassName: com.google.android.tvlauncher.MainActivity
+04-19 15:53:02.483  1319  1518 E MiTv-Utils: isTvProductFromCharacters character = stb,nosdcard, isBox = true hastv = false
+04-19 15:53:02.483  1319  1319 D MiTv-Service-TvService: sendFloatingFrameBroadcast action is :  2  retailMode is : -1
+04-19 15:53:03.314   576   644 V LightsService: setLight #2: color=#ff000000: brightnessMode=0
+04-19 15:53:03.314   364   364 E lights  : setLightState for BUTTONS
+04-19 15:53:03.314   364   364 E lights  : writeLed test:/sys/class/leds/sys_led/brightness,color:0
+04-19 15:53:03.316   347   347 I android.hardware.power-service.libperfmgr: Power setBoost: INTERACTION duration: 0
+04-19 15:53:03.316   347   347 I libperfmgr: Do Powerhint: INTERACTION
+04-19 15:53:03.316   347   347 I android.hardware.power-service.libperfmgr: Power setBoost: INTERACTION duration: 0
+04-19 15:53:03.316   347   347 I libperfmgr: Do Powerhint: INTERACTION
+04-19 15:53:03.316   576   643 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:53:03.316   576   643 D WindowManager: interceptKeyTi keyCode=4 down=true repeatCount=0 keyguardOn=false canceled=false
+04-19 15:53:03.526   576   644 D WindowManager: interceptKeyTq keycode=4 interactive=true keyguardActive=false policyFlags=22000000
+04-19 15:53:03.526   576   644 D WindowManager: set light open
+04-19 15:53:03.526   576   644 V LightsService: setLight #2: color=#ffffffff: brightnessMode=0
+04-19 15:53:03.526   364   364 E lights  : setLightState for BUTTONS
+04-19 15:53:03.526   364   364 E lights  : writeLed test:/sys/class/leds/sys_led/brightness,color:255
+04-19 15:53:03.527   347   347 I android.hardware.power-service.libperfmgr: Power setBoost: INTERACTION duration: 0
+04-19 15:53:03.527   347   347 I libperfmgr: Do Powerhint: INTERACTION
+04-19 15:53:03.528   576   643 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:53:03.528   347   347 I android.hardware.power-service.libperfmgr: Power setBoost: INTERACTION duration: 0
+04-19 15:53:03.528   347   347 I libperfmgr: Do Powerhint: INTERACTION
+04-19 15:53:03.528   576   643 D WindowManager: interceptKeyTi keyCode=4 down=false repeatCount=0 keyguardOn=false canceled=false
+04-19 15:53:03.540  1200  1200 I GoogleInputMethodService: GoogleInputMethodService.onFinishInput():2084 
+04-19 15:53:03.541  1200  1200 I Module  : DeviceLockedStatusModuleProvider$Module.updateDeviceLockedStatus():101 repeatCheckTimes = 0, locked = false
+04-19 15:53:03.542  1200  1200 I GoogleInputMethodService: GoogleInputMethodService.onStartInput():1345 onStartInput(EditorInfo{EditorInfo{packageName=com.google.android.tvlauncher, inputType=0, inputTypeString=NULL, enableLearning=false, autoCorrection=false, autoComplete=false, imeOptions=0, privateImeOptions=null, actionName=UNSPECIFIED, actionLabel=null, initialSelStart=-1, initialSelEnd=-1, initialCapsMode=0, label=null, fieldId=2131428768, fieldName=null, extras=null, hintText=null, hintLocales=[]}}, false)
+04-19 15:53:03.543  1200  1200 I Module  : DeviceLockedStatusModuleProvider$Module.updateDeviceLockedStatus():101 repeatCheckTimes = 1, locked = false
+04-19 15:53:04.139   576   644 D WindowManager: interceptKeyTq keycode=4 interactive=true keyguardActive=false policyFlags=22000001
+04-19 15:53:04.139   576   644 D WindowManager: set light close
+04-19 15:53:04.139   576   644 V LightsService: setLight #2: color=#ff000000: brightnessMode=0
+04-19 15:53:04.139   364   364 E lights  : setLightState for BUTTONS
+04-19 15:53:04.139   364   364 E lights  : writeLed test:/sys/class/leds/sys_led/brightness,color:0
+04-19 15:53:04.140   347   347 I android.hardware.power-service.libperfmgr: Power setBoost: INTERACTION duration: 0
+04-19 15:53:04.140   347   347 I libperfmgr: Do Powerhint: INTERACTION
+04-19 15:53:04.140   347   347 I android.hardware.power-service.libperfmgr: Power setBoost: INTERACTION duration: 0
+04-19 15:53:04.141   347   347 I libperfmgr: Do Powerhint: INTERACTION
+04-19 15:53:04.141   576   643 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:53:04.141   576   643 D WindowManager: interceptKeyTi keyCode=4 down=true repeatCount=0 keyguardOn=false canceled=false
+04-19 15:53:04.351   576   644 D WindowManager: interceptKeyTq keycode=4 interactive=true keyguardActive=false policyFlags=22000000
+04-19 15:53:04.351   576   644 D WindowManager: set light open
+04-19 15:53:04.351   576   644 V LightsService: setLight #2: color=#ffffffff: brightnessMode=0
+04-19 15:53:04.351   364   364 E lights  : setLightState for BUTTONS
+04-19 15:53:04.351   364   364 E lights  : writeLed test:/sys/class/leds/sys_led/brightness,color:255
+04-19 15:53:04.353   347   347 I android.hardware.power-service.libperfmgr: Power setBoost: INTERACTION duration: 0
+04-19 15:53:04.353   347   347 I libperfmgr: Do Powerhint: INTERACTION
+04-19 15:53:04.353   347   347 I android.hardware.power-service.libperfmgr: Power setBoost: INTERACTION duration: 0
+04-19 15:53:04.353   576   643 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:53:04.353   347   347 I libperfmgr: Do Powerhint: INTERACTION
+04-19 15:53:04.353   576   643 D WindowManager: interceptKeyTi keyCode=4 down=false repeatCount=0 keyguardOn=false canceled=false
+04-19 15:53:04.436  1455  1455 W View    : requestLayout() improperly called by com.google.android.tvlauncher.clock.ClockView{d7cce10 V.ED..... ......ID 1714,64-1812,118 #7f0b010e app:id/clock} during layout: running second layout pass
+04-19 15:53:04.467  1200  1200 I GoogleInputMethodService: GoogleInputMethodService.onFinishInput():2084 
+04-19 15:53:04.469  1200  1200 I Module  : DeviceLockedStatusModuleProvider$Module.updateDeviceLockedStatus():101 repeatCheckTimes = 0, locked = false
+04-19 15:53:04.469  1200  1200 I GoogleInputMethodService: GoogleInputMethodService.onStartInput():1345 onStartInput(EditorInfo{EditorInfo{packageName=com.google.android.tvlauncher, inputType=0, inputTypeString=NULL, enableLearning=false, autoCorrection=false, autoComplete=false, imeOptions=0, privateImeOptions=null, actionName=UNSPECIFIED, actionLabel=null, initialSelStart=-1, initialSelEnd=-1, initialCapsMode=0, label=null, fieldId=2131428768, fieldName=null, extras=null, hintText=null, hintLocales=[]}}, false)
+04-19 15:53:04.471  1200  1200 I Module  : DeviceLockedStatusModuleProvider$Module.updateDeviceLockedStatus():101 repeatCheckTimes = 1, locked = false
+04-19 15:53:04.813   576  1249 E TaskPersister: File error accessing recents directory (directory doesn't exist?).
+04-19 15:53:05.192   328   557 D audio_hw_primary: out_standby_new: enter
+04-19 15:53:05.192   328   557 I audio_hw_primary: [do_output_standby_l:5139] stream usecase:PCM_NORMAL , continuous:1
+04-19 15:53:05.192   328   557 I audio_hw_primary: ++[usecase_change_validate_l:7421], dev masks:0x1, is_standby:1, out usecase:PCM_NORMAL
+04-19 15:53:05.192   328   557 I audio_hw_primary: --[usecase_change_validate_l:7441], dev masks:0, is_standby:1, out usecase PCM_NORMAL
+04-19 15:53:05.192   328   557 I libms12 : +aml_ms12_update_runtime_params()
+04-19 15:53:05.192   328   557 D libms12 : +ResetConfigParams() line 1947
+04-19 15:53:05.192   328   557 D libms12 : ResetConfigParams() mHasAssociateInput 0 mHasSystemInput 0
+04-19 15:53:05.192   328   557 D libms12 : -ResetConfigParams() line 1961
+04-19 15:53:05.192   328   557 I libms12 : setSystemFlag() System flag 1
+04-19 15:53:05.192   328   557 I libms12 : setAppFlag() App flag 1
+04-19 15:53:05.192   328   557 D libms12 : +UpdateDolbyMS12RuntimeConfigParams()
+04-19 15:53:05.192   328   557 D libms12 : ms12 runtime cmd: -xs 1
+04-19 15:53:05.193   328   557 I libms12 : argv[1] = -xs
+04-19 15:53:05.193   328   557 I libms12 : argv[2] = 1
+04-19 15:53:05.193   328   557 D libms12 : -UpdateDolbyMS12RuntimeConfigParams()
+04-19 15:53:05.193   328   557 I libms12 : -aml_ms12_update_runtime_params() ret 0
+04-19 15:53:05.193   328   557 I audio_hw_primary: set_system_app_mixing_status return 0 stream-status 0 set system-app-audio-mixing 1
+04-19 15:53:05.193   328   557 I audio_hw_primary: out_standby_new exit
+04-19 15:53:05.194   576  1333 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=false
+04-19 15:53:05.195   576  1333 I system_server: oneway function results will be dropped but finished with status OK and parcel size 4
+04-19 15:53:05.196   328   554 D libdolbyms12: begin update primay params
+04-19 15:53:05.196   328   554 D libdolbyms12: after update primay params
+04-19 15:53:05.197   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:53:05.283   328   554 I libdolbyms12: last sys sample=256 now system=0
+04-19 15:53:06.643  1123  1123 W ThreadPoolForeg: type=1400 audit(0.0:322): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=14513 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+04-19 15:53:06.650     0     0 I         : [ 1715.974621@3]  show_ctx_mem_pool_size
+04-19 15:53:06.989   482  1041 D BufferPoolAccessor2.0: evictor expired: 1, evicted: 0
+04-19 15:53:07.521   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=81920000
+04-19 15:53:08.213   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:53:08.895  2109  2109 I cast_shell: [0419/155308.895814:INFO:service_base.h(78)] Size of the map for type AuthTokenResponse is 0
+04-19 15:53:08.989  2109  2109 I cast_shell: [0419/155308.989803:INFO:service_base.h(246)] Container sizes for type CloudSetting are (session_info_map: 0), (topic_info_map: 21), (pending_events: 0).
+04-19 15:53:08.990  2109  2109 I cast_shell: [0419/155308.990165:INFO:metrics_stat_logger.cc(38)] Metrics stat for the past 60 secs : total=4
+04-19 15:53:08.990  2109  2109 I cast_shell: [metrics_stat_logger] Cast.Discovery.Mdns.Query.Cast.Count=1
+04-19 15:53:08.990  2109  2109 I cast_shell: [metrics_stat_logger] Cast.Platform.TrimMemory=1
+04-19 15:53:08.990  2109  2109 I cast_shell: [metrics_stat_logger] Dial.SsdpDeviceDesc.Linux=1
+04-19 15:53:08.990  2109  2109 I cast_shell: [metrics_stat_logger] Dial.SsdpDeviceDesc.Linux.200=1
+04-19 15:53:11.238   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:53:12.854   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=82176000
+04-19 15:53:14.263   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:53:14.947  1414  1414 W ThreadPoolForeg: type=1400 audit(0.0:323): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=14513 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+04-19 15:53:17.287   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:53:18.187   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=82432000
+04-19 15:53:20.312   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:53:23.327   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:53:23.520   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1664 total frames=82688000
+04-19 15:53:26.108  2109  2424 I cast_shell: [0419/155326.108521:INFO:mdns_app_filter.cc(3358)] MdnsAppFilter: responses sent in 97 seconds: 3
+04-19 15:53:26.353   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:53:28.854   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=82944000
+04-19 15:53:28.857   328   554 I audio_hw_primary: alsa format =0x9000000 delay frames =1408 total frames=82944000
+04-19 15:53:29.380   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:53:32.402   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:53:34.187   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=83200000
+04-19 15:53:34.646     0     0 D [ 1748.161469@3]  logd: logdr: UID=2000 GID=2000 PID=5278 n tail=0 logMask=10 pid=0 start=0ns timeout=0ns
+04-19 15:53:34.798     0     0 D [ 1748.313068@0]  logd: logdr: UID=2000 GID=2000 PID=5281 n tail=200 logMask=99 pid=0 start=0ns timeout=0ns
+04-19 15:53:35.424   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:53:36.655  1123  1123 W ThreadPoolForeg: type=1400 audit(0.0:324): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=14513 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+04-19 15:53:38.451   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:53:39.521   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=83456000
+04-19 15:53:41.464   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:53:44.487   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:53:44.854   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1664 total frames=83712000
+04-19 15:53:44.987  1414  1414 W ThreadPoolForeg: type=1400 audit(0.0:325): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=14513 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+04-19 15:53:47.512   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:53:50.189   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=83968000
+04-19 15:53:50.538   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:53:53.563   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:53:55.521   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=84224000
+04-19 15:53:56.589   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:53:59.617   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:54:00.000   576   642 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:54:00.003   576   576 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=false
+04-19 15:54:00.855   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=84480000
+04-19 15:54:00.858   328   554 I audio_hw_primary: alsa format =0x9000000 delay frames =1408 total frames=84480000
+04-19 15:54:02.642   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:54:05.656   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:54:06.189   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=84736000
+04-19 15:54:06.683  1123  1123 W ThreadPoolForeg: type=1400 audit(0.0:326): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=14513 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+04-19 15:54:08.671   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:54:08.896  2109  2109 I cast_shell: [0419/155408.896412:INFO:service_base.h(78)] Size of the map for type AuthTokenResponse is 0
+04-19 15:54:08.990  2109  2109 I cast_shell: [0419/155408.990249:INFO:service_base.h(246)] Container sizes for type CloudSetting are (session_info_map: 0), (topic_info_map: 21), (pending_events: 0).
+04-19 15:54:08.990  2109  2109 I cast_shell: [0419/155408.990512:INFO:metrics_stat_logger.cc(38)] Metrics stat for the past 60 secs : total=2
+04-19 15:54:08.990  2109  2109 I cast_shell: [metrics_stat_logger] Cast.Discovery.Mdns.Request.In=2
+04-19 15:54:08.990  2109  2109 I cast_shell: [metrics_stat_logger] Cast.Discovery.Mdns.Response.Out=2
+04-19 15:54:09.232  2109  2424 I cast_shell: [0419/155409.232754:INFO:mdns_app_filter.cc(3550)] Mdns cast queries recently sent: queries=1
+04-19 15:54:11.522   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=84992000
+04-19 15:54:11.684   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:54:14.700   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:54:14.995  1414  1414 W ThreadPoolForeg: type=1400 audit(0.0:327): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=14513 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+04-19 15:54:15.000  2109  2484 I cast_shell: [0419/155415.000868:INFO:ssdp_device.c(101)] SSDP packets sent for 77 seconds = 3
+04-19 15:54:16.856   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=85248000
+04-19 15:54:17.725   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:54:20.749   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:54:22.189   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=85504000
+04-19 15:54:23.772   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:54:26.544   576  1333 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:54:26.545   576  1333 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=false
+04-19 15:54:26.599   222   222 I hwservicemanager: getTransport: Cannot find entry android.hardware.power.stats@1.0::IPowerStats/default in either framework or device manifest.
+04-19 15:54:26.601   222   222 I hwservicemanager: getTransport: Cannot find entry android.hardware.power@1.0::IPower/default in either framework or device manifest.
+04-19 15:54:26.602   576   611 E BatteryStatsService: Unable to load Power Hal or power.stats HAL
+04-19 15:54:26.602   576   611 D KernelCpuUidUserSysTimeReader: Removing uids 1037-1037
+04-19 15:54:26.603   576   611 D KernelCpuUidUserSysTimeReader: Removing uids 99000-99000
+04-19 15:54:26.603   576   611 D KernelCpuUidUserSysTimeReader: Removing uids 99001-99001
+04-19 15:54:26.797   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:54:27.523   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=85760000
+04-19 15:54:29.820   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:54:32.844   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:54:32.856   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=86016000
+04-19 15:54:32.859   328   554 I audio_hw_primary: alsa format =0x9000000 delay frames =1280 total frames=86016000
+04-19 15:54:35.858   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:54:36.687  1123  1123 W ThreadPoolForeg: type=1400 audit(0.0:328): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=14513 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+04-19 15:54:38.189   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=86272000
+04-19 15:54:38.871   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:54:41.884   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:54:43.522   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=86528000
+04-19 15:54:44.899   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:54:44.999  1414  1414 W ThreadPoolForeg: type=1400 audit(0.0:329): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=14513 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+04-19 15:54:47.923   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:54:48.855   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=86784000
+04-19 15:54:50.947   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:54:53.976   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:54:54.190   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=87040000
+04-19 15:54:57.002   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:54:57.040  2109  2484 I cast_shell: [0419/155457.040782:INFO:ssdp_device.c(101)] SSDP packets sent for 42 seconds = 2
+04-19 15:54:59.523   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=87296000
+04-19 15:55:00.000   576   642 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:00.002   576   576 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=false
+04-19 15:55:00.028   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:55:02.369  1294  1612 I katniss_interactor_KatnissVoiceInteractionServicePeer: #startPeriodicMirrorTask succeeded
+04-19 15:55:03.031  2109  2424 I cast_shell: [0419/155503.031887:INFO:mdns_app_filter.cc(3358)] MdnsAppFilter: responses sent in 96 seconds: 3
+04-19 15:55:03.040   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:55:04.478   576   642 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:04.483   699   699 W wpa_supplicant: type=1400 audit(0.0:330): avc: denied { read } for name="u:object_r:wifi_prop:s0" dev="tmpfs" ino=390 scontext=u:r:hal_wifi_supplicant_default:s0 tcontext=u:object_r:wifi_prop:s0 tclass=file permissive=0
+04-19 15:55:04.484   576  1166 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=false
+04-19 15:55:04.489   699   699 E libc    : Access denied finding property "wlan.wifi_chip"
+04-19 15:55:04.493   699   699 E wpa_supplicant: To call wpa_driver_nl80211_driver_cmd_mtk func!
+04-19 15:55:04.498   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:55:04.502   576  1166 D DhcpClient: Unicasting DHCPREQUEST ciaddr=192.168.1.67 request=0.0.0.0 serverid=null to /192.168.1.1:67
+04-19 15:55:04.512   576  1166 D DhcpClient: Received packet: 52:3c:05:98:27:87 ACK: your new IP /192.168.1.67, netmask /255.255.255.0, gateways [/192.168.1.1] DNS servers: /192.168.1.1 , lease time 3600
+04-19 15:55:04.513   576  1166 D DhcpClient: Renewed lease: android.net.networkstack.DhcpResults@d10d288 DHCP server /192.168.1.1 Vendor info null lease 3600 seconds Servername 
+04-19 15:55:04.515   699   699 W wpa_supplicant: type=1400 audit(0.0:331): avc: denied { read } for name="u:object_r:wifi_prop:s0" dev="tmpfs" ino=390 scontext=u:r:hal_wifi_supplicant_default:s0 tcontext=u:object_r:wifi_prop:s0 tclass=file permissive=0
+04-19 15:55:04.519   576  1166 D DhcpClient: Scheduling renewal in 1799s
+04-19 15:55:04.519   576  1166 D DhcpClient: Scheduling rebind in 3149s
+04-19 15:55:04.519   576  1166 D DhcpClient: Scheduling expiry in 3599s
+04-19 15:55:04.522   699   699 E libc    : Access denied finding property "wlan.wifi_chip"
+04-19 15:55:04.522   699   699 E wpa_supplicant: To call wpa_driver_nl80211_driver_cmd_mtk func!
+04-19 15:55:04.856   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=87552000
+04-19 15:55:04.859   328   554 I audio_hw_primary: alsa format =0x9000000 delay frames =1280 total frames=87552000
+04-19 15:55:06.053   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:55:06.540  1294  2170 W native  : W0000 00:00:1776603306.539938    2170 publisher.cc:36] [FTL] No subscribers for event "hvc.api.events.MetricEvent" from publisher "UmaMetricsForwarder"
+04-19 15:55:06.703  1123  1123 W ThreadPoolForeg: type=1400 audit(0.0:332): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=14513 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+04-19 15:55:08.313  2109  2109 I cast_shell: [0419/155508.313038:INFO:grpc_manager_impl.cc(881)] GRPC[uri=localhost:10042]: num_pending_calls=0, num_active_handlers=1, num_free_handlers=0
+04-19 15:55:08.313  2109  2109 I cast_shell: [0419/155508.313872:INFO:grpc_manager_impl.cc(881)] GRPC[uri=localhost:10042]: num_pending_calls=0, num_active_handlers=1, num_free_handlers=0
+04-19 15:55:08.460  2109  2109 I cast_shell: [0419/155508.460717:INFO:grpc_manager_impl.cc(881)] GRPC[uri=]: num_pending_calls=0, num_active_handlers=0, num_free_handlers=0
+04-19 15:55:08.461  2109  2109 I cast_shell: [0419/155508.461075:INFO:grpc_manager_impl.cc(881)] GRPC[uri=]: num_pending_calls=0, num_active_handlers=0, num_free_handlers=0
+04-19 15:55:08.629  2109  2109 I cast_shell: [0419/155508.629255:INFO:grpc_manager_impl.cc(881)] GRPC[uri=[::]:0]: num_pending_calls=0, num_active_handlers=4, num_free_handlers=0
+04-19 15:55:08.896  2109  2109 I cast_shell: [0419/155508.896764:INFO:service_base.h(78)] Size of the map for type AuthTokenResponse is 0
+04-19 15:55:08.990  2109  2109 I cast_shell: [0419/155508.990600:INFO:service_base.h(246)] Container sizes for type CloudSetting are (session_info_map: 0), (topic_info_map: 21), (pending_events: 0).
+04-19 15:55:08.991  2109  2109 I cast_shell: [0419/155508.991038:INFO:metrics_stat_logger.cc(38)] Metrics stat for the past 60 secs : total=5
+04-19 15:55:08.991  2109  2109 I cast_shell: [metrics_stat_logger] Cast.Discovery.Mdns.Query.Cast.Count=1
+04-19 15:55:08.991  2109  2109 I cast_shell: [metrics_stat_logger] Cast.Discovery.Mdns.Request.In=2
+04-19 15:55:08.991  2109  2109 I cast_shell: [metrics_stat_logger] Cast.Discovery.Mdns.Response.Out=2
+04-19 15:55:08.991  2109  2109 I cast_shell: [metrics_stat_logger] Dial.SsdpDeviceDesc.Linux=2
+04-19 15:55:08.991  2109  2109 I cast_shell: [metrics_stat_logger] Dial.SsdpDeviceDesc.Linux.200=2
+04-19 15:55:09.069   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:55:09.233  2109  2424 I cast_shell: [0419/155509.233843:INFO:mdns_app_filter.cc(3550)] Mdns cast queries recently sent: queries=1
+04-19 15:55:10.189   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=87808000
+04-19 15:55:10.904  2109  2281 I DrmUtils: found android.hardware.drm@1.0::IDrmFactory clearkey
+04-19 15:55:10.906  2109  2281 I DrmUtils: found android.hardware.drm@1.0::IDrmFactory netflix
+04-19 15:55:10.909  2109  2281 I DrmUtils: found android.hardware.drm@1.0::IDrmFactory playready
+04-19 15:55:10.911  2109  2281 I DrmUtils: found android.hardware.drm@1.0::IDrmFactory widevine
+04-19 15:55:10.915  2109  2281 I DrmUtils: found android.hardware.drm@1.1::IDrmFactory clearkey
+04-19 15:55:10.916  2109  2281 I DrmUtils: found android.hardware.drm@1.1::IDrmFactory netflix
+04-19 15:55:10.916  2109  2281 I DrmUtils: found android.hardware.drm@1.1::IDrmFactory playready
+04-19 15:55:10.917  2109  2281 I DrmUtils: found android.hardware.drm@1.1::IDrmFactory widevine
+04-19 15:55:10.923  2109  2281 I DrmUtils: found android.hardware.drm@1.2::IDrmFactory clearkey
+04-19 15:55:10.923  2109  2281 I DrmUtils: found android.hardware.drm@1.2::IDrmFactory netflix
+04-19 15:55:10.924  2109  2281 I DrmUtils: found android.hardware.drm@1.2::IDrmFactory playready
+04-19 15:55:10.925  2109  2281 I DrmUtils: found android.hardware.drm@1.2::IDrmFactory widevine
+04-19 15:55:10.927  2109  2281 I DrmUtils: found android.hardware.drm@1.3::IDrmFactory clearkey
+04-19 15:55:10.928  2109  2281 I DrmUtils: found android.hardware.drm@1.3::IDrmFactory netflix
+04-19 15:55:10.929  2109  2281 I DrmUtils: found android.hardware.drm@1.3::IDrmFactory playready
+04-19 15:55:10.929  2109  2281 I DrmUtils: found android.hardware.drm@1.3::IDrmFactory widevine
+04-19 15:55:10.937   335  2506 I WVCdm   : [app][com.google.android.apps.mediashell] calling virtual Return<void> wvdrm::hardware::drm::V1_3::widevine::WVDrmFactory::createPlugin(const hidl_array<uint8_t, 16> &, const android::hardware::hidl_string &, android::hardware::drm::V1_3::IDrmFactory::createPlugin_cb)
+04-19 15:55:10.946   335  2506 I WVCdm   : [cdm_engine.cpp(573):QueryStatus] Querying status
+04-19 15:55:10.949   335  2506 D WVCdm   : [crypto_session.cpp(805):Open] Opening crypto session: requested_security_level = Default
+04-19 15:55:10.954   335  2506 I WVCdm   : [file_utils.cpp(40):Exists] stat failed: ENOENT
+04-19 15:55:10.958   335  2506 I WVCdm   : [file_utils.cpp(40):Exists] stat failed: ENOENT
+04-19 15:55:10.962   335  2506 I WVCdm   : [cdm_engine.cpp(115):OpenSession] Opening session
+04-19 15:55:10.963   335  2506 D WVCdm   : [crypto_session.cpp(805):Open] Opening crypto session: requested_security_level = Default
+04-19 15:55:10.963   335  2506 I WVCdm   : [file_utils.cpp(40):Exists] stat failed: ENOENT
+04-19 15:55:10.975   335  2506 I WVCdm   : [file_utils.cpp(40):Exists] stat failed: ENOENT
+04-19 15:55:10.975   335  2506 I WVCdm   : [cdm_engine.cpp(194):OpenSession] New session ID: sid13
+04-19 15:55:10.975   335  2506 I WVCdm   : [cdm_engine.cpp(925):QueryOemCryptoSessionId] Querying OEMCrypto Session ID: session_id = sid13
+04-19 15:55:10.980  2109  2281 I cast_shell: [0419/155510.980351:INFO:jni_client_auth_creds_mediadrm.cc(301)] Cast: signing message with length 51
+04-19 15:55:11.018   335  2506 I WVCdm   : [cdm_engine.cpp(240):CloseSession] Closing session: session_id = sid13
+04-19 15:55:11.025  2109  2109 I cast_shell: [0419/155511.024553:INFO:application_identification_settings.cc(1079)] CreateJwt completed; running all done signing callbacks.
+04-19 15:55:11.025  2109  2109 I cast_shell: [0419/155511.025474:INFO:robot_account_auth_manager.cc(475)] JWT expiry in 3599 seconds
+04-19 15:55:11.785   576   642 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:11.792   342   342 D memtrack_aml: sysfs path
+04-19 15:55:11.796   576  1333 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:11.801   576   576 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:11.813   576  1333 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:11.848   576  1333 I chatty  : uid=1000(system) Binder:576_B identical 2 lines
+04-19 15:55:11.854   576  1333 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:11.866     0     0 I         : [ 1845.309760@1]  show_ctx_mem_pool_size
+04-19 15:55:11.866     0     0 I [ 1845.382180@1]  [wlan][571]aisFsmSteps: (AIS STATE) [AIS]TRANSITION: [NORMAL_TR] -> [ONLINE_SCAN]
+04-19 15:55:11.866     0     0 I [ 1845.382207@1]  [wlan][571]scnFsmSteps: (SCN STATE) [SCAN]TRANSITION: [IDLE] -> [SCANNING]
+04-19 15:55:11.894     0     0 I         : [ 1845.406467@3]  [TEE] E/TA:   _oecc104:1063 Unexpected provisioning method = 2.
+04-19 15:55:12.086   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:55:12.708  1294  1633 I katniss_interactor_KatnissAccountManagerImpl: Retrieved 1 Google account from GMS.
+04-19 15:55:12.709  1294  1633 I katniss_interactor_GlobalAccountsAccessor: Writing 1 accounts
+04-19 15:55:12.718  1294  1633 I katniss_interactor_TokenFetcherImpl: #fetchToken
+04-19 15:55:12.720  1294  5287 I katniss_interactor_MigrationUtils: Using GoogleAuthUtil for getToken for 1p app: com.google.android.katniss [CONTEXT service_id=343 ]
+04-19 15:55:12.954     0     0 I [ 1846.470046@1]  [wlan][571]rlmModifyVhtBwPara: (RLM WARN) S1=42, S2=50
+04-19 15:55:12.954     0     0 I [ 1846.470074@1]  [wlan][571]rlmModifyVhtBwPara: (RLM WARN) [BW160][new spec] S1 change to 50
+04-19 15:55:12.954     0     0 I [ 1846.470120@1]  [wlan][571]rlmModifyVhtBwPara: (RLM WARN) S1=42, S2=50
+04-19 15:55:12.954     0     0 I [ 1846.470134@1]  [wlan][571]rlmModifyVhtBwPara: (RLM WARN) [BW160][new spec] S1 change to 50
+04-19 15:55:12.958     0     0 I [ 1846.474037@1]  [wlan][571]rlmModifyVhtBwPara: (RLM WARN) S1=42, S2=50
+04-19 15:55:12.958     0     0 I [ 1846.474060@1]  [wlan][571]rlmModifyVhtBwPara: (RLM WARN) [BW160][new spec] S1 change to 50
+04-19 15:55:12.958     0     0 I [ 1846.474166@1]  [wlan][571]rlmModifyVhtBwPara: (RLM WARN) S1=42, S2=50
+04-19 15:55:12.958     0     0 I [ 1846.474181@1]  [wlan][571]rlmModifyVhtBwPara: (RLM WARN) [BW160][new spec] S1 change to 50
+04-19 15:55:12.970     0     0 I [ 1846.485471@1]  [wlan][571]rlmModifyVhtBwPara: (RLM WARN) S1=42, S2=50
+04-19 15:55:12.970     0     0 I [ 1846.485489@1]  [wlan][571]rlmModifyVhtBwPara: (RLM WARN) [BW160][new spec] S1 change to 50
+04-19 15:55:12.974     0     0 I [ 1846.489413@1]  [wlan][571]rlmModifyVhtBwPara: (RLM WARN) S1=42, S2=50
+04-19 15:55:12.974     0     0 I [ 1846.489427@1]  [wlan][571]rlmModifyVhtBwPara: (RLM WARN) [BW160][new spec] S1 change to 50
+04-19 15:55:12.978     0     0 I [ 1846.494009@1]  [wlan][571]rlmModifyVhtBwPara: (RLM WARN) S1=42, S2=50
+04-19 15:55:12.978     0     0 I [ 1846.494024@1]  [wlan][571]rlmModifyVhtBwPara: (RLM WARN) [BW160][new spec] S1 change to 50
+04-19 15:55:12.982     0     0 I [ 1846.497698@1]  [wlan][571]rlmModifyVhtBwPara: (RLM WARN) S1=42, S2=50
+04-19 15:55:12.982     0     0 I [ 1846.497708@1]  [wlan][571]rlmModifyVhtBwPara: (RLM WARN) [BW160][new spec] S1 change to 50
+04-19 15:55:13.217   576  3537 D WifiNl80211Manager: Scan result ready event
+04-19 15:55:13.217   576  3537 D WifiNative: Scan result ready event
+04-19 15:55:13.218   576   593 I EthernetTracker: interfaceLinkStateChanged, iface: wlan0, up: true
+04-19 15:55:13.220     0     0 I [ 1846.732897@1]  [wlan][571]scnFsmSteps: (SCN STATE) [SCAN]TRANSITION: [SCANNING] -> [IDLE]
+04-19 15:55:13.220     0     0 I [ 1846.733062@1]  [wlan][571]aisFsmSteps: (AIS STATE) [AIS]TRANSITION: [ONLINE_SCAN] -> [NORMAL_TR]
+04-19 15:55:13.246   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:55:14.131   576  2290 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=false
+04-19 15:55:14.443   576  2290 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:14.460   576  2290 I chatty  : uid=1000(system) Binder:576_17 identical 1 line
+04-19 15:55:14.468  1294  5287 I katniss_interactor_MigrationUtils: Using GoogleAuthUtil for getToken for 1p app: com.google.android.katniss [CONTEXT service_id=343 ]
+04-19 15:55:14.469   576  2290 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:14.470   576  1333 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:14.474  1123  5266 I AlarmManager: setExactAndAllowWhileIdle [name: GCM_HB_ALARM type: 2 triggerAtMillis: 2987988]
+04-19 15:55:14.475  1123  1926 W TrustedTimeHelper: TrustedTime initialization task failed
+04-19 15:55:14.475  1123  1926 W TrustedTimeHelper: ahas: 17: API: TrustedTime.API is not available on this device. Connection failed with: ConnectionResult{statusCode=API_UNAVAILABLE, resolution=null, message=null, clientMethodKey=null}
+04-19 15:55:14.475  1123  1926 W TrustedTimeHelper: 	at ahxe.a(:com.google.android.gms@261332118@26.13.32 (180300-895912391):15)
+04-19 15:55:14.475  1123  1926 W TrustedTimeHelper: 	at ahcn.a(:com.google.android.gms@261332118@26.13.32 (180300-895912391):1)
+04-19 15:55:14.475  1123  1926 W TrustedTimeHelper: 	at ahck.c(:com.google.android.gms@261332118@26.13.32 (180300-895912391):5)
+04-19 15:55:14.475  1123  1926 W TrustedTimeHelper: 	at ahez.t(:com.google.android.gms@261332118@26.13.32 (180300-895912391):48)
+04-19 15:55:14.475  1123  1926 W TrustedTimeHelper: 	at ahez.f(:com.google.android.gms@261332118@26.13.32 (180300-895912391):10)
+04-19 15:55:14.475  1123  1926 W TrustedTimeHelper: 	at ahez.i(:com.google.android.gms@261332118@26.13.32 (180300-895912391):191)
+04-19 15:55:14.475  1123  1926 W TrustedTimeHelper: 	at ahez.m(:com.google.android.gms@261332118@26.13.32 (180300-895912391):2)
+04-19 15:55:14.475  1123  1926 W TrustedTimeHelper: 	at ahfb.run(:com.google.android.gms@261332118@26.13.32 (180300-895912391):80)
+04-19 15:55:14.475  1123  1926 W TrustedTimeHelper: 	at android.os.Handler.handleCallback(Handler.java:938)
+04-19 15:55:14.475  1123  1926 W TrustedTimeHelper: 	at android.os.Handler.dispatchMessage(Handler.java:99)
+04-19 15:55:14.475  1123  1926 W TrustedTimeHelper: 	at bchj.ih(:com.google.android.gms@261332118@26.13.32 (180300-895912391):1)
+04-19 15:55:14.475  1123  1926 W TrustedTimeHelper: 	at bchj.dispatchMessage(:com.google.android.gms@261332118@26.13.32 (180300-895912391):140)
+04-19 15:55:14.475  1123  1926 W TrustedTimeHelper: 	at android.os.Looper.loop(Looper.java:223)
+04-19 15:55:14.475  1123  1926 W TrustedTimeHelper: 	at android.os.HandlerThread.run(HandlerThread.java:67)
+04-19 15:55:14.486   576  2290 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:14.492  1123  1926 I FrewleMiniCache: (REDACTED) lookupMacEntries: %s MACs queried, %s informative APs, %s in cache
+04-19 15:55:14.511  1123  1926 W TrustedTimeHelper: TrustedTime initialization task failed
+04-19 15:55:14.511  1123  1926 W TrustedTimeHelper: ahas: 17: API: TrustedTime.API is not available on this device. Connection failed with: ConnectionResult{statusCode=API_UNAVAILABLE, resolution=null, message=null, clientMethodKey=null}
+04-19 15:55:14.511  1123  1926 W TrustedTimeHelper: 	at ahxe.a(:com.google.android.gms@261332118@26.13.32 (180300-895912391):15)
+04-19 15:55:14.511  1123  1926 W TrustedTimeHelper: 	at ahcn.a(:com.google.android.gms@261332118@26.13.32 (180300-895912391):1)
+04-19 15:55:14.511  1123  1926 W TrustedTimeHelper: 	at ahck.c(:com.google.android.gms@261332118@26.13.32 (180300-895912391):5)
+04-19 15:55:14.511  1123  1926 W TrustedTimeHelper: 	at ahez.t(:com.google.android.gms@261332118@26.13.32 (180300-895912391):48)
+04-19 15:55:14.511  1123  1926 W TrustedTimeHelper: 	at ahez.f(:com.google.android.gms@261332118@26.13.32 (180300-895912391):10)
+04-19 15:55:14.511  1123  1926 W TrustedTimeHelper: 	at ahez.i(:com.google.android.gms@261332118@26.13.32 (180300-895912391):191)
+04-19 15:55:14.511  1123  1926 W TrustedTimeHelper: 	at ahez.m(:com.google.android.gms@261332118@26.13.32 (180300-895912391):2)
+04-19 15:55:14.511  1123  1926 W TrustedTimeHelper: 	at ahfb.run(:com.google.android.gms@261332118@26.13.32 (180300-895912391):80)
+04-19 15:55:14.511  1123  1926 W TrustedTimeHelper: 	at android.os.Handler.handleCallback(Handler.java:938)
+04-19 15:55:14.511  1123  1926 W TrustedTimeHelper: 	at android.os.Handler.dispatchMessage(Handler.java:99)
+04-19 15:55:14.511  1123  1926 W TrustedTimeHelper: 	at bchj.ih(:com.google.android.gms@261332118@26.13.32 (180300-895912391):1)
+04-19 15:55:14.511  1123  1926 W TrustedTimeHelper: 	at bchj.dispatchMessage(:com.google.android.gms@261332118@26.13.32 (180300-895912391):140)
+04-19 15:55:14.511  1123  1926 W TrustedTimeHelper: 	at android.os.Looper.loop(Looper.java:223)
+04-19 15:55:14.511  1123  1926 W TrustedTimeHelper: 	at android.os.HandlerThread.run(HandlerThread.java:67)
+04-19 15:55:14.833  1123  1926 I chatty  : uid=10045(com.google.android.gms) GoogleLocationS identical 5 lines
+04-19 15:55:14.833  1123  1926 W TrustedTimeHelper: TrustedTime initialization task failed
+04-19 15:55:14.833  1123  1926 W TrustedTimeHelper: ahas: 17: API: TrustedTime.API is not available on this device. Connection failed with: ConnectionResult{statusCode=API_UNAVAILABLE, resolution=null, message=null, clientMethodKey=null}
+04-19 15:55:14.833  1123  1926 W TrustedTimeHelper: 	at ahxe.a(:com.google.android.gms@261332118@26.13.32 (180300-895912391):15)
+04-19 15:55:14.833  1123  1926 W TrustedTimeHelper: 	at ahcn.a(:com.google.android.gms@261332118@26.13.32 (180300-895912391):1)
+04-19 15:55:14.833  1123  1926 W TrustedTimeHelper: 	at ahck.c(:com.google.android.gms@261332118@26.13.32 (180300-895912391):5)
+04-19 15:55:14.833  1123  1926 W TrustedTimeHelper: 	at ahez.t(:com.google.android.gms@261332118@26.13.32 (180300-895912391):48)
+04-19 15:55:14.833  1123  1926 W TrustedTimeHelper: 	at ahez.f(:com.google.android.gms@261332118@26.13.32 (180300-895912391):10)
+04-19 15:55:14.833  1123  1926 W TrustedTimeHelper: 	at ahez.i(:com.google.android.gms@261332118@26.13.32 (180300-895912391):191)
+04-19 15:55:14.833  1123  1926 W TrustedTimeHelper: 	at ahez.m(:com.google.android.gms@261332118@26.13.32 (180300-895912391):2)
+04-19 15:55:14.833  1123  1926 W TrustedTimeHelper: 	at ahfb.run(:com.google.android.gms@261332118@26.13.32 (180300-895912391):80)
+04-19 15:55:14.833  1123  1926 W TrustedTimeHelper: 	at android.os.Handler.handleCallback(Handler.java:938)
+04-19 15:55:14.833  1123  1926 W TrustedTimeHelper: 	at android.os.Handler.dispatchMessage(Handler.java:99)
+04-19 15:55:14.833  1123  1926 W TrustedTimeHelper: 	at bchj.ih(:com.google.android.gms@261332118@26.13.32 (180300-895912391):1)
+04-19 15:55:14.833  1123  1926 W TrustedTimeHelper: 	at bchj.dispatchMessage(:com.google.android.gms@261332118@26.13.32 (180300-895912391):140)
+04-19 15:55:14.833  1123  1926 W TrustedTimeHelper: 	at android.os.Looper.loop(Looper.java:223)
+04-19 15:55:14.833  1123  1926 W TrustedTimeHelper: 	at android.os.HandlerThread.run(HandlerThread.java:67)
+04-19 15:55:14.843  1123  5284 W ChimeraUtils: Module com.google.android.gms.gcm missing resource null(0)
+04-19 15:55:14.846  1123  1926 W TrustedTimeHelper: TrustedTime initialization task failed
+04-19 15:55:14.846  1123  1926 W TrustedTimeHelper: ahas: 17: API: TrustedTime.API is not available on this device. Connection failed with: ConnectionResult{statusCode=API_UNAVAILABLE, resolution=null, message=null, clientMethodKey=null}
+04-19 15:55:14.846  1123  1926 W TrustedTimeHelper: 	at ahxe.a(:com.google.android.gms@261332118@26.13.32 (180300-895912391):15)
+04-19 15:55:14.846  1123  1926 W TrustedTimeHelper: 	at ahcn.a(:com.google.android.gms@261332118@26.13.32 (180300-895912391):1)
+04-19 15:55:14.846  1123  1926 W TrustedTimeHelper: 	at ahck.c(:com.google.android.gms@261332118@26.13.32 (180300-895912391):5)
+04-19 15:55:14.846  1123  1926 W TrustedTimeHelper: 	at ahez.t(:com.google.android.gms@261332118@26.13.32 (180300-895912391):48)
+04-19 15:55:14.846  1123  1926 W TrustedTimeHelper: 	at ahez.f(:com.google.android.gms@261332118@26.13.32 (180300-895912391):10)
+04-19 15:55:14.846  1123  1926 W TrustedTimeHelper: 	at ahez.i(:com.google.android.gms@261332118@26.13.32 (180300-895912391):191)
+04-19 15:55:14.846  1123  1926 W TrustedTimeHelper: 	at ahez.m(:com.google.android.gms@261332118@26.13.32 (180300-895912391):2)
+04-19 15:55:14.846  1123  1926 W TrustedTimeHelper: 	at ahfb.run(:com.google.android.gms@261332118@26.13.32 (180300-895912391):80)
+04-19 15:55:14.846  1123  1926 W TrustedTimeHelper: 	at android.os.Handler.handleCallback(Handler.java:938)
+04-19 15:55:14.846  1123  1926 W TrustedTimeHelper: 	at android.os.Handler.dispatchMessage(Handler.java:99)
+04-19 15:55:14.846  1123  1926 W TrustedTimeHelper: 	at bchj.ih(:com.google.android.gms@261332118@26.13.32 (180300-895912391):1)
+04-19 15:55:14.846  1123  1926 W TrustedTimeHelper: 	at bchj.dispatchMessage(:com.google.android.gms@261332118@26.13.32 (180300-895912391):140)
+04-19 15:55:14.846  1123  1926 W TrustedTimeHelper: 	at android.os.Looper.loop(Looper.java:223)
+04-19 15:55:14.846  1123  1926 W TrustedTimeHelper: 	at android.os.HandlerThread.run(HandlerThread.java:67)
+04-19 15:55:14.847  1123  1926 I chatty  : uid=10045(com.google.android.gms) GoogleLocationS identical 1 line
+04-19 15:55:14.847   576  2290 I chatty  : uid=1000(system) Binder:576_17 identical 2 lines
+04-19 15:55:14.851   576  2290 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:14.852   576  1333 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:14.855   576   897 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:14.856   576   897 I chatty  : uid=1000(system) Binder:576_9 identical 1 line
+04-19 15:55:14.858   576   897 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:14.860  1123  1926 W TrustedTimeHelper: TrustedTime initialization task failed
+04-19 15:55:14.860  1123  1926 W TrustedTimeHelper: ahas: 17: API: TrustedTime.API is not available on this device. Connection failed with: ConnectionResult{statusCode=API_UNAVAILABLE, resolution=null, message=null, clientMethodKey=null}
+04-19 15:55:14.860  1123  1926 W TrustedTimeHelper: 	at ahxe.a(:com.google.android.gms@261332118@26.13.32 (180300-895912391):15)
+04-19 15:55:14.860  1123  1926 W TrustedTimeHelper: 	at ahcn.a(:com.google.android.gms@261332118@26.13.32 (180300-895912391):1)
+04-19 15:55:14.860  1123  1926 W TrustedTimeHelper: 	at ahck.c(:com.google.android.gms@261332118@26.13.32 (180300-895912391):5)
+04-19 15:55:14.860  1123  1926 W TrustedTimeHelper: 	at ahez.t(:com.google.android.gms@261332118@26.13.32 (180300-895912391):48)
+04-19 15:55:14.860  1123  1926 W TrustedTimeHelper: 	at ahez.f(:com.google.android.gms@261332118@26.13.32 (180300-895912391):10)
+04-19 15:55:14.860  1123  1926 W TrustedTimeHelper: 	at ahez.i(:com.google.android.gms@261332118@26.13.32 (180300-895912391):191)
+04-19 15:55:14.860  1123  1926 W TrustedTimeHelper: 	at ahez.m(:com.google.android.gms@261332118@26.13.32 (180300-895912391):2)
+04-19 15:55:14.860  1123  1926 W TrustedTimeHelper: 	at ahfb.run(:com.google.android.gms@261332118@26.13.32 (180300-895912391):80)
+04-19 15:55:14.860  1123  1926 W TrustedTimeHelper: 	at android.os.Handler.handleCallback(Handler.java:938)
+04-19 15:55:14.860  1123  1926 W TrustedTimeHelper: 	at android.os.Handler.dispatchMessage(Handler.java:99)
+04-19 15:55:14.860  1123  1926 W TrustedTimeHelper: 	at bchj.ih(:com.google.android.gms@261332118@26.13.32 (180300-895912391):1)
+04-19 15:55:14.860  1123  1926 W TrustedTimeHelper: 	at bchj.dispatchMessage(:com.google.android.gms@261332118@26.13.32 (180300-895912391):140)
+04-19 15:55:14.860  1123  1926 W TrustedTimeHelper: 	at android.os.Looper.loop(Looper.java:223)
+04-19 15:55:14.860  1123  1926 W TrustedTimeHelper: 	at android.os.HandlerThread.run(HandlerThread.java:67)
+04-19 15:55:14.860   576  1333 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:15.018   576  1333 I chatty  : uid=1000(system) Binder:576_B identical 3 lines
+04-19 15:55:15.022   576  1333 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:15.025   576   897 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:15.027   576  1333 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:15.027  1123  5266 I AlarmManager: setExactAndAllowWhileIdle [name: GCM_HB_ALARM type: 2 triggerAtMillis: 2988541]
+04-19 15:55:15.029   576  1333 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:15.029   576   897 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:15.033  1123  1829 I FusedLocation: (REDACTED) location delivery to %s blocked - too close
+04-19 15:55:15.035  1123  1123 D BoundBrokerSvc: onRebind: Intent { act=com.google.android.gms.libs.gmscorelogger.service.START dat=chimera-action: cmp=com.google.android.gms/.chimera.PersistentDirectBootAwareApiService }
+04-19 15:55:15.037   576   897 I chatty  : uid=1000(system) Binder:576_9 identical 2 lines
+04-19 15:55:15.039  1414  1414 W ThreadPoolForeg: type=1400 audit(0.0:333): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=14513 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+04-19 15:55:15.039   576   897 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:15.039   576  2290 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:15.100   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:55:15.186   576  2290 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:15.522   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=88064000
+04-19 15:55:15.565   576   897 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:15.613   576  2290 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:15.688   576  2290 I chatty  : uid=1000(system) Binder:576_17 identical 2 lines
+04-19 15:55:15.694  1123  5292 I NetworkScheduler.Stats: (REDACTED) Task %s/%s started execution. cause:%s exec_start_elapsed_seconds: %s
+04-19 15:55:15.695  1123  5292 I NetworkScheduler.Stats: (REDACTED) Task %s/%s started execution. cause:%s exec_start_elapsed_seconds: %s
+04-19 15:55:15.699   576  2290 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:16.331   576   576 W Looper  : Slow dispatch took 147ms main h=com.android.server.notification.NotificationManagerService$WorkerHandler c=com.android.server.notification.NotificationManagerService$CancelNotificationRunnable@40abf5 m=0
+04-19 15:55:16.479  1123  5293 D SharedPreferencesImpl: Time required to fsync /data/user/0/com.google.android.gms/shared_prefs/CCTQosUploaderService.xml: [<1: 0, <2: 0, <4: 0, <8: 0, <16: 0, <32: 0, <64: 0, <128: 0, <256: 0, <512: 1, <1024: 0, <2048: 0, <4096: 0, <8192: 0, <16384: 0, >=16384: 0]
+04-19 15:55:16.612  1294  1633 I katniss_interactor_AssistantWrapperImpl: In state[RUNNING] received signal[TOKEN_REFRESHED].
+04-19 15:55:16.619  1294  1633 I assistant: [INFO:hvc_manager_native.cc(408)] Setting Assistant access tokens.
+04-19 15:55:16.781   576   897 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:16.784   576  1333 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:16.788  1294  2104 I katniss_interactor_AssistantWrapperImpl: LibAssistant received Auth Token in sign-in mode.
+04-19 15:55:17.775   576  1333 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:17.785  1123  5293 W CCTLogStoreUtil: Couldn't parse PlayLoggerContext proto.
+04-19 15:55:17.785  1123  5293 W CCTLogStoreUtil: dija: Protocol message contained an invalid tag (zero).
+04-19 15:55:17.785  1123  5293 W CCTLogStoreUtil: 	at digk.k(:com.google.android.gms@261332118@26.13.32 (180300-895912391):191)
+04-19 15:55:17.785  1123  5293 W CCTLogStoreUtil: 	at dijy.c(:com.google.android.gms@261332118@26.13.32 (180300-895912391):396)
+04-19 15:55:17.785  1123  5293 W CCTLogStoreUtil: 	at dijy.i(:com.google.android.gms@261332118@26.13.32 (180300-895912391):8)
+04-19 15:55:17.785  1123  5293 W CCTLogStoreUtil: 	at diif.y(:com.google.android.gms@261332118@26.13.32 (180300-895912391):23)
+04-19 15:55:17.785  1123  5293 W CCTLogStoreUtil: 	at agoa.create(:com.google.android.gms@261332118@26.13.32 (180300-895912391):31)
+04-19 15:55:17.785  1123  5293 W CCTLogStoreUtil: 	at android.util.LruCache.get(LruCache.java:135)
+04-19 15:55:17.785  1123  5293 W CCTLogStoreUtil: 	at agon.n(:com.google.android.gms@261332118@26.13.32 (180300-895912391):85)
+04-19 15:55:17.785  1123  5293 W CCTLogStoreUtil: 	at com.google.android.gms.clearcut.uploader.QosUploaderChimeraService.g(:com.google.android.gms@261332118@26.13.32 (180300-895912391):957)
+04-19 15:55:17.785  1123  5293 W CCTLogStoreUtil: 	at com.google.android.gms.clearcut.uploader.QosUploaderChimeraService.a(:com.google.android.gms@261332118@26.13.32 (180300-895912391):42)
+04-19 15:55:17.785  1123  5293 W CCTLogStoreUtil: 	at bcix.call(:com.google.android.gms@261332118@26.13.32 (180300-895912391):30)
+04-19 15:55:17.785  1123  5293 W CCTLogStoreUtil: 	at java.util.concurrent.FutureTask.run(FutureTask.java:266)
+04-19 15:55:17.785  1123  5293 W CCTLogStoreUtil: 	at aisr.c(:com.google.android.gms@261332118@26.13.32 (180300-895912391):50)
+04-19 15:55:17.785  1123  5293 W CCTLogStoreUtil: 	at aisr.run(:com.google.android.gms@261332118@26.13.32 (180300-895912391):73)
+04-19 15:55:17.785  1123  5293 W CCTLogStoreUtil: 	at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1167)
+04-19 15:55:17.785  1123  5293 W CCTLogStoreUtil: 	at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:641)
+04-19 15:55:17.785  1123  5293 W CCTLogStoreUtil: 	at aiyc.run(:com.google.android.gms@261332118@26.13.32 (180300-895912391):8)
+04-19 15:55:17.785  1123  5293 W CCTLogStoreUtil: 	at java.lang.Thread.run(Thread.java:923)
+04-19 15:55:17.792  2109  2109 I cast_shell: [0419/155517.792533:INFO:ccs_transport_gcm.cc(47)] Record action: Cloud.Transport.Gcm.Message.Received
+04-19 15:55:17.792  2109  2109 I cast_shell: [0419/155517.792822:INFO:ccs_transport_gcm.cc(47)] Record action: Cloud.Transport.Gcm.GetStatus.Received
+04-19 15:55:17.796  2109  2109 I cast_shell: [0419/155517.796209:INFO:ccs_transport_gcm.cc(47)] Record action: Cloud.Transport.Gcm.GetStatus.In
+04-19 15:55:17.796  2109  2109 I cast_shell: [0419/155517.796448:INFO:ccs_manager_impl.cc(1163)] Handling GET_STATUS message from CCS.
+04-19 15:55:17.800  2109  2109 I cast_shell: [0419/155517.800231:INFO:metrics_recorder.cc(193)] cast event: Cloud.Transport.Https.Status.Out
+04-19 15:55:17.953  2109  2109 I cast_shell: [0419/155517.953526:INFO:metrics_recorder.cc(193)] cast event: Cloud.Transport.Https.Status.Out.Success
+04-19 15:55:18.114   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:55:18.162  1123  1123 D BoundBrokerSvc: onRebind: Intent { act=com.google.android.gms.auth.aang.events.services.START dat=chimera-action: cmp=com.google.android.gms/.chimera.PersistentApiService }
+04-19 15:55:18.355  1123  1135 W .gms.persisten: Reducing the number of considered missed Gc histogram windows from 152 to 100
+04-19 15:55:19.062  1123  5293 I CCTUploader: Failed to get auth token for log sources [[GAMES]] because the account doesn't exist on the device.
+04-19 15:55:19.153  1123  5293 I chatty  : uid=10045(com.google.android.gms) lowpool[67] identical 4 lines
+04-19 15:55:19.157  1123  5293 I CCTUploader: Failed to get auth token for log sources [[GAMES]] because the account doesn't exist on the device.
+04-19 15:55:19.209   576   897 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:19.211   576   897 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:19.211  1123  5293 I NetworkScheduler.Stats: (REDACTED) Task %s/%s finished executing. cause:%s result: %s elapsed_millis: %s uptime_millis: %s exec_start_elapsed_seconds: %s
+04-19 15:55:19.218   576  1354 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:19.219   576  1354 I chatty  : uid=1000(system) Binder:576_F identical 1 line
+04-19 15:55:19.247   576  1354 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:19.270   576   897 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:19.272   576   897 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:19.273   576  1354 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:19.274  1123  5293 I NetworkScheduler.Stats: (REDACTED) Task %s/%s finished executing. cause:%s result: %s elapsed_millis: %s uptime_millis: %s exec_start_elapsed_seconds: %s
+04-19 15:55:19.279   576   897 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:19.279   576   897 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:19.289  1123  5266 I NetworkScheduler.Stats: (REDACTED) Task %s/%s started execution. cause:%s exec_start_elapsed_seconds: %s
+04-19 15:55:19.308   576  1354 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:19.336   576   897 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:19.346  1123  5266 I NetworkScheduler.Stats: (REDACTED) Task %s/%s started execution. cause:%s exec_start_elapsed_seconds: %s
+04-19 15:55:19.365  1123  5288 I PhenotypeResourceReader: unable to find any Phenotype resource metadata for com.google.android.apps.mediashell
+04-19 15:55:19.424  1123  5288 I PhenotypeResourceReader: unable to find any Phenotype resource metadata for com.google.android.onetimeinitializer
+04-19 15:55:19.706  1123  5288 I PhenotypeResourceReader: unable to find any Phenotype resource metadata for com.google.android.modulemetadata
+04-19 15:55:19.847  1123  5288 I PhenotypeResourceReader: unable to find any Phenotype resource metadata for com.google.android.gsf
+04-19 15:55:19.880  1123  5288 I PhenotypeResourceReader: unable to find any Phenotype resource metadata for com.google.android.partnersetup
+04-19 15:55:19.964  1123  5288 I PhenotypeResourceReader: unable to find any Phenotype resource metadata for com.google.android.feedback
+04-19 15:55:19.969  1123  5288 I PhenotypeResourceReader: unable to find any Phenotype resource metadata for com.google.android.syncadapters.calendar
+04-19 15:55:20.009  1123  5288 I PhenotypeResourceReader: unable to find any Phenotype resource metadata for com.google.android.sss.authbridge
+04-19 15:55:20.187   576  2284 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:20.189   576  2290 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:20.190  1123  5266 I NetworkScheduler.Stats: (REDACTED) Task %s/%s finished executing. cause:%s result: %s elapsed_millis: %s uptime_millis: %s exec_start_elapsed_seconds: %s
+04-19 15:55:20.194   576  1354 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:20.847  1123  5288 I HeterodyneSyncer: (REDACTED) Removed %d invalid users
+04-19 15:55:20.856   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=88320000
+04-19 15:55:21.128   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:55:21.326  1123  5288 I HeterodyneSyncer: (REDACTED) Syncing with Heterodyne. Reason: %s
+04-19 15:55:21.355  1123  5288 I CompressionUtils: Compression error with Brotli, try to fall back to other compression algorithms. Native Brotli library does not exist
+04-19 15:55:22.495  1123  5288 I HeterodyneSyncer: (REDACTED) Sync completed. fetchReason: %s, fetchPackageName: %s, syncErrorType: %s, individual sync errors: %s.
+04-19 15:55:22.506     0     0 I [ 1856.021389@1]  binder: 1123:5288 transaction failed 29189/-22, size 280-0 line 2847
+04-19 15:55:22.506  1123  5288 W FlagUpdateListenerRegis: Unable to invoke IFlagUpdateListener.onFlagUpdate. App: com.google.android.gms. Process: com.google.android.gms.unstable|256590563. Error: android.os.DeadObjectException. [CONTEXT service_id=51 ]
+04-19 15:55:22.542  1123  5288 I HeterodyneSyncer: (REDACTED) Finished notifying packages after sync. syncLatency: %d
+04-19 15:55:22.573  1123  5288 I HeterodyneSyncScheduler: (REDACTED) Scheduling adaptive one off task with window [%d, %d] in seconds
+04-19 15:55:22.595   576  2284 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=false
+04-19 15:55:22.597   576  2284 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:55:22.599  1123  5266 I NetworkScheduler.Stats: (REDACTED) Task %s/%s finished executing. cause:%s result: %s elapsed_millis: %s uptime_millis: %s exec_start_elapsed_seconds: %s
+04-19 15:55:22.606   576   897 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=false
+04-19 15:55:22.616  1414  5312 I NearbyFastPair: (REDACTED) TaskSchedulerUtils cancelTask %s success.
+04-19 15:55:22.628  1123  5326 I NearbyMediums: ModuleInitializer handles incoming intent com.google.android.gms.phenotype.com.google.android.gms.nearby.COMMITTED
+04-19 15:55:22.637  1123  5328 I NearbyConnections: Runtime state initialization complete. Nearby connections setting is disabled
+04-19 15:55:22.682  1414  5317 I NearbySharing: com.google.android.gms.nearby.sharing.receive.SamsungQrCodeActivity enable=false
+04-19 15:55:22.717  1414  5317 I NearbySharing: Runtime state initialization complete. Sharing is disabled for reason UNSUPPORTED_DEVICE_TYPE_TV.
+04-19 15:55:22.769  3415  3492 E TVAnalytics-Core-SystemUtil: catEntry exception
+04-19 15:55:22.769  3415  3492 E TVAnalytics-Core-SystemUtil: java.io.FileNotFoundException: /sys/class/amhdmitx/amhdmitx0/product_name: open failed: ENOENT (No such file or directory)
+04-19 15:55:22.769  3415  3492 E TVAnalytics-Core-SystemUtil: 	at libcore.io.IoBridge.open(IoBridge.java:492)
+04-19 15:55:22.769  3415  3492 E TVAnalytics-Core-SystemUtil: 	at java.io.FileInputStream.<init>(FileInputStream.java:160)
+04-19 15:55:22.769  3415  3492 E TVAnalytics-Core-SystemUtil: 	at java.io.FileInputStream.<init>(FileInputStream.java:115)
+04-19 15:55:22.769  3415  3492 E TVAnalytics-Core-SystemUtil: 	at com.miui.tv.analytics.internal.util.tv.SystemUtil.catEntry(SystemUtil.java:514)
+04-19 15:55:22.769  3415  3492 E TVAnalytics-Core-SystemUtil: 	at com.miui.tv.analytics.internal.collection.edid.EdidStatistics.checkHdmiEdidInfo(EdidStatistics.java:80)
+04-19 15:55:22.769  3415  3492 E TVAnalytics-Core-SystemUtil: 	at com.miui.tv.analytics.internal.collection.edid.EdidStatistics.access$000(EdidStatistics.java:21)
+04-19 15:55:22.769  3415  3492 E TVAnalytics-Core-SystemUtil: 	at com.miui.tv.analytics.internal.collection.edid.EdidStatistics$1.run(EdidStatistics.java:66)
+04-19 15:55:22.769  3415  3492 E TVAnalytics-Core-SystemUtil: 	at android.os.Handler.handleCallback(Handler.java:938)
+04-19 15:55:22.769  3415  3492 E TVAnalytics-Core-SystemUtil: 	at android.os.Handler.dispatchMessage(Handler.java:99)
+04-19 15:55:22.769  3415  3492 E TVAnalytics-Core-SystemUtil: 	at android.os.Looper.loop(Looper.java:223)
+04-19 15:55:22.769  3415  3492 E TVAnalytics-Core-SystemUtil: 	at android.os.HandlerThread.run(HandlerThread.java:67)
+04-19 15:55:22.769  3415  3492 E TVAnalytics-Core-SystemUtil: Caused by: android.system.ErrnoException: open failed: ENOENT (No such file or directory)
+04-19 15:55:22.769  3415  3492 E TVAnalytics-Core-SystemUtil: 	at libcore.io.Linux.open(Native Method)
+04-19 15:55:22.769  3415  3492 E TVAnalytics-Core-SystemUtil: 	at libcore.io.ForwardingOs.open(ForwardingOs.java:166)
+04-19 15:55:22.769  3415  3492 E TVAnalytics-Core-SystemUtil: 	at libcore.io.BlockGuardOs.open(BlockGuardOs.java:254)
+04-19 15:55:22.769  3415  3492 E TVAnalytics-Core-SystemUtil: 	at libcore.io.ForwardingOs.open(ForwardingOs.java:166)
+04-19 15:55:22.769  3415  3492 E TVAnalytics-Core-SystemUtil: 	at android.app.ActivityThread$AndroidOs.open(ActivityThread.java:7542)
+04-19 15:55:22.769  3415  3492 E TVAnalytics-Core-SystemUtil: 	at libcore.io.IoBridge.open(IoBridge.java:478)
+04-19 15:55:22.769  3415  3492 E TVAnalytics-Core-SystemUtil: 	... 10 more
+04-19 15:55:22.874  3415  3492 D updateSystemSession : 1
+04-19 15:55:22.874  3415  3492 D updateSystemSession : null != cursor && number > 0
+04-19 15:55:24.140   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:55:26.188   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=88576000
+04-19 15:55:27.167   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:55:30.193   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:55:31.523   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=88832000
+04-19 15:55:33.219   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:55:34.203   342   342 D memtrack_aml: sysfs path
+04-19 15:55:36.243   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:55:36.727  1123  1123 W ThreadPoolForeg: type=1400 audit(0.0:334): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=14513 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+04-19 15:55:36.738     0     0 I         : [ 1867.721000@0]  show_ctx_mem_pool_size
+04-19 15:55:36.855   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=89088000
+04-19 15:55:36.864   328   554 I audio_hw_primary: alsa format =0x9000000 delay frames =1024 total frames=89088000
+04-19 15:55:37.665  1123  1123 D BoundBrokerSvc: onUnbind: Intent { act=com.google.android.gms.auth.aang.events.services.START dat=chimera-action: cmp=com.google.android.gms/.chimera.PersistentApiService }
+04-19 15:55:39.267   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:55:42.189   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=89344000
+04-19 15:55:42.293   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:55:42.825   576   585 I system_server: Background young concurrent copying GC freed 374658(14MB) AllocSpace objects, 39(2344KB) LOS objects, 51% free, 15MB/32MB, paused 374us total 114.425ms
+04-19 15:55:42.830   576   587 W System  : A resource failed to call release. 
+04-19 15:55:42.830   576   587 I chatty  : uid=1000(system) FinalizerDaemon identical 3 lines
+04-19 15:55:42.830   576   587 W System  : A resource failed to call release. 
+04-19 15:55:43.600  1123  1123 D BoundBrokerSvc: onUnbind: Intent { act=com.google.android.gms.libs.gmscorelogger.service.START dat=chimera-action: cmp=com.google.android.gms/.chimera.PersistentDirectBootAwareApiService }
+04-19 15:55:43.600   576   897 I ActivityManager: Killing 3766:com.google.android.videos/u0a52 (adj 975): empty for 1801s
+04-19 15:55:43.606   576   897 I ActivityManager: Killing 4180:com.google.process.gapps/u0a45 (adj 975): empty for 1802s
+04-19 15:55:43.606   576   897 I ActivityManager: Killing 4218:com.google.android.partnersetup/u0a61 (adj 985): empty for 1802s
+04-19 15:55:43.607   576   897 I ActivityManager: Killing 4152:com.android.providers.calendar/u0a10 (adj 985): empty for 1803s
+04-19 15:55:43.633   300   300 I Zygote  : Process 3766 exited due to signal 9 (Killed)
+04-19 15:55:43.633   576  2290 D ConnectivityService: ConnectivityService NetworkRequestInfo binderDied(NetworkRequest [ TRACK_DEFAULT id=46, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED Uid: 10052 AdministratorUids: [] RequestorUid: 10052 RequestorPackageName: com.google.android.videos] ], android.os.BinderProxy@d3f707f)
+04-19 15:55:43.633   576   659 D ConnectivityService: releasing NetworkRequest [ TRACK_DEFAULT id=46, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED Uid: 10052 AdministratorUids: [] RequestorUid: 10052 RequestorPackageName: com.google.android.videos] ] (release request)
+04-19 15:55:43.634   300   300 I Zygote  : Process 4218 exited due to signal 9 (Killed)
+04-19 15:55:43.635   576  1354 D ConnectivityService: ConnectivityService NetworkRequestInfo binderDied(NetworkRequest [ LISTEN id=47, [ Capabilities: INTERNET&NOT_RESTRICTED&TRUSTED&FOREGROUND Uid: 10052 AdministratorUids: [] RequestorUid: 10052 RequestorPackageName: com.google.android.videos] ], android.os.BinderProxy@983c84c)
+04-19 15:55:43.636   300   300 I Zygote  : Process 4180 exited due to signal 9 (Killed)
+04-19 15:55:43.636   300   300 I Zygote  : Process 4152 exited due to signal 9 (Killed)
+04-19 15:55:43.650   576   604 I libprocessgroup: Successfully killed process cgroup uid 10052 pid 3766 in 43ms
+04-19 15:55:43.651   576   604 I libprocessgroup: Successfully killed process cgroup uid 10045 pid 4180 in 0ms
+04-19 15:55:43.651   576   604 I libprocessgroup: Successfully killed process cgroup uid 10061 pid 4218 in 0ms
+04-19 15:55:43.651   576   604 I libprocessgroup: Successfully killed process cgroup uid 10010 pid 4152 in 0ms
+04-19 15:55:45.043  1414  1414 W ThreadPoolForeg: type=1400 audit(0.0:335): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=14513 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+04-19 15:55:45.304   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:55:47.522   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=89600000
+04-19 15:55:48.315   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:55:51.329   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:55:52.855   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=89856000
+04-19 15:55:54.343   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:55:57.367   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:55:58.189   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=90112000
+04-19 15:56:00.000   576   642 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:56:00.000  2109  2484 I cast_shell: [0419/155600.000791:INFO:ssdp_device.c(101)] SSDP packets sent for 63 seconds = 6
+04-19 15:56:00.002   576   576 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=false
+04-19 15:56:00.391   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:56:03.403   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:56:03.522   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=90368000
+04-19 15:56:06.415   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:56:06.751  1123  1123 W ThreadPoolForeg: type=1400 audit(0.0:336): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=14513 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+04-19 15:56:08.855   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=90624000
+04-19 15:56:08.858   328   554 I audio_hw_primary: alsa format =0x9000000 delay frames =1408 total frames=90624000
+04-19 15:56:08.897  2109  2109 I cast_shell: [0419/155608.897182:INFO:service_base.h(78)] Size of the map for type AuthTokenResponse is 0
+04-19 15:56:08.991  2109  2109 I cast_shell: [0419/155608.991058:INFO:service_base.h(246)] Container sizes for type CloudSetting are (session_info_map: 0), (topic_info_map: 21), (pending_events: 0).
+04-19 15:56:08.991  2109  2109 I cast_shell: [0419/155608.991392:INFO:metrics_stat_logger.cc(38)] Metrics stat for the past 60 secs : total=8
+04-19 15:56:08.991  2109  2109 I cast_shell: [metrics_stat_logger] Cast.Discovery.Mdns.Query.Cast.Count=1
+04-19 15:56:08.991  2109  2109 I cast_shell: [metrics_stat_logger] Cloud.Transport.Gcm.GetStatus.In=1
+04-19 15:56:08.991  2109  2109 I cast_shell: [metrics_stat_logger] Cloud.Transport.Gcm.GetStatus.Received=1
+04-19 15:56:08.991  2109  2109 I cast_shell: [metrics_stat_logger] Cloud.Transport.Gcm.Message.Received=1
+04-19 15:56:08.991  2109  2109 I cast_shell: [metrics_stat_logger] Cloud.Transport.Https.Status.Out=1
+04-19 15:56:08.991  2109  2109 I cast_shell: [metrics_stat_logger] Cloud.Transport.Https.Status.Out.Success=1
+04-19 15:56:08.991  2109  2109 I cast_shell: [metrics_stat_logger] Dial.SsdpDeviceDesc.Linux=2
+04-19 15:56:08.991  2109  2109 I cast_shell: [metrics_stat_logger] Dial.SsdpDeviceDesc.Linux.200=2
+04-19 15:56:09.433   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:56:11.692  2439  2539 I Finsky  : [195] Stats for Executor: LightweightExecutor mkw@c0b19a[Running, pool size = 3, active threads = 0, queued tasks = 0, completed tasks = 280]
+04-19 15:56:11.692  2439  2539 I Finsky  : [195] Stats for Executor: BlockingExecutor mkw@f44bacb[Running, pool size = 0, active threads = 0, queued tasks = 0, completed tasks = 40]
+04-19 15:56:11.693  2439  2539 I Finsky  : [195] Stats for Executor: bgExecutor mkw@52f92a8[Running, pool size = 4, active threads = 0, queued tasks = 0, completed tasks = 450]
+04-19 15:56:12.449   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:56:12.570  2724  2773 I Finsky:background: [215] Stats for Executor: bgExecutor mkw@9e8e1e7[Running, pool size = 4, active threads = 0, queued tasks = 0, completed tasks = 35]
+04-19 15:56:12.571  2724  2773 I Finsky:background: [215] Stats for Executor: LightweightExecutor mkw@ca6c194[Running, pool size = 3, active threads = 0, queued tasks = 0, completed tasks = 20]
+04-19 15:56:12.782  2724  2773 I Finsky:background: [215] Stats for Executor: BlockingExecutor mkw@e73b43d[Running, pool size = 0, active threads = 0, queued tasks = 0, completed tasks = 25]
+04-19 15:56:14.188   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1664 total frames=90880000
+04-19 15:56:15.087  1414  1414 W ThreadPoolForeg: type=1400 audit(0.0:337): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=14513 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+04-19 15:56:15.473   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:56:18.488   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:56:19.522   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=91136000
+04-19 15:56:21.499   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:56:24.526   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:56:24.856   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=91392000
+04-19 15:56:27.550   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:56:29.580   576  2283 I ActivityManager: Killing 3216:com.google.android.tungsten.setupwraith/u0a42 (adj 965): empty for 1828s
+04-19 15:56:29.580   576  2283 I ActivityManager: Killing 4082:com.amazon.amazonvideo.livingroom/u0a34 (adj 965): empty for 1837s
+04-19 15:56:29.609   300   300 I Zygote  : Process 3216 exited due to signal 9 (Killed)
+04-19 15:56:29.620   300   300 I Zygote  : Process 4082 exited due to signal 9 (Killed)
+04-19 15:56:29.626   576   604 I libprocessgroup: Successfully killed process cgroup uid 10042 pid 3216 in 45ms
+04-19 15:56:29.627   576   604 I libprocessgroup: Successfully killed process cgroup uid 10034 pid 4082 in 0ms
+04-19 15:56:30.190   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=91648000
+04-19 15:56:30.573   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:56:33.599   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:56:35.521   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1664 total frames=91904000
+04-19 15:56:36.624   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:56:36.771  1123  1123 W ThreadPoolForeg: type=1400 audit(0.0:338): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=14513 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+04-19 15:56:38.822  2109  2253 I cast_shell: [0419/155638.822854:INFO:wifi_frame_histogram_capturer.cc(406)] No histogram or IOCTL data
+04-19 15:56:38.912  2109  2109 I cast_shell: [0419/155638.912811:INFO:metrics_recorder.cc(193)] Record action: Cast.CecHdmiInputState.Unknown
+04-19 15:56:38.913  2109  2109 I cast_shell: [0419/155638.913030:INFO:metrics_recorder.cc(193)] Record action: Cast.CecStandby.Unknown
+04-19 15:56:39.649   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:56:40.604  2109  2424 I cast_shell: [0419/155640.604147:INFO:mdns_app_filter.cc(3358)] MdnsAppFilter: responses sent in 97 seconds: 5
+04-19 15:56:40.856   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=92160000
+04-19 15:56:40.859   328   554 I audio_hw_primary: alsa format =0x9000000 delay frames =1280 total frames=92160000
+04-19 15:56:42.664   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:56:45.095  1414  1414 W ThreadPoolForeg: type=1400 audit(0.0:339): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=14513 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+04-19 15:56:45.676   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:56:46.189   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=92416000
+04-19 15:56:48.692   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:56:51.522   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=92672000
+04-19 15:56:51.708   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:56:53.777  2109  2484 I cast_shell: [0419/155653.777805:INFO:ssdp_device.c(101)] SSDP packets sent for 54 seconds = 2
+04-19 15:56:54.735   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:56:56.856   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=92928000
+04-19 15:56:57.756   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:57:00.000   576   642 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:57:00.002   576   576 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=false
+04-19 15:57:00.780   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:57:02.190   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=93184000
+04-19 15:57:03.803   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:57:06.783  1123  1123 W ThreadPoolForeg: type=1400 audit(0.0:340): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=14513 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+04-19 15:57:06.816   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:57:07.523   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=93440000
+04-19 15:57:08.897  2109  2109 I cast_shell: [0419/155708.897551:INFO:service_base.h(78)] Size of the map for type AuthTokenResponse is 0
+04-19 15:57:08.991  2109  2109 I cast_shell: [0419/155708.991472:INFO:service_base.h(246)] Container sizes for type CloudSetting are (session_info_map: 0), (topic_info_map: 21), (pending_events: 0).
+04-19 15:57:08.992  2109  2109 I cast_shell: [0419/155708.991918:INFO:metrics_stat_logger.cc(38)] Metrics stat for the past 60 secs : total=9
+04-19 15:57:08.992  2109  2109 I cast_shell: [metrics_stat_logger] AppRunning=1
+04-19 15:57:08.992  2109  2109 I cast_shell: [metrics_stat_logger] Cast.CecHdmiInputState.Unknown=1
+04-19 15:57:08.992  2109  2109 I cast_shell: [metrics_stat_logger] Cast.CecStandby.Unknown=1
+04-19 15:57:08.992  2109  2109 I cast_shell: [metrics_stat_logger] Cast.ConnectionType.Unknown=1
+04-19 15:57:08.992  2109  2109 I cast_shell: [metrics_stat_logger] Cast.Discovery.Mdns.Request.In=2
+04-19 15:57:08.992  2109  2109 I cast_shell: [metrics_stat_logger] Cast.Discovery.Mdns.Response.Out=2
+04-19 15:57:08.992  2109  2109 I cast_shell: [metrics_stat_logger] Cast.Network.CheckIn=1
+04-19 15:57:08.992  2109  2109 I cast_shell: [metrics_stat_logger] Dial.SsdpDeviceDesc.Linux=2
+04-19 15:57:08.992  2109  2109 I cast_shell: [metrics_stat_logger] Dial.SsdpDeviceDesc.Linux.200=2
+04-19 15:57:09.246  2109  2424 I cast_shell: [0419/155709.246720:INFO:mdns_app_filter.cc(3550)] Mdns cast queries recently sent: queries=1
+04-19 15:57:09.840   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:57:12.853   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:57:12.856   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=93696000
+04-19 15:57:12.859   328   554 I audio_hw_primary: alsa format =0x9000000 delay frames =1280 total frames=93696000
+04-19 15:57:15.107  1414  1414 W ThreadPoolForeg: type=1400 audit(0.0:341): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=14513 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+04-19 15:57:15.867   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:57:18.188   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1664 total frames=93952000
+04-19 15:57:18.880   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:57:21.892   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:57:23.076   576   642 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:57:23.077   576   651 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:57:23.104   342   342 D memtrack_aml: sysfs path
+04-19 15:57:23.117  3415  5343 D WakeupService: onStartCommand command: active
+04-19 15:57:23.118  3415  5343 D SystemUtil: isOverSeasProduct true
+04-19 15:57:23.134  3415  5344 D TVAnalytics-Core-UA: getTodaySentCount date: 20260419, count: 24
+04-19 15:57:23.134  3415  5344 D TVAnalytics-Core-UA: getTodaySentCount return 24
+04-19 15:57:23.134  3415  5344 D TVAnalytics-Core-UA: sent_count reach max value, return directly
+04-19 15:57:23.167   576   576 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:57:23.178   576   898 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:57:23.181   576   651 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:57:23.185   576   576 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:57:23.186   576   576 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:57:23.203  4611  5345 D MitvSystem: isTvProduct productCategory 2
+04-19 15:57:23.214   576   897 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=false
+04-19 15:57:23.231  1123  1123 D BoundBrokerSvc: onRebind: Intent { act=com.google.android.gms.auth.aang.events.services.START dat=chimera-action: cmp=com.google.android.gms/.chimera.PersistentApiService }
+04-19 15:57:23.232  1294  1633 I katniss_interactor_KatnissAppFlowLoggerInteractor: AppFlowEvent: PT32M56.746204191S, EVENT_TYPE_START, OPERATOR_API_START, internalRequestId=6849959348313982194
+04-19 15:57:23.233  1294  1633 I katniss_interactor_KatnissAppFlowLoggerInteractor: AppFlowEvent: PT32M56.747530316S, EVENT_TYPE_MILESTONE, OPERATOR_API_CONNECTION_ESTABLISHED_START, internalRequestId=6849959348313982194
+04-19 15:57:23.234  1294  1633 I katniss_interactor_KatnissAppFlowLoggerInteractor: AppFlowEvent: PT32M56.747993441S, EVENT_TYPE_MILESTONE, OPERATOR_API_CONNECTION_ESTABLISHED_END, internalRequestId=6849959348313982194
+04-19 15:57:23.236  1294  1633 I katniss_interactor_KatnissAppFlowLoggerInteractor: AppFlowEvent: PT32M56.748372732S, EVENT_TYPE_END, OPERATOR_API_END, internalRequestId=6849959348313982194
+04-19 15:57:23.451  1414  1482 I ckya    : (REDACTED) Shared storage file not found for %s
+04-19 15:57:23.522   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1664 total frames=94208000
+04-19 15:57:24.427  1123  1123 D BoundBrokerSvc: onRebind: Intent { act=com.google.android.gms.libs.gmscorelogger.service.START dat=chimera-action: cmp=com.google.android.gms/.chimera.PersistentDirectBootAwareApiService }
+04-19 15:57:24.915   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:57:27.930   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:57:28.856   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=94464000
+04-19 15:57:30.562   576   629 I ActivityManager: Killing 3633:com.android.settings.intelligence/u0a44 (adj 999): empty for 1803s
+04-19 15:57:30.581   300   300 I Zygote  : Process 3633 exited due to signal 9 (Killed)
+04-19 15:57:30.601   576   604 I libprocessgroup: Successfully killed process cgroup uid 10044 pid 3633 in 38ms
+04-19 15:57:30.956   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:57:33.980   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:57:34.189   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1664 total frames=94720000
+04-19 15:57:36.803  1123  1123 W ThreadPoolForeg: type=1400 audit(0.0:342): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=14513 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+04-19 15:57:36.809     0     0 I         : [ 1976.621398@2]  show_ctx_mem_pool_size
+04-19 15:57:37.004   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:57:38.301  1123  1123 D BoundBrokerSvc: onUnbind: Intent { act=com.google.android.gms.auth.aang.events.services.START dat=chimera-action: cmp=com.google.android.gms/.chimera.PersistentApiService }
+04-19 15:57:39.443  1123  1123 D BoundBrokerSvc: onUnbind: Intent { act=com.google.android.gms.libs.gmscorelogger.service.START dat=chimera-action: cmp=com.google.android.gms/.chimera.PersistentDirectBootAwareApiService }
+04-19 15:57:39.522   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1664 total frames=94976000
+04-19 15:57:40.032   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:57:43.056   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:57:44.856   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=95232000
+04-19 15:57:44.861   328   554 I audio_hw_primary: alsa format =0x9000000 delay frames =1280 total frames=95232000
+04-19 15:57:45.119  1414  1414 W ThreadPoolForeg: type=1400 audit(0.0:343): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=14513 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+04-19 15:57:46.079   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:57:47.001  2109  2484 I cast_shell: [0419/155747.001090:INFO:ssdp_device.c(101)] SSDP packets sent for 53 seconds = 6
+04-19 15:57:49.104   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:57:50.190   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=95488000
+04-19 15:57:52.120   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:57:55.146   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:57:55.523   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=95744000
+04-19 15:57:58.172   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:58:00.001   576   642 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=true
+04-19 15:58:00.002   576   576 D PowerManagerService: updateSuspendBlockerLocked mWakefulness=1,needWakeLockSuspendBlocker=false
+04-19 15:58:00.856   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=96000000
+04-19 15:58:01.196   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:58:04.222   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:58:06.189   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1664 total frames=96256000
+04-19 15:58:06.831  1123  1123 W ThreadPoolForeg: type=1400 audit(0.0:344): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=14513 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+04-19 15:58:07.247   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:58:08.898  2109  2109 I cast_shell: [0419/155808.897923:INFO:service_base.h(78)] Size of the map for type AuthTokenResponse is 0
+04-19 15:58:08.992  2109  2109 I cast_shell: [0419/155808.991927:INFO:service_base.h(246)] Container sizes for type CloudSetting are (session_info_map: 0), (topic_info_map: 21), (pending_events: 0).
+04-19 15:58:08.992  2109  2109 I cast_shell: [0419/155808.992257:INFO:metrics_stat_logger.cc(38)] Metrics stat for the past 60 secs : total=3
+04-19 15:58:08.992  2109  2109 I cast_shell: [metrics_stat_logger] Cast.Discovery.Mdns.Query.Cast.Count=1
+04-19 15:58:08.992  2109  2109 I cast_shell: [metrics_stat_logger] Dial.SsdpDeviceDesc.Linux=2
+04-19 15:58:08.992  2109  2109 I cast_shell: [metrics_stat_logger] Dial.SsdpDeviceDesc.Linux.200=2
+04-19 15:58:10.270   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:58:11.523   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=96512000
+04-19 15:58:13.292   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:58:15.135  1414  1414 W ThreadPoolForeg: type=1400 audit(0.0:345): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=14513 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+04-19 15:58:16.308   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:58:16.780  2109  2424 I cast_shell: [0419/155816.779935:INFO:mdns_app_filter.cc(3358)] MdnsAppFilter: responses sent in 96 seconds: 4
+04-19 15:58:16.856   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1664 total frames=96768000
+04-19 15:58:16.861   328   554 I audio_hw_primary: alsa format =0x9000000 delay frames =1280 total frames=96768000
+04-19 15:58:19.322   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:58:22.192   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=97024000
+04-19 15:58:22.337   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:58:25.363   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:58:27.523   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=97280000
+04-19 15:58:28.392   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:58:31.415   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:58:32.857   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=97536000
+04-19 15:58:34.430   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:58:36.859  1123  1123 W ThreadPoolForeg: type=1400 audit(0.0:346): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=14513 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+04-19 15:58:37.454   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:58:38.191   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=97792000
+04-19 15:58:39.149  2109  2484 I cast_shell: [0419/155839.149804:INFO:ssdp_device.c(101)] SSDP packets sent for 52 seconds = 2
+04-19 15:58:40.479   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:58:43.504   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:58:43.524   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=98048000
+04-19 15:58:45.155  1414  1414 W ThreadPoolForeg: type=1400 audit(0.0:347): avc: denied { write } for name="traced_producer" dev="tmpfs" ino=14513 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:traced_producer_socket:s0 tclass=sock_file permissive=0 app=com.google.android.gms
+04-19 15:58:46.527   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:58:48.857   328   554 I audio_hw_primary: alsa format =0x1 delay frames =1536 total frames=98304000
+04-19 15:58:48.862   328   554 I audio_hw_primary: alsa format =0x9000000 delay frames =1280 total frames=98304000
+04-19 15:58:49.541   576   655 E WifiVendorHal: getWifiLinkLayerStats_1_3_Internal(l.978) failed {.code = ERROR_UNKNOWN, .description = unknown error}
+04-19 15:58:53.518     0     0 D [ 2067.034231@2]  logd: logdr: UID=2000 GID=2000 PID=5355 n tail=1000 logMask=99 pid=0 start=0ns timeout=0ns

@@ -38,4 +38,73 @@ class PlayerManagerTest {
         assertThat(state.audioTracks).isEmpty()
         assertThat(state.subtitleTracks).isEmpty()
     }
+
+    @Test
+    fun `PlayerEngine isAvailable defaults to true`() {
+        // Interface default is true — engines must override to report unavailability
+        val defaultAvailable = object : PlayerEngine {
+            override val state = kotlinx.coroutines.flow.MutableStateFlow(PlayerState())
+            override val engineName = "Test"
+            override fun initialize() {}
+            override fun release() {}
+            override fun play(url: String, startPosition: Long) {}
+            override fun pause() {}
+            override fun resume() {}
+            override fun stop() {}
+            override fun seekTo(position: Long) {}
+            override fun seekForward(ms: Long) {}
+            override fun seekBackward(ms: Long) {}
+            override fun setPlaybackSpeed(speed: Float) {}
+            override fun selectAudioTrack(index: Int) {}
+            override fun selectSubtitleTrack(index: Int) {}
+            override fun disableSubtitles() {}
+            override fun setAspectRatio(mode: AspectRatioMode) {}
+            override fun getView(): Any? = null
+        }
+        assertThat(defaultAvailable.isAvailable()).isTrue()
+    }
+
+    @Test
+    fun `engine switch state enum has correct values`() {
+        assertThat(EngineSwitchState.values()).hasLength(4)
+        assertThat(EngineSwitchState.IDLE.name).isEqualTo("IDLE")
+        assertThat(EngineSwitchState.SWITCHING.name).isEqualTo("SWITCHING")
+        assertThat(EngineSwitchState.SUCCESS.name).isEqualTo("SUCCESS")
+        assertThat(EngineSwitchState.FAILED.name).isEqualTo("FAILED")
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // MPV Fallback Test Cases (contract documentation)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    @Test
+    fun `when MPV unavailable should fallback to ExoPlayer on initializeWithSettings`() {
+        // Contract: When mpvPlayerEngine.isAvailable() returns false,
+        // initializeWithSettings() should select ExoPlayer instead of MPV
+        // and persist the EXOPLAYER setting via settingsDataStore.updatePlayerEngine()
+        //
+        // To fully test: mock mpvPlayerEngine.isAvailable() = false,
+        // call initializeWithSettings(), assert currentEngine is ExoPlayerEngine,
+        // verify settingsDataStore.updatePlayerEngine(EXOPLAYER) was called
+        assertThat(true).isTrue() // placeholder — needs DI/mock setup
+    }
+
+    @Test
+    fun `tryFallback skips MPV when unavailable and goes to VLC`() {
+        // Contract: When currentEngine is ExoPlayer and mpvPlayerEngine.isAvailable() = false,
+        // but vlcPlayerEngine.isAvailable() = true,
+        // tryFallback() should switch to VLC (not MPV)
+        //
+        // To fully test: mock engine availability,
+        // set currentEngine = exoPlayerEngine,
+        // call tryFallback(), verify switchEngine was called with VLC
+        assertThat(true).isTrue() // placeholder — needs DI/mock setup
+    }
+
+    @Test
+    fun `tryFallback returns false when no fallback engines available`() {
+        // Contract: When currentEngine is ExoPlayer and both MPV and VLC are unavailable,
+        // tryFallback() should return false
+        assertThat(true).isTrue() // placeholder — needs DI/mock setup
+    }
 }

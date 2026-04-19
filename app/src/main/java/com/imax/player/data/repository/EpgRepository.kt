@@ -116,6 +116,24 @@ class EpgRepository @Inject constructor(
         }
         result
     }
+
+    /**
+     * M3U/Xtream channel id'lerini XMLTV channel id'leriyle eşleştiren map oluşturur.
+     * Önce tam eşleşme, sonra normalize edilmiş fuzzy eşleşme dener.
+     */
+    suspend fun buildChannelIdMap(channels: List<com.imax.player.core.model.Channel>): Map<String, String> {
+        val map = mutableMapOf<String, String>()
+        channels.forEach { channel ->
+            val epgId = channel.epgChannelId
+            if (epgId.isNotBlank()) {
+                map[epgId] = epgId
+                // Normalize: küçük harf, boşluk → tire
+                val normalized = epgId.lowercase().replace(" ", "-").replace("_", "-")
+                map[normalized] = epgId
+            }
+        }
+        return map
+    }
 }
 
 private fun <T, K, V> Iterable<T>.associateNotNull(transform: (T) -> Pair<K, V>?): Map<K, V> {

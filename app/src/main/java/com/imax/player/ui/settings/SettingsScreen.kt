@@ -38,6 +38,7 @@ import com.imax.player.core.player.AspectRatioMode
 import com.imax.player.core.player.LiveLatencyMode
 import com.imax.player.core.player.VideoQualityMode
 import com.imax.player.data.repository.PlaylistRepository
+import com.imax.player.data.repository.EpgRepository
 import com.imax.player.ui.components.*
 import com.imax.player.ui.navigation.Routes
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -53,10 +54,17 @@ import javax.inject.Inject
 class SettingsViewModel @Inject constructor(
     private val settingsDataStore: SettingsDataStore,
     private val playlistRepository: PlaylistRepository,
+    private val epgRepository: EpgRepository,
+    private val mpvPlayerEngine: com.imax.player.core.player.MpvPlayerEngine,
+    private val vlcPlayerEngine: com.imax.player.core.player.VlcPlayerEngine,
     val parentalControlManager: com.imax.player.core.security.ParentalControlManager
 ) : ViewModel() {
     val settings: StateFlow<AppSettings> = settingsDataStore.settings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppSettings())
+
+    // Engine availability durumları — başlangıçta kontrol edilir
+    val isMpvAvailable: Boolean by lazy { mpvPlayerEngine.isAvailable() }
+    val isVlcAvailable: Boolean by lazy { vlcPlayerEngine.isAvailable() }
 
     val activePlaylist = playlistRepository.getActivePlaylist()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
@@ -101,6 +109,20 @@ class SettingsViewModel @Inject constructor(
     fun refreshPlaylist() = viewModelScope.launch {
         val active = activePlaylist.value ?: return@launch
         playlistRepository.syncPlaylist(active)
+    }
+
+    // ━━━ EPG ━━━
+    fun updateEpgUrl(url: String) {
+        viewModelScope.launch { settingsDataStore.updateEpgUrl(url) }
+    }
+    fun updateEpgAutoSync(enabled: Boolean) {
+        viewModelScope.launch { settingsDataStore.updateEpgAutoSync(enabled) }
+    }
+    fun syncEpgNow() {
+        viewModelScope.launch {
+            val url = settingsDataStore.settings.first().epgUrl
+            if (url.isNotBlank()) epgRepository.syncNow(url)
+        }
     }
 }
 
@@ -191,16 +213,35 @@ private fun SettingsContent(
             title = stringResource(R.string.settings_player),
             isTv = isTv
         ) {
-            // Engine selection
-            val engineOptions = PlayerEngineType.entries.map { it.name }
+            // Engine selection — with availability checks
+            val engineEntries = PlayerEngineType.entries.map { engineType ->
+                val isAvailable = when (engineType) {
+                    PlayerEngineType.EXOPLAYER -> true
+                    PlayerEngineType.MPV -> viewModel.isMpvAvailable
+                    PlayerEngineType.VLC -> viewModel.isVlcAvailable
+                }
+                val suffix = if (!isAvailable) " (desteklenmiyor)" else ""
+                engineType to (engineType.name + suffix)
+            }
+            val availableEngineOptions = engineEntries.map { it.second }
+            val currentEngineLabel = engineEntries.find { it.first == settings.playerEngine }?.second
+                ?: settings.playerEngine.name
             SettingsDropdown(
                 label = stringResource(R.string.setting_player_engine),
-                value = settings.playerEngine.name,
-                options = engineOptions,
+                value = currentEngineLabel,
+                options = availableEngineOptions,
                 isTv = isTv,
                 onSelect = { name ->
-                    val type = PlayerEngineType.entries.firstOrNull { it.name == name } ?: PlayerEngineType.EXOPLAYER
-                    viewModel.updatePlayerEngine(type)
+                    val selectedEntry = engineEntries.find { it.second == name }
+                    val type = selectedEntry?.first ?: PlayerEngineType.EXOPLAYER
+                    val isAvailable = when (type) {
+                        PlayerEngineType.EXOPLAYER -> true
+                        PlayerEngineType.MPV -> viewModel.isMpvAvailable
+                        PlayerEngineType.VLC -> viewModel.isVlcAvailable
+                    }
+                    if (isAvailable) {
+                        viewModel.updatePlayerEngine(type)
+                    }
                 }
             )
 
@@ -362,6 +403,56 @@ private fun SettingsContent(
                 isTv = isTv,
                 onCheckedChange = { viewModel.updateStartFullscreen(it) }
             )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ══════════════════════════════════════════════
+        // D-2) EPG (Program Rehberi)
+        // ══════════════════════════════════════════════
+        SettingsSection(
+            icon = Icons.Filled.Tv,
+            title = stringResource(R.string.settings_epg),
+            isTv = isTv
+        ) {
+            // EPG URL
+            androidx.compose.material3.OutlinedTextField(
+                value = settings.epgUrl,
+                onValueChange = { viewModel.updateEpgUrl(it) },
+                label = { Text(stringResource(R.string.epg_url_hint)) },
+                placeholder = { Text("http://provider.com/epg.xml") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = ImaxColors.Primary,
+                    unfocusedBorderColor = ImaxColors.CardBorder,
+                    focusedLabelColor = ImaxColors.Primary,
+                    cursorColor = ImaxColors.Primary,
+                    focusedTextColor = ImaxColors.TextPrimary,
+                    unfocusedTextColor = ImaxColors.TextPrimary
+                )
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Auto sync toggle
+            SettingsSwitch(
+                label = stringResource(R.string.settings_epg_auto_sync),
+                checked = settings.epgAutoSync,
+                isTv = isTv,
+                onCheckedChange = { viewModel.updateEpgAutoSync(it) }
+            )
+
+            // Manual sync button
+            if (settings.epgUrl.isNotBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                SettingsActionButton(
+                    icon = Icons.Filled.Refresh,
+                    label = stringResource(R.string.epg_sync_now),
+                    isTv = isTv,
+                    onClick = { viewModel.syncEpgNow() }
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))

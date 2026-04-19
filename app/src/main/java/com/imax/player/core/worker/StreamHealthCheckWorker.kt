@@ -6,7 +6,6 @@ import androidx.work.*
 import com.imax.player.core.database.ChannelDao
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
-import kotlinx.coroutines.flow.first
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import timber.log.Timber
@@ -42,28 +41,38 @@ class StreamHealthCheckWorker @AssistedInject constructor(
         if (playlistId < 0) return Result.success()
 
         return try {
-            val channels = channelDao.getByPlaylist(playlistId).first()
-            Timber.d("StreamHealthCheckWorker: checking ${channels.size} channels for playlist $playlistId")
+            val totalChannels = channelDao.countByPlaylist(playlistId)
+            Timber.d("StreamHealthCheckWorker: checking $totalChannels channels for playlist $playlistId")
 
             var deadCount = 0
             var aliveCount = 0
+            val pageSize = 100
+            var offset = 0
 
-            // Check in batches to avoid overwhelming the network
-            channels.chunked(10).forEach { batch ->
-                batch.forEach { channel ->
-                    val isAlive = pingStream(channel.streamUrl)
-                    if (!isAlive) {
-                        deadCount++
-                        channelDao.setStreamOnline(channel.id, isOnline = false)
-                    } else {
-                        aliveCount++
-                        if (!channel.isOnline) {
-                            channelDao.setStreamOnline(channel.id, isOnline = true)
+            // Process channels in pages to avoid loading entire list into memory
+            while (offset < totalChannels) {
+                val page = channelDao.getByPlaylistPaged(playlistId, pageSize, offset)
+                if (page.isEmpty()) break
+
+                // Check in batches of 10 within each page
+                page.chunked(10).forEach { batch ->
+                    batch.forEach { channel ->
+                        val isAlive = pingStream(channel.streamUrl)
+                        if (!isAlive) {
+                            deadCount++
+                            channelDao.setStreamOnline(channel.id, isOnline = false)
+                        } else {
+                            aliveCount++
+                            if (!channel.isOnline) {
+                                channelDao.setStreamOnline(channel.id, isOnline = true)
+                            }
                         }
                     }
+                    // Small delay between batches to avoid rate limiting
+                    kotlinx.coroutines.delay(200L)
                 }
-                // Small delay between batches to avoid rate limiting
-                kotlinx.coroutines.delay(200L)
+
+                offset += pageSize
             }
 
             Timber.d("StreamHealthCheckWorker: done. alive=$aliveCount dead=$deadCount")

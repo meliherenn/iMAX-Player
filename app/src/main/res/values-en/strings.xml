@@ -136,4 +136,13 @@
     <string name="no_data_fallback">Not specified</string>
     <string name="season_format">Season %1$d</string>
     <string name="episode_format">E%1$d — %2$s</string>
+
+    <!-- EPG -->
+    <string name="settings_epg">Program Guide (EPG)</string>
+    <string name="epg_url_hint">EPG URL (XMLTV)</string>
+    <string name="settings_epg_auto_sync">Auto-update EPG</string>
+    <string name="epg_sync_now">Update EPG Now</string>
+    <string name="epg_last_sync_time">Last EPG update: %1$s</string>
+    <string name="epg_no_data">No program info</string>
+    <string name="channel_number_hint">Channel No</string>
 </resources>

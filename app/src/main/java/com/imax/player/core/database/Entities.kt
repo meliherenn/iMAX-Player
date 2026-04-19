@@ -139,7 +139,12 @@ data class CategoryEntity(
 
 @Entity(
     tableName = "epg_programs",
-    indices = [Index(value = ["channelId"])]
+    indices = [
+        Index(value = ["channelId"]),
+        Index(value = ["channelId", "endTime"]),
+        Index(value = ["channelId", "startTime"]),
+        Index(value = ["endTime"])
+    ]
 )
 data class EpgProgramEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,

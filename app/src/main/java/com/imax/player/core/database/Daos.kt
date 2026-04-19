@@ -41,6 +41,9 @@ interface ChannelDao {
     @Query("SELECT * FROM channels WHERE playlistId = :playlistId ORDER BY sortOrder, name")
     fun getByPlaylist(playlistId: Long): Flow<List<ChannelEntity>>
 
+    @Query("SELECT * FROM channels WHERE playlistId = :playlistId ORDER BY sortOrder, name LIMIT :limit OFFSET :offset")
+    suspend fun getByPlaylistPaged(playlistId: Long, limit: Int, offset: Int): List<ChannelEntity>
+
     @Query("SELECT * FROM channels WHERE playlistId = :playlistId AND groupTitle = :group ORDER BY sortOrder, name")
     fun getByGroup(playlistId: Long, group: String): Flow<List<ChannelEntity>>
 

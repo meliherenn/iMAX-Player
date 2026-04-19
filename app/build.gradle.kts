@@ -30,7 +30,11 @@ android {
         buildConfigField("String", "TMDB_API_KEY", "\"${localProperties.getProperty("TMDB_API_KEY", "")}\"")
 
         ndk {
-            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+            // arm64-v8a modern Android cihazların tamamında var.
+            // armeabi-v7a (32-bit) bazı eski NDK sürümleriyle uyumsuz.
+            // Bu sayede libmpv'nin problematik arm 32-bit SO'su APK'ya dahil edilmez.
+            // 32-bit only cihazlarda MPV isAvailable()=false döner, ExoPlayer'a fallback yapar.
+            abiFilters += listOf("arm64-v8a", "x86_64")
         }
     }
 
@@ -103,6 +107,7 @@ dependencies {
     implementation(libs.lifecycle.runtime)
     implementation(libs.lifecycle.viewmodel)
     implementation("androidx.lifecycle:lifecycle-process:2.8.6")
+    implementation("androidx.lifecycle:lifecycle-service:2.8.6")
 
     // WorkManager + Hilt integration
     implementation("androidx.work:work-runtime-ktx:2.9.1")

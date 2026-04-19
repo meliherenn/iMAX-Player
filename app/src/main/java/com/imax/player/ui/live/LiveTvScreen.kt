@@ -57,13 +57,15 @@ data class LiveTvState(
     val mobileGroups: List<String> = emptyList(),
     val groupCounts: Map<String, Int> = emptyMap(),
     val selectedGroup: String? = null,
-    val isLoading: Boolean = true
+    val isLoading: Boolean = true,
+    val epgPrograms: Map<String, com.imax.player.data.parser.EpgProgram> = emptyMap()
 )
 
 @HiltViewModel
 class LiveTvViewModel @Inject constructor(
     private val playlistRepository: PlaylistRepository,
-    private val contentRepository: ContentRepository
+    private val contentRepository: ContentRepository,
+    private val epgRepository: com.imax.player.data.repository.EpgRepository
 ) : ViewModel() {
     private val _state = MutableStateFlow(LiveTvState())
     val state: StateFlow<LiveTvState> = _state.asStateFlow()
@@ -128,6 +130,13 @@ class LiveTvViewModel @Inject constructor(
     fun toggleFavorite(channel: Channel) {
         viewModelScope.launch {
             contentRepository.toggleChannelFavorite(channel.id, !channel.isFavorite)
+        }
+    }
+
+    fun loadEpgForVisibleChannels(channelIds: List<String>) {
+        viewModelScope.launch {
+            val programs = epgRepository.getCurrentProgramsForChannels(channelIds)
+            _state.update { it.copy(epgPrograms = programs) }
         }
     }
 }
@@ -229,6 +238,7 @@ private fun TvLiveTvContent(
                     ChannelListItem(
                         channel = channel,
                         isTv = true,
+                        epgProgram = state.epgPrograms[channel.epgChannelId],
                         modifier = Modifier
                             .focusRequester(channelFocusRequesters.getValue(channel.id))
                             .focusProperties {
@@ -304,6 +314,7 @@ private fun MobileLiveTvContent(
                     ChannelListItem(
                         channel = channel,
                         isTv = false,
+                        epgProgram = state.epgPrograms[channel.epgChannelId],
                         onClick = { onPlayChannel(channel.streamUrl, channel.name, channel.id, state.selectedGroup) },
                         onFavoriteToggle = { viewModel.toggleFavorite(channel) }
                     )
@@ -404,6 +415,7 @@ private fun ChannelListItem(
     channel: Channel,
     isTv: Boolean,
     modifier: Modifier = Modifier,
+    epgProgram: com.imax.player.data.parser.EpgProgram? = null,
     onClick: () -> Unit,
     onFavoriteToggle: () -> Unit
 ) {
@@ -474,6 +486,22 @@ private fun ChannelListItem(
                 Text(channel.groupTitle, style = MaterialTheme.typography.bodySmall,
                     color = secondaryContentColor,
                     maxLines = 1)
+            }
+            // EPG program info
+            if (epgProgram != null) {
+                Text(
+                    text = epgProgram.title,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isTv && isFocused) Color.DarkGray else ImaxColors.TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                LinearProgressIndicator(
+                    progress = { epgProgram.progressFraction },
+                    modifier = Modifier.fillMaxWidth().height(2.dp).padding(top = 2.dp),
+                    color = ImaxColors.Primary,
+                    trackColor = if (isTv && isFocused) Color.LightGray else ImaxColors.Surface
+                )
             }
         }
         IconButton(
