@@ -1,6 +1,22 @@
 package com.imax.player.ui.mobile
 
-import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.dp
+import com.imax.player.core.designsystem.theme.ImaxColors
 import com.imax.player.ui.details.DetailScreen
 import com.imax.player.ui.home.HomeScreen
 import com.imax.player.ui.live.LiveTvScreen
@@ -35,17 +51,86 @@ fun MobileHomeScreen(
     )
 }
 
+// ─── Tablet Split-View Live TV ────────────────────────────────────────────────
+// On expanded-width screens (≥840dp) in landscape, shows channel list + player
+// side-by-side. Falls back to standard navigation on phones/portrait.
 @Composable
 fun MobileLiveTvScreen(
     onNavigate: (String) -> Unit,
     onPlayChannel: (String, String, Long, String?) -> Unit
 ) {
-    LiveTvScreen(
-        isTv = false,
-        onNavigate = onNavigate,
-        onPlayChannel = onPlayChannel
-    )
+    val configuration = LocalConfiguration.current
+    val screenWidthDp = configuration.screenWidthDp
+    val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    val isTabletLandscape = screenWidthDp >= 840 && isLandscape
+
+    if (isTabletLandscape) {
+        // Split view — capture channel selection inside; navigate only for non-channel content
+        data class InlineChannel(val url: String, val title: String, val id: Long, val group: String?)
+
+        var inlineChannel by remember { mutableStateOf<InlineChannel?>(null) }
+
+        Row(modifier = Modifier.fillMaxSize()) {
+            // Left: channel list (35%)
+            Box(modifier = Modifier.weight(0.35f)) {
+                LiveTvScreen(
+                    isTv = false,
+                    onNavigate = onNavigate,
+                    onPlayChannel = { url, title, id, group ->
+                        // Play inline instead of navigating away
+                        inlineChannel = InlineChannel(url, title, id, group)
+                    }
+                )
+            }
+            // Right: inline player (65%)
+            Box(modifier = Modifier.weight(0.65f)) {
+                val ch = inlineChannel
+                if (ch != null) {
+                    PlayerScreen(
+                        url = ch.url,
+                        title = ch.title,
+                        contentId = ch.id,
+                        contentType = "LIVE",
+                        startPosition = 0L,
+                        groupContext = ch.group ?: "",
+                        isTv = false,
+                        onBack = { inlineChannel = null }
+                    )
+                } else {
+                    // Placeholder
+                    androidx.compose.foundation.layout.Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = androidx.compose.ui.Alignment.Center
+                    ) {
+                        androidx.compose.foundation.layout.Column(
+                            horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
+                        ) {
+                            androidx.compose.material3.Icon(
+                                imageVector = androidx.compose.material.icons.Icons.Filled.LiveTv,
+                                contentDescription = null,
+                                tint = com.imax.player.core.designsystem.theme.ImaxColors.TextTertiary,
+                                modifier = Modifier.then(Modifier).size(64.dp)
+                            )
+                            androidx.compose.material3.Text(
+                                "Sol listeden bir kanal seçin",
+                                style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                                color = com.imax.player.core.designsystem.theme.ImaxColors.TextTertiary
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        LiveTvScreen(
+            isTv = false,
+            onNavigate = onNavigate,
+            onPlayChannel = onPlayChannel
+        )
+    }
 }
+
 
 @Composable
 fun MobileMoviesScreen(

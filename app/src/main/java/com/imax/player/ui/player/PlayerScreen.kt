@@ -9,6 +9,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -104,7 +105,9 @@ class PlayerViewModel @Inject constructor(
     private val settingsDataStore: SettingsDataStore,
     private val contentRepository: ContentRepository,
     private val playlistRepository: PlaylistRepository,
-    val retryManager: StreamRetryManager
+    val retryManager: StreamRetryManager,
+    val sleepTimer: SleepTimerManager,
+    private val epgRepository: com.imax.player.data.repository.EpgRepository
 ) : ViewModel() {
     val state: StateFlow<PlayerState> = playerManager.state
     val switchState: StateFlow<EngineSwitchState> = playerManager.switchState
@@ -113,12 +116,18 @@ class PlayerViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppSettings())
     val retryState: StateFlow<RetryState> = retryManager.state
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), RetryState())
+    val sleepTimerState = sleepTimer.state
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SleepTimerState())
     private val _session = MutableStateFlow(PlayerSessionState())
     val session: StateFlow<PlayerSessionState> = _session.asStateFlow()
     private val _liveChannelSwitch = MutableStateFlow(LiveChannelSwitchState())
     val liveChannelSwitch: StateFlow<LiveChannelSwitchState> = _liveChannelSwitch.asStateFlow()
     private val _engineReady = MutableStateFlow(false)
     val engineReady: StateFlow<Boolean> = _engineReady.asStateFlow()
+    private val _currentEpgProgram = MutableStateFlow<com.imax.player.data.parser.EpgProgram?>(null)
+    val currentEpgProgram: StateFlow<com.imax.player.data.parser.EpgProgram?> = _currentEpgProgram.asStateFlow()
+    private val _nextEpgProgram = MutableStateFlow<com.imax.player.data.parser.EpgProgram?>(null)
+    val nextEpgProgram: StateFlow<com.imax.player.data.parser.EpgProgram?> = _nextEpgProgram.asStateFlow()
 
     private var currentUrl = ""
     private var currentOriginalUrl = ""
@@ -140,7 +149,7 @@ class PlayerViewModel @Inject constructor(
                 saveProgressInternal()
             }
         }
-        // Auto-retry when ERROR state detected (respects liveReconnectOnFailure setting)
+        // Auto-retry when ERROR state detected
         viewModelScope.launch {
             state
                 .map { it.playbackState }
@@ -149,19 +158,34 @@ class PlayerViewModel @Inject constructor(
                     if (playbackState == PlaybackState.ERROR && !retryManager.state.value.isRetrying) {
                         val autoRetry = settings.value.liveReconnectOnFailure
                         if (autoRetry && currentContentType == ContentType.LIVE.name) {
-                            val errorMsg = state.value.errorMessage
                             retryManager.startRetry(
-                                errorMessage = errorMsg,
+                                errorMessage = state.value.errorMessage,
                                 onRetry = { retryCurrent() },
-                                onExhausted = { errorType ->
-                                    Timber.w("Auto-retry exhausted: $errorType")
-                                }
+                                onExhausted = { Timber.w("Auto-retry exhausted") }
                             )
                         }
                     } else if (playbackState == PlaybackState.PLAYING) {
                         retryManager.onPlaybackSuccess()
                     }
                 }
+        }
+    }
+
+    // ─── Sleep Timer ────────────────────────────────────────────────────────────
+    fun setSleepTimer(minutes: Int) {
+        sleepTimer.start(minutes) {
+            playerManager.getEngine()?.pause()
+        }
+    }
+    fun cancelSleepTimer() = sleepTimer.cancel()
+    fun extendSleepTimer(minutes: Int) = sleepTimer.extend(minutes)
+
+    // ─── EPG ────────────────────────────────────────────────────────────────────
+    fun loadEpg(epgChannelId: String) {
+        if (epgChannelId.isBlank()) return
+        viewModelScope.launch {
+            _currentEpgProgram.value = epgRepository.getCurrentProgram(epgChannelId)
+            _nextEpgProgram.value = epgRepository.getNextProgram(epgChannelId)
         }
     }
 
@@ -761,13 +785,33 @@ fun PlayerScreen(
     val session by viewModel.session.collectAsStateWithLifecycle()
     val liveChannelSwitch by viewModel.liveChannelSwitch.collectAsStateWithLifecycle()
     val retryState by viewModel.retryState.collectAsStateWithLifecycle()
+    val sleepTimerState by viewModel.sleepTimerState.collectAsStateWithLifecycle()
+    val currentEpgProgram by viewModel.currentEpgProgram.collectAsStateWithLifecycle()
+    val nextEpgProgram by viewModel.nextEpgProgram.collectAsStateWithLifecycle()
     var controlsVisible by remember { mutableStateOf(true) }
     var showSettingsSheet by remember { mutableStateOf(false) }
     var showChannelSheet by remember { mutableStateOf(false) }
+    var showSleepTimerSheet by remember { mutableStateOf(false) }
     // Screen lock — mobile only
     var isScreenLocked by remember { mutableStateOf(false) }
+    // Context and activity must be declared before PiP and AudioManager references
+    val context = LocalContext.current
+    val activity = context as? Activity
+    // PiP — read from activity
+    val isPipMode by (activity as? com.imax.player.MainActivity)?.isPipMode?.collectAsStateWithLifecycle(false)
+        ?: remember { mutableStateOf(false) }
+    // Volume/brightness drag gesture state
+    val audioManager = remember {
+        context.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
+    }
+    val maxVolume = remember { audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC) }
+    var isDragging by remember { mutableStateOf(false) }
+    var dragType by remember { mutableStateOf<String?>(null) } // "brightness" | "volume"
+    var dragValue by remember { mutableStateOf(0f) }  // 0..1 for display
+    var showDragIndicator by remember { mutableStateOf(false) }
     val playPauseFocusRequester = remember { FocusRequester() }
     val lifecycleOwner = LocalLifecycleOwner.current
+
     val displayTitle = session.title.ifBlank { title }
     val isLivePlayback = contentType == ContentType.LIVE.name || session.currentChannel != null
     val isSeriesPlayback = contentType == ContentType.SERIES.name || session.currentEpisode != null
@@ -795,9 +839,14 @@ fun PlayerScreen(
             )
     }
 
-    // Get activity for window flags
-    val context = LocalContext.current
-    val activity = context as? Activity
+    // Register player screen as active so onUserLeaveHint() triggers PiP
+    DisposableEffect(Unit) {
+        (activity as? com.imax.player.MainActivity)?.isPlayerScreenActive = true
+        onDispose {
+            (activity as? com.imax.player.MainActivity)?.isPlayerScreenActive = false
+        }
+    }
+
     val playbackActive = remember(playerState.playbackState, switchState) {
         playerState.playbackState == PlaybackState.PLAYING ||
             playerState.playbackState == PlaybackState.BUFFERING ||
@@ -884,6 +933,14 @@ fun PlayerScreen(
         viewModel.init(url, title, startPosition, contentId, contentType, groupContext)
     }
 
+    // Load EPG when channel changes
+    val epgChannelId = session.currentChannel?.epgChannelId ?: ""
+    LaunchedEffect(epgChannelId) {
+        if (epgChannelId.isNotBlank()) {
+            viewModel.loadEpg(epgChannelId)
+        }
+    }
+
     // Auto-hide controls
     LaunchedEffect(controlsVisible, playerState.isPlaying) {
         if (controlsVisible && playerState.isPlaying) {
@@ -949,18 +1006,74 @@ fun PlayerScreen(
                         } else false
                     }
                 } else {
-                    Modifier.pointerInput(Unit) {
-                        detectTapGestures(
-                            onTap = { controlsVisible = !controlsVisible },
-                            onDoubleTap = { offset ->
-                                val screenWidth = size.width
-                                if (offset.x < screenWidth / 3) viewModel.seekBackward()
-                                else if (offset.x > screenWidth * 2 / 3) viewModel.seekForward()
-                                else viewModel.togglePlayPause()
-                                controlsVisible = true
-                            }
-                        )
-                    }
+                    // Mobile: tap gestures + vertical drag for brightness/volume
+                    Modifier
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onTap = { if (!isDragging) controlsVisible = !controlsVisible },
+                                onDoubleTap = { offset ->
+                                    if (isDragging) return@detectTapGestures
+                                    val screenWidth = size.width
+                                    if (offset.x < screenWidth / 3) viewModel.seekBackward()
+                                    else if (offset.x > screenWidth * 2 / 3) viewModel.seekForward()
+                                    else viewModel.togglePlayPause()
+                                    controlsVisible = true
+                                }
+                            )
+                        }
+                        .pointerInput(maxVolume) {
+                            detectDragGestures(
+                                onDragStart = { offset: androidx.compose.ui.geometry.Offset ->
+                                    dragType = if (offset.x < size.width / 2f) "brightness" else "volume"
+                                    isDragging = true
+                                    showDragIndicator = true
+                                    dragValue = when (dragType) {
+                                        "brightness" -> {
+                                            val lp = activity?.window?.attributes
+                                            (lp?.screenBrightness ?: 0.5f).coerceIn(0f, 1f)
+                                        }
+                                        else -> audioManager.getStreamVolume(
+                                            android.media.AudioManager.STREAM_MUSIC
+                                        ).toFloat() / maxVolume.toFloat()
+                                    }
+                                },
+                                onDragEnd = {
+                                    isDragging = false
+                                    dragType = null
+                                },
+                                onDragCancel = {
+                                    isDragging = false
+                                    dragType = null
+                                },
+                                onDrag = { _: androidx.compose.ui.input.pointer.PointerInputChange,
+                                           dragAmount: androidx.compose.ui.geometry.Offset ->
+                                    val delta = -dragAmount.y / size.height.toFloat()
+                                    when (dragType) {
+                                        "brightness" -> {
+                                            val win = activity?.window ?: return@detectDragGestures
+                                            val lp = win.attributes
+                                            val newBrightness = (lp.screenBrightness + delta).coerceIn(0.01f, 1f)
+                                            lp.screenBrightness = newBrightness
+                                            win.attributes = lp
+                                            dragValue = newBrightness
+                                        }
+                                        "volume" -> {
+                                            val current = audioManager.getStreamVolume(
+                                                android.media.AudioManager.STREAM_MUSIC
+                                            )
+                                            val newVol = (current.toFloat() + delta * maxVolume.toFloat())
+                                                .toInt().coerceIn(0, maxVolume)
+                                            audioManager.setStreamVolume(
+                                                android.media.AudioManager.STREAM_MUSIC, newVol, 0
+                                            )
+                                            dragValue = newVol.toFloat() / maxVolume.toFloat()
+                                        }
+                                    }
+                                }
+                            )
+                        }
+
+
                 }
             )
     ) {
@@ -1124,6 +1237,82 @@ fun PlayerScreen(
                 color = ImaxColors.Primary,
                 modifier = Modifier.size(48.dp).align(Alignment.Center)
             )
+        }
+
+        // ─── Brightness / Volume drag indicator ─────────────────────────────────
+        if (!isTv && showDragIndicator && dragType != null) {
+            LaunchedEffect(isDragging) {
+                if (!isDragging) {
+                    delay(1500)
+                    showDragIndicator = false
+                }
+            }
+            val isLeft = dragType == "brightness"
+            Box(
+                modifier = Modifier
+                    .align(if (isLeft) Alignment.CenterStart else Alignment.CenterEnd)
+                    .padding(horizontal = 32.dp)
+                    .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isLeft) Icons.Filled.Brightness6 else Icons.Filled.VolumeUp,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Text(
+                        text = "${(dragValue * 100).toInt()}%",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                    LinearProgressIndicator(
+                        progress = { dragValue },
+                        modifier = Modifier.width(60.dp).height(3.dp),
+                        color = ImaxColors.Primary,
+                        trackColor = Color.White.copy(alpha = 0.25f)
+                    )
+                }
+            }
+        }
+
+        // ─── Sleep Timer badge (top-right, always visible when active) ──────────
+        if (!isTv && sleepTimerState.isActive) {
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .statusBarsPadding()
+                    .padding(start = 72.dp, top = 8.dp)
+                    .clickable { showSleepTimerSheet = true },
+                shape = RoundedCornerShape(8.dp),
+                color = if (sleepTimerState.isLastMinute)
+                    Color(0xFFFFB300).copy(alpha = 0.92f)
+                else
+                    Color.Black.copy(alpha = 0.6f)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Icon(
+                        Icons.Filled.Bedtime,
+                        contentDescription = "Uyku Zamanlayıcı",
+                        tint = if (sleepTimerState.isLastMinute) Color.Black else Color.White,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = sleepTimerState.remainingFormatted,
+                        color = if (sleepTimerState.isLastMinute) Color.Black else Color.White,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            }
         }
 
         // Error state — with StreamRetryManager auto-retry countdown
@@ -1377,9 +1566,9 @@ fun PlayerScreen(
             }
         }
 
-        // Controls overlay
+        // Controls overlay — hidden in PiP mode
         AnimatedVisibility(
-            visible = controlsVisible && switchState != EngineSwitchState.SWITCHING && !isChannelSwitching,
+            visible = controlsVisible && !isPipMode && switchState != EngineSwitchState.SWITCHING && !isChannelSwitching,
             enter = fadeIn(tween(200)),
             exit = fadeOut(tween(300))
         ) {
@@ -1511,7 +1700,16 @@ fun PlayerScreen(
                     modifier = Modifier.fillMaxWidth().align(Alignment.BottomCenter)
                         .navigationBarsPadding().padding(horizontal = 16.dp, vertical = 8.dp)
                 ) {
+                    // EPG mini strip — live TV only, when EPG data available
+                    if (isLivePlayback && currentEpgProgram != null && !isPipMode) {
+                        EpgMiniStrip(
+                            currentProgram = currentEpgProgram,
+                            nextProgram = nextEpgProgram
+                        )
+                        Spacer(Modifier.height(4.dp))
+                    }
                     // Progress bar
+
                     if (playerState.duration > 0) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -1581,6 +1779,17 @@ fun PlayerScreen(
                             Spacer(modifier = Modifier.width(4.dp))
                         }
 
+                        // Sleep timer button — mobile only
+                        if (!isTv) {
+                            PlayerControlButton(
+                                icon = Icons.Filled.Bedtime,
+                                contentDescription = "Uyku Zamanlayıcı",
+                                label = if (sleepTimerState.isActive) sleepTimerState.remainingFormatted else null,
+                                onClick = { showSleepTimerSheet = true }
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+
                         // Screen lock button — mobile only
                         if (!isTv) {
                             PlayerControlButton(
@@ -1644,6 +1853,87 @@ fun PlayerScreen(
             }
         }
     }
+    // ─── Sleep Timer Bottom Sheet ────────────────────────────────────────────────
+    if (showSleepTimerSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showSleepTimerSheet = false },
+            containerColor = ImaxColors.Surface,
+            tonalElevation = 8.dp
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 32.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(Icons.Filled.Bedtime, contentDescription = null, tint = ImaxColors.Primary)
+                    Text(
+                        "Uyku Zamanlayıcı",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = ImaxColors.TextPrimary
+                    )
+                }
+                Spacer(Modifier.height(16.dp))
+                viewModel.sleepTimer.availableOptions.forEach { minutes ->
+                    val isSelected = sleepTimerState.isActive && sleepTimerState.selectedMinutes == minutes
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                if (isSelected) ImaxColors.Primary.copy(alpha = 0.15f)
+                                else Color.Transparent
+                            )
+                            .clickable {
+                                viewModel.setSleepTimer(minutes)
+                                showSleepTimerSheet = false
+                            }
+                            .padding(horizontal = 12.dp, vertical = 14.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "$minutes dakika",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = if (isSelected) ImaxColors.Primary else ImaxColors.TextPrimary
+                        )
+                        if (isSelected) {
+                            Text(
+                                sleepTimerState.remainingFormatted,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = ImaxColors.Primary
+                            )
+                        }
+                    }
+                }
+                if (sleepTimerState.isActive) {
+                    Spacer(Modifier.height(8.dp))
+                    HorizontalDivider(color = ImaxColors.DividerColor)
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable {
+                                viewModel.cancelSleepTimer()
+                                showSleepTimerSheet = false
+                            }
+                            .padding(horizontal = 12.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Icon(Icons.Filled.TimerOff, contentDescription = null, tint = ImaxColors.Error, modifier = Modifier.size(20.dp))
+                        Text("Zamanlayıcıyı İptal Et", style = MaterialTheme.typography.bodyLarge, color = ImaxColors.Error)
+                    }
+                }
+            }
+        }
+    }
+
     if (showChannelSheet) {
         ChannelSwitchSheet(
             channels = session.availableChannels,
@@ -1688,6 +1978,53 @@ fun PlayerScreen(
                 context.startActivity(android.content.Intent.createChooser(intent, "Play in External Player"))
             }
         )
+    }
+}
+
+// ─── EPG Mini Strip ─────────────────────────────────────────────────────────────
+@Composable
+fun EpgMiniStrip(
+    currentProgram: com.imax.player.data.parser.EpgProgram?,
+    nextProgram: com.imax.player.data.parser.EpgProgram?
+) {
+    currentProgram ?: return
+    val nowMs = System.currentTimeMillis()
+    val progress = ((nowMs - currentProgram.startTime).toFloat() /
+        (currentProgram.endTime - currentProgram.startTime).toFloat())
+        .coerceIn(0f, 1f)
+    val timeFmt = remember { java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()) }
+    val startFmt = remember(currentProgram.startTime) { timeFmt.format(java.util.Date(currentProgram.startTime)) }
+    val endFmt = remember(currentProgram.endTime) { timeFmt.format(java.util.Date(currentProgram.endTime)) }
+
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            Surface(
+                shape = RoundedCornerShape(4.dp),
+                color = ImaxColors.Primary.copy(alpha = 0.85f),
+                modifier = Modifier.padding(end = 6.dp)
+            ) {
+                Text("CANLI", style = MaterialTheme.typography.labelSmall, color = Color.White,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+            }
+            Text(text = currentProgram.title, style = MaterialTheme.typography.labelMedium,
+                color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f))
+            Spacer(Modifier.width(8.dp))
+            Text(text = "$startFmt – $endFmt", style = MaterialTheme.typography.labelSmall,
+                color = Color.White.copy(alpha = 0.6f))
+        }
+        Spacer(Modifier.height(3.dp))
+        LinearProgressIndicator(
+            progress = { progress },
+            modifier = Modifier.fillMaxWidth().height(2.dp).clip(RoundedCornerShape(1.dp)),
+            color = ImaxColors.Primary,
+            trackColor = Color.White.copy(alpha = 0.2f)
+        )
+        nextProgram?.let { next ->
+            Spacer(Modifier.height(2.dp))
+            Text(text = "Sonraki: ${next.title}", style = MaterialTheme.typography.labelSmall,
+                color = Color.White.copy(alpha = 0.5f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 

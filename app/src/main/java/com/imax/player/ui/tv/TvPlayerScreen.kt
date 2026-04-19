@@ -1009,39 +1009,13 @@ private fun TvPlaybackOverlay(
                 verticalArrangement = Arrangement.spacedBy(22.dp)
             ) {
                 if (shouldShowProgress) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        LinearProgressIndicator(
-                            progress = {
-                                if (playerState.duration > 0L) {
-                                    (playerState.currentPosition.toFloat() / playerState.duration.toFloat())
-                                        .coerceIn(0f, 1f)
-                                } else {
-                                    0f
-                                }
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(8.dp)
-                                .clip(RoundedCornerShape(999.dp)),
-                            color = ImaxColors.Primary,
-                            trackColor = Color.White.copy(alpha = 0.18f)
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                text = StringUtils.formatDuration(playerState.currentPosition),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = Color.White
-                            )
-                            Text(
-                                text = StringUtils.formatDuration(playerState.duration),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = Color.White
-                            )
-                        }
-                    }
+                    TvSeekBar(
+                        currentPosition = playerState.currentPosition,
+                        duration = playerState.duration,
+                        onSeekBackward = onPrevious,   // reuse seek callbacks
+                        onSeekForward = onNext,
+                        onFocused = { onActionFocused(TvOverlayAction.PLAY_PAUSE) }
+                    )
                 }
 
                 Row(
@@ -1947,5 +1921,88 @@ private fun playerViewportModifier(
         Modifier
             .fillMaxWidth()
             .aspectRatio(targetAspectRatio)
+    }
+}
+
+// ─── TV D-pad Seek Bar ─────────────────────────────────────────────────────────
+// Intercepts Left / Right D-pad key presses to seek ±10s.
+// Highlights in primary color when TV focus is on it.
+@Composable
+private fun TvSeekBar(
+    currentPosition: Long,
+    duration: Long,
+    onSeekBackward: () -> Unit,
+    onSeekForward: () -> Unit,
+    onFocused: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    var scrubPosition by remember(currentPosition) { mutableStateOf(currentPosition) }
+
+    val progress = if (duration > 0L) {
+        (scrubPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+    } else 0f
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .focusable()
+            .onFocusChanged {
+                isFocused = it.isFocused
+                if (it.isFocused) {
+                    onFocused()
+                    scrubPosition = currentPosition
+                }
+            }
+            .onPreviewKeyEvent { event ->
+                if (!isFocused) return@onPreviewKeyEvent false
+                if (event.type != androidx.compose.ui.input.key.KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                when (event.key) {
+                    Key.DirectionLeft -> {
+                        scrubPosition = maxOf(0L, scrubPosition - 10_000L)
+                        onSeekBackward()
+                        true
+                    }
+                    Key.DirectionRight -> {
+                        scrubPosition = minOf(duration, scrubPosition + 10_000L)
+                        onSeekForward()
+                        true
+                    }
+                    else -> false
+                }
+            }
+            .padding(vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        LinearProgressIndicator(
+            progress = { progress },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(if (isFocused) 10.dp else 6.dp)
+                .clip(RoundedCornerShape(999.dp)),
+            color = if (isFocused) ImaxColors.Primary else Color.White.copy(alpha = 0.85f),
+            trackColor = Color.White.copy(alpha = if (isFocused) 0.28f else 0.18f)
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = StringUtils.formatDuration(scrubPosition),
+                style = MaterialTheme.typography.labelLarge,
+                color = if (isFocused) ImaxColors.Primary else Color.White
+            )
+            if (isFocused) {
+                Text(
+                    text = "◄ 10s  |  YÖNLÜ TUŞLAR  |  10s ►",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = ImaxColors.Primary.copy(alpha = 0.8f)
+                )
+            }
+            Text(
+                text = StringUtils.formatDuration(duration),
+                style = MaterialTheme.typography.labelLarge,
+                color = Color.White
+            )
+        }
     }
 }

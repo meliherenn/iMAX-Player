@@ -85,6 +85,16 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!-- Media3 MediaSessionService — enables lock-screen / notification controls -->
+        <service
+            android:name=".core.service.ImaxPlaybackService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
+
     </application>
 
 </manifest>

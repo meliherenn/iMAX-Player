@@ -52,7 +52,8 @@ import javax.inject.Inject
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val settingsDataStore: SettingsDataStore,
-    private val playlistRepository: PlaylistRepository
+    private val playlistRepository: PlaylistRepository,
+    val parentalControlManager: com.imax.player.core.security.ParentalControlManager
 ) : ViewModel() {
     val settings: StateFlow<AppSettings> = settingsDataStore.settings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppSettings())
@@ -366,7 +367,23 @@ private fun SettingsContent(
         Spacer(modifier = Modifier.height(16.dp))
 
         // ══════════════════════════════════════════════
-        // E) PLAYLIST / ACCOUNT
+        // E) PARENTAL CONTROL
+        // ══════════════════════════════════════════════
+        SettingsSection(
+            icon = Icons.Filled.FamilyRestroom,
+            title = "Ebeveyn Denetimi",
+            isTv = isTv
+        ) {
+            ParentalControlSection(
+                parentalControlManager = viewModel.parentalControlManager,
+                isTv = isTv
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ══════════════════════════════════════════════
+        // F) PLAYLIST / ACCOUNT
         // ══════════════════════════════════════════════
         SettingsSection(
             icon = Icons.AutoMirrored.Filled.PlaylistPlay,
