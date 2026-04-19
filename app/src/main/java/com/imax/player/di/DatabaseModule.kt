@@ -22,7 +22,7 @@ object DatabaseModule {
             ImaxDatabase::class.java,
             "imax_player.db"
         )
-            .addMigrations(ImaxDatabase.MIGRATION_1_2)
+            .addMigrations(ImaxDatabase.MIGRATION_1_2, ImaxDatabase.MIGRATION_2_3)
             .fallbackToDestructiveMigration()
             .build()
     }

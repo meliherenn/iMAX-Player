@@ -103,13 +103,16 @@ class PlayerViewModel @Inject constructor(
     val playerManager: PlayerManager,
     private val settingsDataStore: SettingsDataStore,
     private val contentRepository: ContentRepository,
-    private val playlistRepository: PlaylistRepository
+    private val playlistRepository: PlaylistRepository,
+    val retryManager: StreamRetryManager
 ) : ViewModel() {
     val state: StateFlow<PlayerState> = playerManager.state
     val switchState: StateFlow<EngineSwitchState> = playerManager.switchState
     val activeEngineName: StateFlow<String> = playerManager.activeEngineName
     val settings: StateFlow<AppSettings> = settingsDataStore.settings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppSettings())
+    val retryState: StateFlow<RetryState> = retryManager.state
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), RetryState())
     private val _session = MutableStateFlow(PlayerSessionState())
     val session: StateFlow<PlayerSessionState> = _session.asStateFlow()
     private val _liveChannelSwitch = MutableStateFlow(LiveChannelSwitchState())
@@ -130,11 +133,35 @@ class PlayerViewModel @Inject constructor(
     private var pendingLiveChannel: Channel? = null
 
     init {
+        // Periodic progress save
         viewModelScope.launch {
             while (true) {
                 delay(15_000)
                 saveProgressInternal()
             }
+        }
+        // Auto-retry when ERROR state detected (respects liveReconnectOnFailure setting)
+        viewModelScope.launch {
+            state
+                .map { it.playbackState }
+                .distinctUntilChanged()
+                .collect { playbackState ->
+                    if (playbackState == PlaybackState.ERROR && !retryManager.state.value.isRetrying) {
+                        val autoRetry = settings.value.liveReconnectOnFailure
+                        if (autoRetry && currentContentType == ContentType.LIVE.name) {
+                            val errorMsg = state.value.errorMessage
+                            retryManager.startRetry(
+                                errorMessage = errorMsg,
+                                onRetry = { retryCurrent() },
+                                onExhausted = { errorType ->
+                                    Timber.w("Auto-retry exhausted: $errorType")
+                                }
+                            )
+                        }
+                    } else if (playbackState == PlaybackState.PLAYING) {
+                        retryManager.onPlaybackSuccess()
+                    }
+                }
         }
     }
 
@@ -346,6 +373,7 @@ class PlayerViewModel @Inject constructor(
         super.onCleared()
         liveChannelSwitchJob?.cancel()
         saveProgress()
+        retryManager.cancel()
         playerManager.release()
     }
 
@@ -732,9 +760,12 @@ fun PlayerScreen(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val session by viewModel.session.collectAsStateWithLifecycle()
     val liveChannelSwitch by viewModel.liveChannelSwitch.collectAsStateWithLifecycle()
+    val retryState by viewModel.retryState.collectAsStateWithLifecycle()
     var controlsVisible by remember { mutableStateOf(true) }
     var showSettingsSheet by remember { mutableStateOf(false) }
     var showChannelSheet by remember { mutableStateOf(false) }
+    // Screen lock — mobile only
+    var isScreenLocked by remember { mutableStateOf(false) }
     val playPauseFocusRequester = remember { FocusRequester() }
     val lifecycleOwner = LocalLifecycleOwner.current
     val displayTitle = session.title.ifBlank { title }
@@ -1095,40 +1126,103 @@ fun PlayerScreen(
             )
         }
 
-        // Error state
+        // Error state — with StreamRetryManager auto-retry countdown
         if (
             playerState.playbackState == PlaybackState.ERROR &&
             switchState != EngineSwitchState.SWITCHING &&
             !isChannelSwitching
         ) {
-            Column(
-                modifier = Modifier.align(Alignment.Center).padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.75f)),
+                contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Filled.Error, contentDescription = null, tint = ImaxColors.Error, modifier = Modifier.size(48.dp))
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(playerState.errorMessage ?: "Playback error", color = ImaxColors.TextPrimary,
-                    style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(horizontal = 16.dp))
-                Spacer(modifier = Modifier.height(16.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedButton(
-                        onClick = { viewModel.retryCurrent() },
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ImaxColors.TextPrimary)
-                    ) { Text("Retry") }
-                    OutlinedButton(
-                        onClick = { viewModel.switchEngine() },
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ImaxColors.TextPrimary)
-                    ) { Text("Switch Engine") }
-                    OutlinedButton(
-                        onClick = {
-                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-                                setDataAndType(android.net.Uri.parse(url), "video/*")
-                            }
-                            context.startActivity(android.content.Intent.createChooser(intent, "Play in External Player"))
-                            viewModel.togglePlayPause() // Pause internally
-                        },
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ImaxColors.TextPrimary)
-                    ) { Text("External Player") }
+                Column(
+                    modifier = Modifier
+                        .widthIn(max = 360.dp)
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    if (retryState.isRetrying) {
+                        // Auto-retry in progress
+                        CircularProgressIndicator(
+                            color = ImaxColors.Primary,
+                            modifier = Modifier.size(36.dp),
+                            strokeWidth = 3.dp
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = retryState.userMessage,
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+                        if (retryState.nextRetryInSeconds > 0) {
+                            Text(
+                                text = "${retryState.nextRetryInSeconds}s",
+                                color = ImaxColors.Primary,
+                                style = MaterialTheme.typography.headlineMedium
+                            )
+                        }
+                        // Allow manual cancel of auto-retry
+                        OutlinedButton(
+                            onClick = {
+                                viewModel.retryManager.cancel()
+                                viewModel.retryCurrent()
+                            },
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = Color.White
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp, Color.White.copy(alpha = 0.4f)
+                            )
+                        ) {
+                            Text("Şimdi Dene")
+                        }
+                    } else {
+                        // Manual retry controls
+                        Icon(
+                            Icons.Filled.Error,
+                            contentDescription = null,
+                            tint = ImaxColors.Error,
+                            modifier = Modifier.size(44.dp)
+                        )
+                        val displayError = retryState.userMessage
+                            .ifBlank { playerState.errorMessage ?: "Oynatma hatası" }
+                        Text(
+                            text = displayError,
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OutlinedButton(
+                                onClick = { viewModel.retryCurrent() },
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = Color.White
+                                )
+                            ) { Text("Yeniden Dene") }
+                            OutlinedButton(
+                                onClick = { viewModel.switchEngine() },
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    contentColor = ImaxColors.Primary
+                                )
+                            ) { Text("Motor Değiştir") }
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW)
+                                    .apply { setDataAndType(android.net.Uri.parse(url), "video/*") }
+                                context.startActivity(
+                                    android.content.Intent.createChooser(intent, "Harici Oynatıcı")
+                                )
+                                viewModel.togglePlayPause()
+                            },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+                        ) { Text("Harici Oynatıcı") }
+                    }
                 }
             }
         }
@@ -1487,6 +1581,19 @@ fun PlayerScreen(
                             Spacer(modifier = Modifier.width(4.dp))
                         }
 
+                        // Screen lock button — mobile only
+                        if (!isTv) {
+                            PlayerControlButton(
+                                icon = Icons.Filled.Lock,
+                                contentDescription = "Ekranı Kilitle",
+                                onClick = {
+                                    isScreenLocked = true
+                                    controlsVisible = false
+                                }
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+
                         // Settings button (opens bottom sheet)
                         PlayerControlButton(
                             icon = Icons.Filled.Settings,
@@ -1494,6 +1601,45 @@ fun PlayerScreen(
                             onClick = { showSettingsSheet = true }
                         )
                     }
+                }
+            }
+        }
+    }
+
+    // ─── Screen Lock Overlay ────────────────────────────────────────────────────
+    // Sits above all content, blocks all touches when active
+    if (isScreenLocked && !isTv) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) { /* consume all touches */ }
+                .background(Color.Transparent),
+            contentAlignment = Alignment.TopEnd
+        ) {
+            // Persistent unlock button — only interactive element
+            Surface(
+                shape = RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp),
+                color = Color.Black.copy(alpha = 0.6f),
+                modifier = Modifier.padding(top = 0.dp, end = 16.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .clickable { isScreenLocked = false; controlsVisible = true }
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.LockOpen,
+                        contentDescription = "Kilidi Aç",
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = "Kilidi Aç",
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelMedium
+                    )
                 }
             }
         }

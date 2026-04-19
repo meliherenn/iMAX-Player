@@ -65,6 +65,12 @@ interface ChannelDao {
     @Query("UPDATE channels SET lastWatched = :time WHERE id = :id")
     suspend fun updateLastWatched(id: Long, time: Long = System.currentTimeMillis())
 
+    @Query("UPDATE channels SET isOnline = :isOnline WHERE id = :id")
+    suspend fun setStreamOnline(id: Long, isOnline: Boolean)
+
+    @Query("SELECT * FROM channels WHERE playlistId = :playlistId AND isOnline = 0")
+    fun getDeadChannels(playlistId: Long): Flow<List<ChannelEntity>>
+
     @Query("DELETE FROM channels WHERE playlistId = :playlistId")
     suspend fun deleteByPlaylist(playlistId: Long)
 

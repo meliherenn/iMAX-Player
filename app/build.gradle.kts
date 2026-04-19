@@ -102,6 +102,19 @@ dependencies {
     // Lifecycle
     implementation(libs.lifecycle.runtime)
     implementation(libs.lifecycle.viewmodel)
+    implementation("androidx.lifecycle:lifecycle-process:2.8.6")
+
+    // WorkManager + Hilt integration
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
+    implementation("androidx.hilt:hilt-work:1.2.0")
+    ksp("androidx.hilt:hilt-compiler:1.2.0")
+
+    // Security Crypto (EncryptedSharedPreferences for PIN storage)
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
+    // Window size class (responsive layout)
+    implementation("androidx.window:window:1.3.0")
+    implementation("androidx.compose.material3:material3-window-size-class:1.3.1")
 
     // Navigation
     implementation(libs.navigation.compose)

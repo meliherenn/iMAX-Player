@@ -38,7 +38,8 @@ data class ChannelEntity(
     val catchupSource: String = "",
     val isFavorite: Boolean = false,
     val lastWatched: Long = 0,
-    val sortOrder: Int = 0
+    val sortOrder: Int = 0,
+    val isOnline: Boolean = true  // false = dead stream (health check failed)
 )
 
 @Entity(
