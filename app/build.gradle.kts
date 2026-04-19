@@ -30,11 +30,12 @@ android {
         buildConfigField("String", "TMDB_API_KEY", "\"${localProperties.getProperty("TMDB_API_KEY", "")}\"")
 
         ndk {
-            // arm64-v8a modern Android cihazların tamamında var.
-            // armeabi-v7a (32-bit) bazı eski NDK sürümleriyle uyumsuz.
-            // Bu sayede libmpv'nin problematik arm 32-bit SO'su APK'ya dahil edilmez.
-            // 32-bit only cihazlarda MPV isAvailable()=false döner, ExoPlayer'a fallback yapar.
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            // Hedef cihaz matrisi:
+            // - arm64-v8a: modern fiziksel telefon/TV cihazlarının ana hedefi
+            // - armeabi-v7a: 32-bit ARM cihazlar (MPV unavailable -> Exo/VLC fallback)
+            // - x86_64: 64-bit emülatörler
+            // - x86: 32-bit emülatör smoke testi (CI)
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
         }
     }
 
@@ -74,6 +75,24 @@ android {
         jniLibs {
             useLegacyPackaging = true
             pickFirsts += setOf("lib/*/libc++_shared.so")
+        }
+    }
+
+    // APK boyutunu yönetmek için ABI split: her ABI için ayrı APK üret.
+    // Not: AAB tarafında Play zaten ABI bazlı split dağıtımı yapar.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
+            isUniversalApk = false
+        }
+    }
+
+    // App Bundle (AAB) için ABI split metadata'sını etkin tut.
+    bundle {
+        abi {
+            enableSplit = true
         }
     }
 }

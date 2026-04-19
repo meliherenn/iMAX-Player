@@ -59,6 +59,16 @@ class PlayerManager @Inject constructor(
 
     fun getEngine(): PlayerEngine = currentEngine
 
+    private fun fallbackEnginePreferVlc(): PlayerEngine {
+        return if (vlcPlayerEngine.isAvailable()) {
+            Timber.w("Using VLC as fallback engine")
+            vlcPlayerEngine
+        } else {
+            Timber.w("Using ExoPlayer as fallback engine")
+            exoPlayerEngine
+        }
+    }
+
     private fun startCollectingState() {
         stateCollectionJob?.cancel()
         stateCollectionJob = managerScope.launch {
@@ -87,12 +97,18 @@ class PlayerManager @Inject constructor(
                 if (mpvPlayerEngine.isAvailable()) {
                     mpvPlayerEngine
                 } else {
-                    Timber.w("MPV not available on this device, falling back to ExoPlayer")
-                    // Kalıcı olarak ExoPlayer'a dön — bir daha MPV seçilmesin
+                    Timber.w("MPV not available on this device, falling back to VLC/ExoPlayer")
+                    val safeFallback = fallbackEnginePreferVlc()
+                    // Kalıcı olarak güvenli engine'e dön — bir daha desteklenmeyen MPV seçilmesin
                     managerScope.launch {
-                        settingsDataStore.updatePlayerEngine(PlayerEngineType.EXOPLAYER)
+                        val safeType = if (safeFallback is VlcPlayerEngine) {
+                            PlayerEngineType.VLC
+                        } else {
+                            PlayerEngineType.EXOPLAYER
+                        }
+                        settingsDataStore.updatePlayerEngine(safeType)
                     }
-                    exoPlayerEngine
+                    safeFallback
                 }
             }
             PlayerEngineType.VLC -> {
@@ -120,7 +136,7 @@ class PlayerManager @Inject constructor(
             }
         } catch (e: Throwable) {
             Timber.e(e, "Fatal error initializing engine ${currentEngine.engineName}, falling back to safety engine")
-            currentEngine = if (vlcPlayerEngine.isAvailable() && currentEngine !is VlcPlayerEngine) vlcPlayerEngine else exoPlayerEngine
+            currentEngine = if (currentEngine !is VlcPlayerEngine) fallbackEnginePreferVlc() else exoPlayerEngine
             _activeEngineName.value = currentEngine.engineName
             managerScope.launch {
                 val safeType = if (currentEngine is VlcPlayerEngine) PlayerEngineType.VLC else PlayerEngineType.EXOPLAYER
@@ -248,8 +264,8 @@ class PlayerManager @Inject constructor(
                         PlayerEngineType.MPV -> {
                             if (mpvPlayerEngine.isAvailable()) mpvPlayerEngine
                             else {
-                                Timber.w("Requested MPV but not available, using ExoPlayer")
-                                exoPlayerEngine
+                                Timber.w("Requested MPV but not available, forcing VLC/Exo fallback")
+                                fallbackEnginePreferVlc()
                             }
                         }
                         PlayerEngineType.VLC -> {
