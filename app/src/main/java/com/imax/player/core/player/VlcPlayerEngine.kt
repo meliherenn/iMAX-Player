@@ -42,6 +42,17 @@ class VlcPlayerEngine @Inject constructor(
     private var progressJob: Job? = null
     private var vlcAvailable: Boolean? = null
 
+    // Configuration
+    private var configuredBufferMs: Long = 30_000L
+    private var configuredLatencyMode: String = "BALANCED"
+    private var configuredPreferHw: Boolean = true
+
+    override fun setPlaybackConfiguration(bufferDurationMs: Long, liveLatencyMode: String, preferHwDecoding: Boolean) {
+        this.configuredBufferMs = bufferDurationMs
+        this.configuredLatencyMode = liveLatencyMode
+        this.configuredPreferHw = preferHwDecoding
+    }
+
     // Surface lifecycle state
     private var currentSurfaceView: SurfaceView? = null
     private var surfaceReady = false  // true only AFTER surfaceCreated callback
@@ -83,10 +94,11 @@ class VlcPlayerEngine @Inject constructor(
         if (libVLC != null) return // Already initialized
 
         try {
+            val hwOption = if (configuredPreferHw) "--avcodec-hw=any" else "--avcodec-hw=none"
             val options = arrayListOf(
                 "--no-drop-late-frames",
                 "--no-skip-frames",
-                "--avcodec-hw=any",
+                hwOption,
                 "--subsdec-encoding=UTF-8",
                 "--aout=opensles",
                 "--audio-time-stretch"
@@ -163,9 +175,27 @@ class VlcPlayerEngine @Inject constructor(
             }
 
             val media = Media(vlc, Uri.parse(url))
-            media.setHWDecoderEnabled(true, false)
-            media.addOption(":network-caching=1500")
-            media.addOption(":clock-jitter=0")
+            media.setHWDecoderEnabled(configuredPreferHw, false)
+            
+            val isLive = url.contains("m3u8", ignoreCase = true) || url.contains("ts", ignoreCase = true)
+            val cacheMs = if (isLive) {
+                when (configuredLatencyMode.uppercase()) {
+                    "LOW_LATENCY" -> 500L
+                    "STABLE" -> 3000L
+                    else -> 1500L
+                }
+            } else {
+                configuredBufferMs
+            }
+
+            media.addOption(":network-caching=$cacheMs")
+            media.addOption(":live-caching=$cacheMs")
+            
+            if (configuredLatencyMode.uppercase() == "LOW_LATENCY" && isLive) {
+                media.addOption(":clock-jitter=0")
+            } else {
+                media.addOption(":clock-jitter=500")
+            }
             media.addOption(":clock-synchro=0")
             media.addOption(":http-user-agent=iMAX Player/Android")
             media.addOption(":input-repeat=0")

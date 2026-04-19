@@ -33,12 +33,27 @@ class MpvPlayerEngine @Inject constructor(
     private var duration: Long = 0
     private var isPlaybackPaused = false
 
+    // Configuration
+    private var configuredBufferMs: Long = 30_000L
+    private var configuredLatencyMode: String = "BALANCED"
+    private var configuredPreferHw: Boolean = true
+
+    override fun setPlaybackConfiguration(bufferDurationMs: Long, liveLatencyMode: String, preferHwDecoding: Boolean) {
+        this.configuredBufferMs = bufferDurationMs
+        this.configuredLatencyMode = liveLatencyMode
+        this.configuredPreferHw = preferHwDecoding
+    }
+
     override fun initialize() {
         if (isInitialized) return
         try {
             MPVLib.create(context)
             // Enforce hardware decoding
-            MPVLib.setOptionString("hwdec", "mediacodec-copy") 
+            if (configuredPreferHw) {
+                MPVLib.setOptionString("hwdec", "mediacodec-copy")
+            } else {
+                MPVLib.setOptionString("hwdec", "no")
+            }
             MPVLib.setOptionString("vo", "gpu")
             MPVLib.setOptionString("gpu-context", "android")
             // Optimize for IPTV latency

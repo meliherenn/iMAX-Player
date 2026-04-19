@@ -94,11 +94,39 @@ class PlayerManager @Inject constructor(
         }
         _activeEngineName.value = currentEngine.engineName
         
-        if (currentEngine is ExoPlayerEngine) {
-            currentEngine.initialize()
-        } else {
-            withContext(Dispatchers.IO) {
+        try {
+            currentEngine.setPlaybackConfiguration(
+                bufferDurationMs = settings.bufferDurationMs.toLong(),
+                liveLatencyMode = settings.liveLatencyMode,
+                preferHwDecoding = settings.preferHwDecoding
+            )
+            if (currentEngine is ExoPlayerEngine) {
                 currentEngine.initialize()
+            } else {
+                withContext(Dispatchers.IO) {
+                    currentEngine.initialize()
+                }
+            }
+        } catch (e: Throwable) {
+            Timber.e(e, "Fatal error initializing engine ${currentEngine.engineName}, falling back to safety engine")
+            currentEngine = if (vlcPlayerEngine.isAvailable() && currentEngine !is VlcPlayerEngine) vlcPlayerEngine else exoPlayerEngine
+            _activeEngineName.value = currentEngine.engineName
+            managerScope.launch {
+                val safeType = if (currentEngine is VlcPlayerEngine) PlayerEngineType.VLC else PlayerEngineType.EXOPLAYER
+                settingsDataStore.updatePlayerEngine(safeType)
+            }
+            
+            currentEngine.setPlaybackConfiguration(
+                bufferDurationMs = settings.bufferDurationMs.toLong(),
+                liveLatencyMode = settings.liveLatencyMode,
+                preferHwDecoding = settings.preferHwDecoding
+            )
+            if (currentEngine is ExoPlayerEngine) {
+                currentEngine.initialize()
+            } else {
+                withContext(Dispatchers.IO) {
+                    currentEngine.initialize()
+                }
             }
         }
         currentEngine.setAspectRatio(preferredAspectRatio)

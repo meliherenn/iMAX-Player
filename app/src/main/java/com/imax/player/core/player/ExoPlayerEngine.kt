@@ -24,7 +24,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import okhttp3.OkHttpClient
 import timber.log.Timber
 import javax.inject.Inject
+import javax.inject.Singleton
 
+@Singleton
 @OptIn(UnstableApi::class)
 class ExoPlayerEngine @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -44,6 +46,17 @@ class ExoPlayerEngine @Inject constructor(
     private var playerView: PlayerView? = null
     private val userAgent = "iMAX Player/Android"
 
+    // Configuration
+    private var configuredBufferMs: Long = Constants.DEFAULT_BUFFER_MS.toLong()
+    private var configuredLatencyMode: String = "BALANCED"
+    private var configuredPreferHw: Boolean = true
+
+    override fun setPlaybackConfiguration(bufferDurationMs: Long, liveLatencyMode: String, preferHwDecoding: Boolean) {
+        this.configuredBufferMs = bufferDurationMs
+        this.configuredLatencyMode = liveLatencyMode
+        this.configuredPreferHw = preferHwDecoding
+    }
+
     override fun initialize() {
         if (player != null) return
 
@@ -58,10 +71,13 @@ class ExoPlayerEngine @Inject constructor(
             )
         }
 
+        val minBuffer = minOf(configuredBufferMs.toInt(), 50_000)
+        val maxBuffer = configuredBufferMs.toInt()
+
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                Constants.MIN_BUFFER_MS,
-                Constants.MAX_BUFFER_MS,
+                minBuffer,
+                maxBuffer,
                 DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
                 DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS
             )
@@ -70,7 +86,18 @@ class ExoPlayerEngine @Inject constructor(
         val dataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
             .setUserAgent(userAgent)
 
+        val renderersFactory = androidx.media3.exoplayer.DefaultRenderersFactory(context)
+            .setEnableDecoderFallback(true)
+
+        // Hardware Preference Hinting
+        if (configuredPreferHw) {
+            renderersFactory.setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
+        } else {
+            renderersFactory.setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
+        }
+
         player = ExoPlayer.Builder(context)
+            .setRenderersFactory(renderersFactory)
             .setTrackSelector(trackSelector!!)
             .setLoadControl(loadControl)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
