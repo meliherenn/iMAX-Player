@@ -44,7 +44,7 @@ class MetadataProvider @Inject constructor(
     companion object {
         private const val MIN_CONFIDENCE_SCORE = 35.0
         private const val SHORT_TITLE_THRESHOLD = 3
-        private const val SHORT_TITLE_MIN_CONFIDENCE = 55.0
+        private const val SHORT_TITLE_MIN_CONFIDENCE = 50.0
         private const val CACHE_TTL_MS = 7 * 24 * 3600 * 1000L
         private const val TURKISH_METADATA_LANGUAGE = "tr-TR"
         private const val ENGLISH_FALLBACK_LANGUAGE = "en-US"
