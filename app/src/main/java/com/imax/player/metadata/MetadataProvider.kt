@@ -47,6 +47,7 @@ class MetadataProvider @Inject constructor(
         private const val SHORT_TITLE_MIN_CONFIDENCE = 55.0
         private const val CACHE_TTL_MS = 7 * 24 * 3600 * 1000L
         private const val TURKISH_METADATA_LANGUAGE = "tr-TR"
+        private const val ENGLISH_FALLBACK_LANGUAGE = "en-US"
     }
 
     suspend fun getCachedMetadata(
@@ -60,7 +61,7 @@ class MetadataProvider @Inject constructor(
         val languageTag = currentLanguageTag()
         val cached = cacheDao.find(normalizedTitle, year, languageTag) ?: return null
 
-        return if (System.currentTimeMillis() - cached.cachedAt < CACHE_TTL_MS) {
+        return if (isFreshUsableCache(cached)) {
             cached.toResult()
         } else {
             null
@@ -81,35 +82,37 @@ class MetadataProvider @Inject constructor(
         try {
             val cleanTitle = StringUtils.cleanTitleForSearch(title)
             val normalizedTitle = StringUtils.normalizeTitle(title)
-            
+
             // Extract year from title if not provided
             val (_, titleYear) = StringUtils.extractYearFromTitle(title)
             val effectiveYear = if (year > 0) year else (titleYear ?: 0)
 
             val languageTag = currentLanguageTag()
 
-            // Check locale-aware cache
+            // Check locale-aware cache. Skip partial caches so blank detail pages can be repaired.
             val cached = if (tmdbId > 0) {
                 cacheDao.findByTmdbId(tmdbId, languageTag)
             } else {
                 cacheDao.find(normalizedTitle, effectiveYear, languageTag)
             }
-            if (cached != null && System.currentTimeMillis() - cached.cachedAt < CACHE_TTL_MS) {
+            if (cached != null && isFreshUsableCache(cached)) {
                 Timber.d("Cache hit for '$normalizedTitle' (lang=$languageTag)")
                 return cached.toResult()
             }
 
             if (tmdbId > 0) {
-                val detail = fetchDetailByTmdbId(tmdbId, contentType, languageTag) ?: return null
+                val localizedDetail = fetchDetailByTmdbId(tmdbId, contentType, languageTag) ?: return null
+                val fallbackDetail = fetchFallbackDetailIfNeeded(localizedDetail, contentType, tmdbId, languageTag)
                 val result = buildResult(
-                    detail = detail,
+                    detail = localizedDetail,
+                    fallbackDetail = fallbackDetail,
                     bestMatch = null,
                     effectiveYear = effectiveYear,
                     confidence = 100.0,
                     languageTag = languageTag
                 )
                 cacheResult(normalizedTitle, result, languageTag, contentType)
-                return result
+                return result.takeIf { it.hasUsableDetails() }
             }
 
             val searchResults = searchMetadataCandidates(cleanTitle, title, effectiveYear, contentType, languageTag)
@@ -152,9 +155,11 @@ class MetadataProvider @Inject constructor(
                 ContentType.SERIES -> tmdbApi.getTvDetails(bestMatch.id, apiKey, language = languageTag)
                 ContentType.LIVE -> return null
             }
+            val fallbackDetail = fetchFallbackDetailIfNeeded(detail, contentType, bestMatch.id, languageTag)
 
             val result = buildResult(
                 detail = detail,
+                fallbackDetail = fallbackDetail,
                 bestMatch = bestMatch,
                 effectiveYear = effectiveYear,
                 confidence = bestScore,
@@ -163,7 +168,7 @@ class MetadataProvider @Inject constructor(
 
             cacheResult(normalizedTitle, result, languageTag, contentType)
 
-            return result
+            return result.takeIf { it.hasUsableDetails() }
         } catch (e: Exception) {
             Timber.e(e, "Failed to fetch metadata for: $title")
             return null
@@ -187,6 +192,22 @@ class MetadataProvider @Inject constructor(
         }
     }
 
+    private suspend fun fetchFallbackDetailIfNeeded(
+        localizedDetail: TmdbDetailResponse,
+        contentType: ContentType,
+        tmdbId: Int,
+        languageTag: String
+    ): TmdbDetailResponse? {
+        if (languageTag.equals(ENGLISH_FALLBACK_LANGUAGE, ignoreCase = true)) return null
+        if (!localizedDetail.needsFallbackDetail()) return null
+
+        return runCatching {
+            fetchDetailByTmdbId(tmdbId, contentType, ENGLISH_FALLBACK_LANGUAGE)
+        }.onFailure {
+            Timber.w(it, "Failed to fetch English fallback metadata for TMDB id=$tmdbId")
+        }.getOrNull()
+    }
+
     private suspend fun searchMetadataCandidates(
         cleanTitle: String,
         originalTitle: String,
@@ -203,64 +224,84 @@ class MetadataProvider @Inject constructor(
             .filter { it.length >= 2 }
             .distinct()
 
+        val languages = listOf(languageTag, ENGLISH_FALLBACK_LANGUAGE).distinct()
+
         return queries.flatMap { query ->
             val year = effectiveYear.takeIf { it > 0 }
-            when (contentType) {
-                ContentType.MOVIE -> tmdbApi.searchMovie(apiKey, query, year, 1, languageTag).results
-                ContentType.SERIES -> tmdbApi.searchTv(apiKey, query, year, 1, languageTag).results
-                ContentType.LIVE -> emptyList()
+            languages.flatMap { language ->
+                when (contentType) {
+                    ContentType.MOVIE -> tmdbApi.searchMovie(apiKey, query, year, 1, language).results
+                    ContentType.SERIES -> tmdbApi.searchTv(apiKey, query, year, 1, language).results
+                    ContentType.LIVE -> emptyList()
+                }
             }
         }
     }
 
     private fun buildResult(
         detail: TmdbDetailResponse,
+        fallbackDetail: TmdbDetailResponse?,
         bestMatch: TmdbSearchResult?,
         effectiveYear: Int,
         confidence: Double,
         languageTag: String
     ): MetadataResult {
-        val translations = detail.translations?.translations ?: emptyList()
+        val translations = detail.translations?.translations ?: fallbackDetail?.translations?.translations ?: emptyList()
         val translated = resolveTranslation(translations, languageTag, detail.originalLanguage)
         val finalOverview = translated?.overview?.takeIf { it.isNotBlank() }
-            ?: detail.overview
+            ?: detail.overview.ifBlank { fallbackDetail?.overview.orEmpty() }
         val finalTagline = translated?.tagline?.takeIf { it.isNotBlank() }
-            ?: detail.tagline.orEmpty()
+            ?: detail.tagline.orEmpty().ifBlank { fallbackDetail?.tagline.orEmpty() }
 
         val director = detail.credits?.crew?.find { it.job == "Director" }?.name
+            ?: fallbackDetail?.credits?.crew?.find { it.job == "Director" }?.name
             ?: detail.createdBy?.firstOrNull()?.name
+            ?: fallbackDetail?.createdBy?.firstOrNull()?.name
             ?: ""
 
         val runtime = detail.runtime
+            ?: fallbackDetail?.runtime
             ?: detail.episodeRunTime?.firstOrNull()
+            ?: fallbackDetail?.episodeRunTime?.firstOrNull()
             ?: 0
 
-        val trailerUrl = detail.videos?.results
-            ?.filter { it.site.equals("YouTube", ignoreCase = true) && it.type.equals("Trailer", ignoreCase = true) }
-            ?.maxByOrNull { if (it.official) 1 else 0 }
+        val videoResults = detail.videos?.results.orEmpty().ifEmpty { fallbackDetail?.videos?.results.orEmpty() }
+        val trailerUrl = videoResults
+            .filter { it.site.equals("YouTube", ignoreCase = true) && it.type.equals("Trailer", ignoreCase = true) }
+            .maxByOrNull { if (it.official) 1 else 0 }
             ?.let { "https://www.youtube.com/watch?v=${it.key}" }
-            ?: detail.videos?.results
-                ?.firstOrNull { it.site.equals("YouTube", ignoreCase = true) }
+            ?: videoResults
+                .firstOrNull { it.site.equals("YouTube", ignoreCase = true) }
                 ?.let { "https://www.youtube.com/watch?v=${it.key}" }
             ?: ""
 
+        val genres = detail.genres.ifEmpty { fallbackDetail?.genres.orEmpty() }
+        val cast = detail.credits?.cast.orEmpty().ifEmpty { fallbackDetail?.credits?.cast.orEmpty() }
+
         return MetadataResult(
-            tmdbId = detail.id,
-            imdbId = detail.imdbId ?: detail.externalIds?.imdbId ?: "",
+            tmdbId = detail.id.takeIf { it > 0 } ?: fallbackDetail?.id ?: 0,
+            imdbId = detail.imdbId ?: detail.externalIds?.imdbId ?: fallbackDetail?.imdbId ?: fallbackDetail?.externalIds?.imdbId ?: "",
             posterUrl = detail.posterPath?.let { "${Constants.TMDB_IMAGE_BASE_URL}${Constants.TMDB_POSTER_SIZE}$it" }
+                ?: fallbackDetail?.posterPath?.let { "${Constants.TMDB_IMAGE_BASE_URL}${Constants.TMDB_POSTER_SIZE}$it" }
                 ?: bestMatch?.posterPath?.let { "${Constants.TMDB_IMAGE_BASE_URL}${Constants.TMDB_POSTER_SIZE}$it" }
                 ?: "",
             backdropUrl = detail.backdropPath?.let { "${Constants.TMDB_IMAGE_BASE_URL}${Constants.TMDB_BACKDROP_SIZE}$it" }
+                ?: fallbackDetail?.backdropPath?.let { "${Constants.TMDB_IMAGE_BASE_URL}${Constants.TMDB_BACKDROP_SIZE}$it" }
                 ?: bestMatch?.backdropPath?.let { "${Constants.TMDB_IMAGE_BASE_URL}${Constants.TMDB_BACKDROP_SIZE}$it" }
                 ?: "",
             overview = finalOverview,
             tagline = finalTagline,
-            genre = detail.genres.joinToString(", ") { it.name },
-            cast = detail.credits?.cast?.take(15)?.joinToString(", ") { it.name } ?: "",
+            genre = genres.joinToString(", ") { it.name },
+            cast = cast.take(15).joinToString(", ") { it.name },
             director = director,
             runtime = runtime,
-            rating = if (detail.voteAverage > 0) detail.voteAverage else bestMatch?.voteAverage ?: 0.0,
+            rating = when {
+                detail.voteAverage > 0 -> detail.voteAverage
+                fallbackDetail?.voteAverage != null && fallbackDetail.voteAverage > 0 -> fallbackDetail.voteAverage
+                else -> bestMatch?.voteAverage ?: 0.0
+            },
             year = StringUtils.extractYear(detail.releaseDate ?: detail.firstAirDate)
+                ?: StringUtils.extractYear(fallbackDetail?.releaseDate ?: fallbackDetail?.firstAirDate)
                 ?: StringUtils.extractYear(bestMatch?.releaseDate ?: bestMatch?.firstAirDate)
                 ?: effectiveYear,
             trailerUrl = trailerUrl,
@@ -394,9 +435,7 @@ class MetadataProvider @Inject constructor(
      * Resolve the best translation following priority:
      * 1. Requested locale (e.g. Turkish)
      * 2. Original Turkish language data, if the content itself is Turkish
-     *
-     * English is intentionally not used as a fallback for the Turkish metadata
-     * surface; otherwise old "filled but English" details keep leaking into UI.
+     * 3. English fallback, so detail pages are not left blank when Turkish metadata is unavailable.
      */
     private fun resolveTranslation(
         translations: List<com.imax.player.core.network.dto.TmdbTranslation>,
@@ -408,20 +447,45 @@ class MetadataProvider @Inject constructor(
         val requestedLang = requestedLanguageTag.split("-").firstOrNull()?.lowercase() ?: ""
 
         // 1. Try requested language (e.g. "tr")
-        val requested = translations.find { 
-            it.language.lowercase() == requestedLang && !it.data?.overview.isNullOrBlank() 
+        val requested = translations.find {
+            it.language.lowercase() == requestedLang && !it.data?.overview.isNullOrBlank()
         }?.data
         if (requested != null) return requested
 
         // 2. Try original language only when it is Turkish.
         if (originalLanguage.equals("tr", ignoreCase = true)) {
-            val original = translations.find { 
+            val original = translations.find {
                 it.language.equals("tr", ignoreCase = true) && !it.data?.overview.isNullOrBlank()
             }?.data
             if (original != null) return original
         }
 
-        return null
+        // 3. English fallback. This is preferable to a blank detail screen.
+        return translations.find {
+            it.language.equals("en", ignoreCase = true) && !it.data?.overview.isNullOrBlank()
+        }?.data
+    }
+
+    private fun isFreshUsableCache(cached: MetadataCacheEntity): Boolean {
+        return System.currentTimeMillis() - cached.cachedAt < CACHE_TTL_MS && cached.toResult().hasUsableDetails()
+    }
+
+    private fun TmdbDetailResponse.needsFallbackDetail(): Boolean {
+        return overview.isBlank() ||
+            genres.isEmpty() ||
+            credits?.cast.isNullOrEmpty() ||
+            (posterPath.isNullOrBlank() && backdropPath.isNullOrBlank())
+    }
+
+    private fun MetadataResult.hasUsableDetails(): Boolean {
+        return overview.isNotBlank() ||
+            genre.isNotBlank() ||
+            cast.isNotBlank() ||
+            director.isNotBlank() ||
+            posterUrl.isNotBlank() ||
+            backdropUrl.isNotBlank() ||
+            rating > 0.0 ||
+            year > 0
     }
 
     private fun MetadataCacheEntity.toResult() = MetadataResult(
