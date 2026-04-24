@@ -98,6 +98,9 @@ interface MovieDao {
     @Query("SELECT * FROM movies WHERE playlistId = :playlistId ORDER BY lastWatched DESC LIMIT 20")
     fun getRecentlyWatched(playlistId: Long): Flow<List<MovieEntity>>
 
+    @Query("SELECT * FROM movies WHERE playlistId = :playlistId ORDER BY id DESC LIMIT :limit")
+    fun getLatestAdded(playlistId: Long, limit: Int = 30): Flow<List<MovieEntity>>
+
     @Query("SELECT * FROM movies WHERE playlistId = :playlistId AND name LIKE '%' || :query || '%' ORDER BY name")
     fun search(playlistId: Long, query: String): Flow<List<MovieEntity>>
 
@@ -139,6 +142,9 @@ interface SeriesDao {
 
     @Query("SELECT * FROM series WHERE playlistId = :playlistId AND isFavorite = 1 ORDER BY name")
     fun getFavorites(playlistId: Long): Flow<List<SeriesEntity>>
+
+    @Query("SELECT * FROM series WHERE playlistId = :playlistId ORDER BY id DESC LIMIT :limit")
+    fun getLatestAdded(playlistId: Long, limit: Int = 30): Flow<List<SeriesEntity>>
 
     @Query("SELECT * FROM series WHERE playlistId = :playlistId AND name LIKE '%' || :query || '%' ORDER BY name")
     fun search(playlistId: Long, query: String): Flow<List<SeriesEntity>>
@@ -263,11 +269,11 @@ interface FavoriteDao {
 
 @Dao
 interface MetadataCacheDao {
-    @Query("SELECT * FROM metadata_cache WHERE title = :title AND (year = :year OR year = 0 OR :year = 0) AND language = :language ORDER BY cachedAt DESC LIMIT 1")
-    suspend fun find(title: String, year: Int = 0, language: String = ""): MetadataCacheEntity?
+    @Query("SELECT * FROM metadata_cache WHERE title = :title AND (year = :year OR year = 0 OR :year = 0) AND language = :language AND (contentType = :contentType OR contentType = '') ORDER BY cachedAt DESC LIMIT 1")
+    suspend fun find(title: String, year: Int = 0, language: String = "", contentType: String = ""): MetadataCacheEntity?
 
-    @Query("SELECT * FROM metadata_cache WHERE tmdbId = :tmdbId AND language = :language ORDER BY cachedAt DESC LIMIT 1")
-    suspend fun findByTmdbId(tmdbId: Int, language: String = ""): MetadataCacheEntity?
+    @Query("SELECT * FROM metadata_cache WHERE tmdbId = :tmdbId AND language = :language AND (contentType = :contentType OR contentType = '') ORDER BY cachedAt DESC LIMIT 1")
+    suspend fun findByTmdbId(tmdbId: Int, language: String = "", contentType: String = ""): MetadataCacheEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(metadata: MetadataCacheEntity)

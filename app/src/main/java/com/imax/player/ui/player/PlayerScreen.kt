@@ -63,6 +63,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -106,6 +107,8 @@ fun PlayerScreen(
     var isDragging by remember { mutableStateOf(false) }
     var dragType by remember { mutableStateOf<String?>(null) } // "brightness" | "volume"
     var dragValue by remember { mutableStateOf(0f) }  // 0..1 for display
+    var dragContinuousValue by remember { mutableStateOf(0f) }
+    var lastAppliedVolume by remember { mutableStateOf(-1) }
     var showDragIndicator by remember { mutableStateOf(false) }
     val playPauseFocusRequester = remember { FocusRequester() }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -341,6 +344,10 @@ fun PlayerScreen(
                                             android.media.AudioManager.STREAM_MUSIC
                                         ).toFloat() / maxVolume.toFloat()
                                     }
+                                    dragContinuousValue = dragValue
+                                    lastAppliedVolume = audioManager.getStreamVolume(
+                                        android.media.AudioManager.STREAM_MUSIC
+                                    )
                                 },
                                 onDragEnd = {
                                     isDragging = false
@@ -357,21 +364,30 @@ fun PlayerScreen(
                                         "brightness" -> {
                                             val win = activity?.window ?: return@detectDragGestures
                                             val lp = win.attributes
-                                            val newBrightness = (lp.screenBrightness + delta).coerceIn(0.01f, 1f)
+                                            val baseBrightness = lp.screenBrightness
+                                                .takeIf { it >= 0f }
+                                                ?: dragContinuousValue
+                                                    .takeIf { it > 0f }
+                                                    ?: 0.5f
+                                            val newBrightness = (baseBrightness + delta).coerceIn(0.01f, 1f)
                                             lp.screenBrightness = newBrightness
                                             win.attributes = lp
                                             dragValue = newBrightness
+                                            dragContinuousValue = newBrightness
                                         }
                                         "volume" -> {
-                                            val current = audioManager.getStreamVolume(
-                                                android.media.AudioManager.STREAM_MUSIC
-                                            )
-                                            val newVol = (current.toFloat() + delta * maxVolume.toFloat())
-                                                .toInt().coerceIn(0, maxVolume)
-                                            audioManager.setStreamVolume(
-                                                android.media.AudioManager.STREAM_MUSIC, newVol, 0
-                                            )
-                                            dragValue = newVol.toFloat() / maxVolume.toFloat()
+                                            val newVolumeFraction = (dragContinuousValue + delta).coerceIn(0f, 1f)
+                                            val newVolume = (newVolumeFraction * maxVolume.toFloat())
+                                                .roundToInt()
+                                                .coerceIn(0, maxVolume)
+                                            if (newVolume != lastAppliedVolume) {
+                                                audioManager.setStreamVolume(
+                                                    android.media.AudioManager.STREAM_MUSIC, newVolume, 0
+                                                )
+                                                lastAppliedVolume = newVolume
+                                            }
+                                            dragContinuousValue = newVolumeFraction
+                                            dragValue = newVolumeFraction
                                         }
                                     }
                                 }

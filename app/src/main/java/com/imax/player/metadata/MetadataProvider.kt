@@ -40,6 +40,11 @@ class MetadataProvider @Inject constructor(
 ) {
     private val apiKey: String = BuildConfig.TMDB_API_KEY
 
+    private data class SearchCandidate(
+        val result: TmdbSearchResult,
+        val detailType: ContentType
+    )
+
     // Minimum confidence to accept a TMDB match
     companion object {
         private const val MIN_CONFIDENCE_SCORE = 35.0
@@ -58,8 +63,10 @@ class MetadataProvider @Inject constructor(
         if (contentType == ContentType.LIVE) return null
 
         val normalizedTitle = StringUtils.normalizeTitle(title)
+        if (normalizedTitle.length <= SHORT_TITLE_THRESHOLD) return null
+
         val languageTag = currentLanguageTag()
-        val cached = cacheDao.find(normalizedTitle, year, languageTag) ?: return null
+        val cached = cacheDao.find(normalizedTitle, year, languageTag, contentType.name) ?: return null
 
         return if (isFreshUsableCache(cached)) {
             cached.toResult()
@@ -88,12 +95,15 @@ class MetadataProvider @Inject constructor(
             val effectiveYear = if (year > 0) year else (titleYear ?: 0)
 
             val languageTag = currentLanguageTag()
+            val canUseTitleCache = StringUtils.normalizeTitle(cleanTitle).length > SHORT_TITLE_THRESHOLD
 
             // Check locale-aware cache. Skip partial caches so blank detail pages can be repaired.
             val cached = if (tmdbId > 0) {
-                cacheDao.findByTmdbId(tmdbId, languageTag)
+                cacheDao.findByTmdbId(tmdbId, languageTag, contentType.name)
+            } else if (canUseTitleCache) {
+                cacheDao.find(normalizedTitle, effectiveYear, languageTag, contentType.name)
             } else {
-                cacheDao.find(normalizedTitle, effectiveYear, languageTag)
+                null
             }
             if (cached != null && isFreshUsableCache(cached)) {
                 Timber.d("Cache hit for '$normalizedTitle' (lang=$languageTag)")
@@ -123,9 +133,9 @@ class MetadataProvider @Inject constructor(
             }
 
             // Smart scoring to establish best match with confidence
-            val scoredResults = searchResults.distinctBy { it.id }.map { result ->
-                val score = calculateMatchScore(cleanTitle, title, effectiveYear, result, contentType)
-                Pair(result, score)
+            val scoredResults = searchResults.distinctBy { "${it.detailType.name}:${it.result.id}" }.map { candidate ->
+                val score = calculateMatchScore(cleanTitle, title, effectiveYear, candidate.result, candidate.detailType)
+                Pair(candidate, score)
             }.sortedByDescending { it.second }
 
             val bestPair = scoredResults.firstOrNull() ?: return null
@@ -141,26 +151,26 @@ class MetadataProvider @Inject constructor(
                 return null
             }
 
-            val bestTitleSim = getBestTitleSimilarity(cleanTitle, title, bestMatch)
+            val bestTitleSim = getBestTitleSimilarity(cleanTitle, title, bestMatch.result)
             if (bestTitleSim < 0.45) {
-                Timber.w("Title similarity too low ($bestTitleSim) for '$cleanTitle' vs '${bestMatch.title ?: bestMatch.name}' — rejecting")
+                Timber.w("Title similarity too low ($bestTitleSim) for '$cleanTitle' vs '${bestMatch.result.title ?: bestMatch.result.name}' — rejecting")
                 return null
             }
 
-            Timber.d("TMDB match: '${bestMatch.title ?: bestMatch.name}' score=$bestScore sim=$bestTitleSim for query='$cleanTitle'")
+            Timber.d("TMDB match: '${bestMatch.result.title ?: bestMatch.result.name}' type=${bestMatch.detailType} score=$bestScore sim=$bestTitleSim for query='$cleanTitle'")
 
             // Fetch full details
-            val detail = when (contentType) {
-                ContentType.MOVIE -> tmdbApi.getMovieDetails(bestMatch.id, apiKey, language = languageTag)
-                ContentType.SERIES -> tmdbApi.getTvDetails(bestMatch.id, apiKey, language = languageTag)
+            val detail = when (bestMatch.detailType) {
+                ContentType.MOVIE -> tmdbApi.getMovieDetails(bestMatch.result.id, apiKey, language = languageTag)
+                ContentType.SERIES -> tmdbApi.getTvDetails(bestMatch.result.id, apiKey, language = languageTag)
                 ContentType.LIVE -> return null
             }
-            val fallbackDetail = fetchFallbackDetailIfNeeded(detail, contentType, bestMatch.id, languageTag)
+            val fallbackDetail = fetchFallbackDetailIfNeeded(detail, bestMatch.detailType, bestMatch.result.id, languageTag)
 
             val result = buildResult(
                 detail = detail,
                 fallbackDetail = fallbackDetail,
-                bestMatch = bestMatch,
+                bestMatch = bestMatch.result,
                 effectiveYear = effectiveYear,
                 confidence = bestScore,
                 languageTag = languageTag
@@ -214,7 +224,7 @@ class MetadataProvider @Inject constructor(
         effectiveYear: Int,
         contentType: ContentType,
         languageTag: String
-    ): List<TmdbSearchResult> {
+    ): List<SearchCandidate> {
         val queries = buildList {
             add(cleanTitle)
             val extractedTitle = StringUtils.extractYearFromTitle(originalTitle).first
@@ -226,15 +236,46 @@ class MetadataProvider @Inject constructor(
 
         val languages = listOf(languageTag, ENGLISH_FALLBACK_LANGUAGE).distinct()
 
-        return queries.flatMap { query ->
+        val candidates = queries.flatMap { query ->
             val year = effectiveYear.takeIf { it > 0 }
             languages.flatMap { language ->
-                when (contentType) {
-                    ContentType.MOVIE -> tmdbApi.searchMovie(apiKey, query, year, 1, language).results
-                    ContentType.SERIES -> tmdbApi.searchTv(apiKey, query, year, 1, language).results
-                    ContentType.LIVE -> emptyList()
+                buildList {
+                    when (contentType) {
+                        ContentType.MOVIE -> addAll(
+                            tmdbApi.searchMovie(apiKey, query, year, 1, language).results
+                                .map { SearchCandidate(it, ContentType.MOVIE) }
+                        )
+                        ContentType.SERIES -> addAll(
+                            tmdbApi.searchTv(apiKey, query, year, 1, language).results
+                                .map { SearchCandidate(it, ContentType.SERIES) }
+                        )
+                        ContentType.LIVE -> Unit
+                    }
+
+                    addAll(
+                        tmdbApi.searchMulti(apiKey, query, year, 1, language).results
+                            .mapNotNull { result ->
+                                when (result.mediaType.lowercase()) {
+                                    "movie" -> SearchCandidate(result, ContentType.MOVIE)
+                                    "tv" -> SearchCandidate(result, ContentType.SERIES)
+                                    else -> null
+                                }
+                            }
+                    )
                 }
             }
+        }
+
+        val normalizedClean = StringUtils.normalizeTitle(cleanTitle)
+        return if (normalizedClean.length <= SHORT_TITLE_THRESHOLD) {
+            candidates.filter { candidate ->
+                val resultTitle = candidate.result.title ?: candidate.result.name ?: ""
+                val resultOriginalTitle = candidate.result.originalTitle ?: candidate.result.originalName ?: ""
+                normalizedClean == StringUtils.normalizeTitle(resultTitle) ||
+                    normalizedClean == StringUtils.normalizeTitle(resultOriginalTitle)
+            }
+        } else {
+            candidates
         }
     }
 
@@ -352,10 +393,16 @@ class MetadataProvider @Inject constructor(
         val resultTitle = result.title ?: result.name ?: ""
         val resultOriginalTitle = result.originalTitle ?: result.originalName ?: ""
         val resultYear = StringUtils.extractYear(result.releaseDate ?: result.firstAirDate)
+        val normalizedClean = StringUtils.normalizeTitle(cleanTitle)
+        val normalizedResult = StringUtils.normalizeTitle(resultTitle)
+        val normalizedOriginal = StringUtils.normalizeTitle(resultOriginalTitle)
 
         // ─── 1. Title similarity (max 50 points) ───
         val bestTitleSim = getBestTitleSimilarity(cleanTitle, originalTitle, result)
         score += bestTitleSim * 50
+        if (normalizedClean.isNotBlank() && (normalizedClean == normalizedResult || normalizedClean == normalizedOriginal)) {
+            score += 28.0
+        }
 
         // ─── 2. Year match (max 25 points, min -15) ───
         if (year > 0 && resultYear != null) {
@@ -397,13 +444,10 @@ class MetadataProvider @Inject constructor(
         }
 
         // ─── 6. Short title extra caution ───
-        val normalizedClean = StringUtils.normalizeTitle(cleanTitle)
         if (normalizedClean.length <= SHORT_TITLE_THRESHOLD) {
             // For very short titles, require near-exact match
-            val normalizedResult = StringUtils.normalizeTitle(resultTitle)
-            val normalizedOriginal = StringUtils.normalizeTitle(resultOriginalTitle)
             if (normalizedClean != normalizedResult && normalizedClean != normalizedOriginal) {
-                score -= 15.0 // Heavy penalty for non-exact short title matches
+                score -= 80.0 // Heavy penalty for non-exact short title matches
             }
         }
 

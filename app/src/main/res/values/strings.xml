@@ -110,6 +110,8 @@
     <string name="section_continue_watching">İzlemeye Devam Et</string>
     <string name="section_favorites">Favoriler</string>
     <string name="section_recent_channels">Son Kanallar</string>
+    <string name="section_latest_movies">Son Eklenen Filmler</string>
+    <string name="section_latest_series">Son Eklenen Diziler</string>
     <string name="previous_episode">Önceki Bölüm</string>
     <string name="previous_channel">Önceki Kanal</string>
     <string name="next_channel">Sonraki Kanal</string>

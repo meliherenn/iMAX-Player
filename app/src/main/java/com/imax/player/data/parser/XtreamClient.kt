@@ -5,6 +5,11 @@ import com.imax.player.core.database.*
 import com.imax.player.core.model.ContentType
 import com.imax.player.core.network.XtreamApi
 import com.imax.player.core.network.dto.*
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.decodeFromJsonElement
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -13,6 +18,12 @@ import javax.inject.Singleton
 class XtreamClient @Inject constructor(
     private val api: XtreamApi
 ) {
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+        coerceInputValues = true
+    }
+
     private fun buildApiUrl(serverUrl: String): String {
         val base = serverUrl.trimEnd('/')
         return "$base${Constants.XTREAM_API_PATH}"
@@ -198,18 +209,19 @@ class XtreamClient @Inject constructor(
             val url = buildApiUrl(serverUrl)
             val info = api.getSeriesInfo(url, username, password, seriesId = seriesId)
             val episodes = mutableListOf<EpisodeEntity>()
-            info.episodes?.forEach { (seasonKey, episodeList) ->
+            parseSeriesEpisodes(info.episodes).forEach { (seasonKey, episodeList) ->
                 val seasonNum = seasonKey.toIntOrNull()
                     ?: Regex("""\d+""").find(seasonKey)?.value?.toIntOrNull()
                     ?: 1
-                episodeList.forEach { episode ->
+                episodeList.forEachIndexed { index, episode ->
                     val streamId = episode.id.ifBlank { episode.episodeNum.toString() }
+                    val episodeNumber = episode.episodeNum.takeIf { it > 0 } ?: (index + 1)
                     episodes.add(
                         EpisodeEntity(
                             seriesId = dbSeriesId,
                             seasonNumber = seasonNum,
-                            episodeNumber = episode.episodeNum,
-                            name = episode.title,
+                            episodeNumber = episodeNumber,
+                            name = episode.title.ifBlank { "Episode $episodeNumber" },
                             plot = episode.info?.plot ?: "",
                             posterUrl = episode.info?.movieImage ?: "",
                             streamUrl = buildStreamUrl(
@@ -231,6 +243,42 @@ class XtreamClient @Inject constructor(
         } catch (e: Exception) {
             Timber.e(e, "Failed to load series episodes")
             emptyList()
+        }
+    }
+
+    private fun parseSeriesEpisodes(element: JsonElement?): List<Pair<String, List<XtreamEpisode>>> {
+        return when (element) {
+            is JsonObject -> element.mapNotNull { (seasonKey, seasonValue) ->
+                val episodes = decodeEpisodeCollection(seasonValue)
+                if (episodes.isEmpty()) null else seasonKey to episodes
+            }
+            is JsonArray -> {
+                val episodes = decodeEpisodeCollection(element)
+                if (episodes.isEmpty()) emptyList() else listOf("1" to episodes)
+            }
+            else -> emptyList()
+        }
+    }
+
+    private fun decodeEpisodeCollection(element: JsonElement): List<XtreamEpisode> {
+        return when (element) {
+            is JsonArray -> element.mapNotNull(::decodeEpisode)
+            is JsonObject -> {
+                decodeEpisode(element)?.let { listOf(it) }
+                    ?: element.values.mapNotNull(::decodeEpisode)
+            }
+            else -> emptyList()
+        }
+    }
+
+    private fun decodeEpisode(element: JsonElement): XtreamEpisode? {
+        return runCatching {
+            json.decodeFromJsonElement<XtreamEpisode>(element)
+        }.getOrNull()?.takeIf { episode ->
+            episode.id.isNotBlank() ||
+                episode.title.isNotBlank() ||
+                episode.episodeNum > 0 ||
+                episode.containerExtension.isNotBlank()
         }
     }
 }

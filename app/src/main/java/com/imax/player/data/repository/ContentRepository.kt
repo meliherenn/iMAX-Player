@@ -61,6 +61,9 @@ class ContentRepository @Inject constructor(
     fun getRecentMovies(playlistId: Long): Flow<List<Movie>> =
         movieDao.getRecentlyWatched(playlistId).map { list -> list.map { it.toModel() } }
 
+    fun getLatestAddedMovies(playlistId: Long, limit: Int = 30): Flow<List<Movie>> =
+        movieDao.getLatestAdded(playlistId, limit).map { list -> list.map { it.toModel() } }
+
     fun getContinueWatchingMovies(playlistId: Long): Flow<List<Movie>> =
         movieDao.getContinueWatching(playlistId).map { list -> list.map { it.toModel() } }
 
@@ -87,6 +90,9 @@ class ContentRepository @Inject constructor(
 
     fun getFavoriteSeries(playlistId: Long): Flow<List<Series>> =
         seriesDao.getFavorites(playlistId).map { list -> list.map { it.toModel() } }
+
+    fun getLatestAddedSeries(playlistId: Long, limit: Int = 30): Flow<List<Series>> =
+        seriesDao.getLatestAdded(playlistId, limit).map { list -> list.map { it.toModel() } }
 
     suspend fun getSeriesById(id: Long): Series? = seriesDao.getById(id)?.toModel()
 

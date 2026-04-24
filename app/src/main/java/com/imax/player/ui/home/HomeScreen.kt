@@ -91,13 +91,14 @@ private fun TvHomeContent(
     onFocusChange: (Any?) -> Unit
 ) {
     val dimens = LocalImaxDimens.current
-    val latestMovies = remember(state.recentMovies, state.allMovies) {
-        state.recentMovies
-            .ifEmpty { state.allMovies }
+    val latestMovies = remember(state.latestMovies, state.allMovies) {
+        state.latestMovies
+            .ifEmpty { state.allMovies.asReversed() }
             .take(18)
     }
-    val latestSeries = remember(state.allSeries) {
-        state.allSeries
+    val latestSeries = remember(state.latestSeries, state.allSeries) {
+        state.latestSeries
+            .ifEmpty { state.allSeries.asReversed() }
             .take(18)
     }
     val favoriteMovies = remember(state.favoriteMovies) { state.favoriteMovies.take(18) }
@@ -181,7 +182,7 @@ private fun TvHomeContent(
             }
             if (latestMovies.isNotEmpty()) {
                 item(key = "tv-home-movies") {
-                    ContentRail(stringResource(R.string.nav_movies), dimens.screenPadding) {
+                    ContentRail(stringResource(R.string.section_latest_movies), dimens.screenPadding) {
                         items(latestMovies, key = { it.id }) { movie ->
                             ContentPosterCard(title = movie.name, posterUrl = movie.posterUrl, rating = movie.rating, year = movie.year, isTv = true,
                                 onClick = { onContentClick(movie.id, "MOVIE") })
@@ -191,7 +192,7 @@ private fun TvHomeContent(
             }
             if (latestSeries.isNotEmpty()) {
                 item(key = "tv-home-series") {
-                    ContentRail(stringResource(R.string.nav_series), dimens.screenPadding) {
+                    ContentRail(stringResource(R.string.section_latest_series), dimens.screenPadding) {
                         items(latestSeries, key = { it.id }) { series ->
                             ContentPosterCard(title = series.name, posterUrl = series.posterUrl, rating = series.rating, year = series.year, isTv = true,
                                 onClick = { onContentClick(series.id, "SERIES") })
@@ -279,10 +280,13 @@ private fun MobileHomeContent(
 
     Box(modifier = Modifier.fillMaxSize()) {
         // Dynamic backdrop
+        val featuredMovies = remember(state.latestMovies, state.allMovies) {
+            state.latestMovies.ifEmpty { state.allMovies }
+        }
         val backdropUrl = when (val selected = state.selectedContent) {
             is Movie -> selected.backdropUrl.ifBlank { selected.posterUrl }
             is Series -> selected.backdropUrl.ifBlank { selected.posterUrl }
-            else -> state.allMovies.firstOrNull()?.posterUrl ?: ""
+            else -> featuredMovies.firstOrNull()?.posterUrl ?: ""
         }
         if (backdropUrl.isNotBlank()) {
             PosterImage(
@@ -325,9 +329,12 @@ private fun MobileHomeContent(
                 }
                 Spacer(modifier = Modifier.height(12.dp))
             }
-            if (state.allMovies.isNotEmpty()) {
-                ContentRail(stringResource(R.string.nav_movies), dimens.screenPadding) {
-                    items(state.allMovies) { movie ->
+            val latestMovies = state.latestMovies.ifEmpty { state.allMovies.asReversed() }
+            val latestSeries = state.latestSeries.ifEmpty { state.allSeries.asReversed() }
+
+            if (latestMovies.isNotEmpty()) {
+                ContentRail(stringResource(R.string.section_latest_movies), dimens.screenPadding) {
+                    items(latestMovies) { movie ->
                         ContentPosterCard(title = movie.name, posterUrl = movie.posterUrl, rating = movie.rating, year = movie.year, isTv = false,
                             onClick = { onContentClick(movie.id, "MOVIE") })
                     }
@@ -343,9 +350,9 @@ private fun MobileHomeContent(
                 }
                 Spacer(modifier = Modifier.height(12.dp))
             }
-            if (state.allSeries.isNotEmpty()) {
-                ContentRail(stringResource(R.string.nav_series), dimens.screenPadding) {
-                    items(state.allSeries) { series ->
+            if (latestSeries.isNotEmpty()) {
+                ContentRail(stringResource(R.string.section_latest_series), dimens.screenPadding) {
+                    items(latestSeries) { series ->
                         ContentPosterCard(title = series.name, posterUrl = series.posterUrl, rating = series.rating, year = series.year, isTv = false,
                             onClick = { onContentClick(series.id, "SERIES") })
                     }
@@ -366,7 +373,7 @@ private fun TvHeroBanner(
     onPlay: (String, String, Long, String, Long) -> Unit,
     onDetail: (Long, String) -> Unit
 ) {
-    val featured = state.allMovies.firstOrNull() ?: return
+    val featured = state.latestMovies.firstOrNull() ?: state.allMovies.firstOrNull() ?: return
     val dimens = LocalImaxDimens.current
 
     Box(
@@ -424,7 +431,7 @@ private fun MobileHeroBanner(
     onPlay: (String, String, Long, String, Long) -> Unit,
     onDetail: (Long, String) -> Unit
 ) {
-    val featured = state.allMovies.firstOrNull() ?: return
+    val featured = state.latestMovies.firstOrNull() ?: state.allMovies.firstOrNull() ?: return
     val dimens = LocalImaxDimens.current
 
     Box(

@@ -18,6 +18,8 @@ data class HomeState(
     val favoriteMovies: List<Movie> = emptyList(),
     val allMovies: List<Movie> = emptyList(),
     val allSeries: List<Series> = emptyList(),
+    val latestMovies: List<Movie> = emptyList(),
+    val latestSeries: List<Series> = emptyList(),
     val selectedContent: Any? = null,
     val isLoading: Boolean = true
 )
@@ -54,6 +56,16 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             contentRepository.getFavoriteMovies(playlistId).collect { movies ->
                 _state.update { it.copy(favoriteMovies = movies) }
+            }
+        }
+        viewModelScope.launch {
+            contentRepository.getLatestAddedMovies(playlistId).collect { movies ->
+                _state.update { it.copy(latestMovies = movies) }
+            }
+        }
+        viewModelScope.launch {
+            contentRepository.getLatestAddedSeries(playlistId).collect { series ->
+                _state.update { it.copy(latestSeries = series) }
             }
         }
         viewModelScope.launch {

@@ -2,6 +2,7 @@ package com.imax.player.core.network.dto
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 
 @Serializable
 data class XtreamAuthResponse(
@@ -99,7 +100,7 @@ data class XtreamSeriesStream(
 @Serializable
 data class XtreamSeriesInfo(
     @SerialName("info") val info: XtreamSeriesDetail? = null,
-    @SerialName("episodes") val episodes: Map<String, List<XtreamEpisode>>? = null,
+    @SerialName("episodes") val episodes: JsonElement? = null,
     @SerialName("seasons") val seasons: List<XtreamSeason>? = null
 )
 
