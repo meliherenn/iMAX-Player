@@ -504,8 +504,6 @@ private fun TvDrawerItemRow(
             }
             .focusProperties {
                 left = FocusRequester.Cancel
-                up = previousFocusRequester ?: FocusRequester.Cancel
-                down = nextFocusRequester ?: FocusRequester.Cancel
             }
             .focusRequester(focusRequester)
             .clickable(

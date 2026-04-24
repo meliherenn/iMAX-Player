@@ -405,7 +405,10 @@ class PlayerViewModel @Inject constructor(
     }
 
     fun playChannel(channel: Channel) {
-        if (session.value.currentChannel?.id == channel.id && currentContentType == ContentType.LIVE.name) {
+        if (
+            currentContentType == ContentType.LIVE.name &&
+            (currentContentId == channel.id || session.value.currentChannel?.id == channel.id)
+        ) {
             Timber.d("LivePlayback playChannel ignored; already on channel=%s", channel.name)
             return
         }
@@ -618,6 +621,13 @@ class PlayerViewModel @Inject constructor(
                     return true
                 } else {
                     Timber.w("LivePlayback candidate failed: $candidate")
+
+                    if (isUnavailableHttpStatus(state.value.errorMessage)) {
+                        Timber.w("LivePlayback HTTP unavailable, skipping candidate: ${state.value.errorMessage}")
+                        resetPlaybackAttempt()
+                        break
+                    }
+
                     if (!shouldRetryCurrentLiveCandidate(candidate, state.value)) {
                         Timber.w("LivePlayback skipping repeated attempt for non-rendering candidate: $candidate")
                         resetPlaybackAttempt()
@@ -937,6 +947,15 @@ class PlayerViewModel @Inject constructor(
 
         return snapshot.currentPosition >= LIVE_WARMUP_MIN_PROGRESS_MS &&
             bufferedAheadMs >= LIVE_WARMUP_MIN_BUFFER_AHEAD_MS
+    }
+
+    private fun isUnavailableHttpStatus(errorMessage: String?): Boolean {
+        val message = errorMessage.orEmpty()
+        return listOf(403, 404, 410, 429, 503).any { code ->
+            message.contains("Response code: $code") ||
+                message.contains("HTTP $code") ||
+                message.contains("code: $code")
+        }
     }
 
     private fun shouldRetryCurrentLiveCandidate(candidate: String, snapshot: PlayerState): Boolean {

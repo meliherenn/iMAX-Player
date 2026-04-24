@@ -7,6 +7,8 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -105,7 +107,7 @@ class DetailViewModel @Inject constructor(
             trailerUrl = cachedMetadata?.trailerUrl.orEmpty()
         )
 
-        if (needsMetadataEnrichment(hydratedMovie)) {
+        if (cachedMetadata == null || needsMetadataEnrichment(hydratedMovie)) {
             enrichMovieMetadata(movie)
         }
     }
@@ -139,7 +141,7 @@ class DetailViewModel @Inject constructor(
             trailerUrl = cachedMetadata?.trailerUrl.orEmpty()
         )
 
-        if (needsSeriesMetadataEnrichment(hydratedSeries)) {
+        if (cachedMetadata == null || needsSeriesMetadataEnrichment(hydratedSeries)) {
             enrichSeriesMetadata(series)
         }
 
@@ -151,20 +153,22 @@ class DetailViewModel @Inject constructor(
             movie.cast.isBlank() ||
             movie.backdropUrl.isBlank() ||
             movie.genre.isBlank() ||
-            movie.duration == 0
+            movie.duration == 0 ||
+            movie.tmdbId == 0
     }
 
     private fun needsSeriesMetadataEnrichment(series: Series): Boolean {
         return series.plot.isBlank() ||
             series.cast.isBlank() ||
             series.backdropUrl.isBlank() ||
-            series.genre.isBlank()
+            series.genre.isBlank() ||
+            series.tmdbId == 0
     }
 
     private fun enrichMovieMetadata(movie: Movie) {
         viewModelScope.launch {
             _state.update { it.copy(isEnrichingMetadata = true) }
-            val metadata = contentRepository.enrichMetadata(movie.name, movie.year, ContentType.MOVIE)
+            val metadata = contentRepository.enrichMetadata(movie.name, movie.year, ContentType.MOVIE, movie.tmdbId)
             if (metadata != null) {
                 contentRepository.updateMovieWithMetadata(movie.id, metadata)
                 val updated = contentRepository.getMovie(movie.id)?.mergeWith(metadata)
@@ -186,7 +190,7 @@ class DetailViewModel @Inject constructor(
     private fun enrichSeriesMetadata(series: Series) {
         viewModelScope.launch {
             _state.update { it.copy(isEnrichingMetadata = true) }
-            val metadata = contentRepository.enrichMetadata(series.name, series.year, ContentType.SERIES)
+            val metadata = contentRepository.enrichMetadata(series.name, series.year, ContentType.SERIES, series.tmdbId)
             if (metadata != null) {
                 contentRepository.updateSeriesWithMetadata(series.id, metadata)
                 val updated = contentRepository.getSeriesById(series.id)?.mergeWith(metadata)
@@ -818,9 +822,14 @@ private fun DetailActionButtons(
     val hasSeriesPlayback = resumeEpisode?.streamUrl?.isNotBlank() == true
     val primaryActionFocusRequester = remember(isTv, movie?.id, series?.id) { FocusRequester() }
 
-    LaunchedEffect(isTv, movie?.id, series?.id) {
-        if (isTv) {
-            primaryActionFocusRequester.requestFocus()
+    val canFocusPrimaryAction = isTv && (hasMoviePlayback || hasSeriesPlayback)
+
+    LaunchedEffect(canFocusPrimaryAction, movie?.id, series?.id, resumeEpisode?.id) {
+        if (canFocusPrimaryAction) {
+            androidx.compose.runtime.withFrameNanos { }
+            runCatching {
+                primaryActionFocusRequester.requestFocus()
+            }
         }
     }
 
@@ -1026,7 +1035,8 @@ private fun TvSeasonChip(
     isSelected: Boolean,
     onClick: () -> Unit
 ) {
-    var isFocused by remember { mutableStateOf(false) }
+    val interactionSource = remember(season) { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
     val chipShape = RoundedCornerShape(18.dp)
     val focusState = rememberTvFocusVisualState(
         isFocused = isFocused,
@@ -1070,9 +1080,11 @@ private fun TvSeasonChip(
             .clip(chipShape)
             .background(focusState.backgroundColor)
             .border(focusState.borderWidth, focusState.borderColor, chipShape)
-            .clickable(onClick = onClick)
-            .onFocusChanged { isFocused = it.isFocused }
-            .focusable()
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
             .padding(horizontal = 18.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1103,7 +1115,8 @@ private fun TvEpisodeRow(
     episode: Episode,
     onPlay: () -> Unit
 ) {
-    var isFocused by remember { mutableStateOf(false) }
+    val interactionSource = remember(episode.id, episode.episodeNumber, episode.lastPosition) { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
     val dimens = LocalImaxDimens.current
     val episodeShape = RoundedCornerShape(20.dp)
     val focusState = rememberTvFocusVisualState(
@@ -1170,9 +1183,11 @@ private fun TvEpisodeRow(
             .clip(episodeShape)
             .background(focusState.backgroundColor)
             .border(effectiveBorderWidth, focusState.borderColor, episodeShape)
-            .clickable(onClick = onPlay)
-            .onFocusChanged { isFocused = it.isFocused }
-            .focusable()
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onPlay
+            )
             .padding(horizontal = 18.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1266,10 +1281,10 @@ private fun Movie.mergeWith(metadata: MetadataResult?): Movie {
     return copy(
         posterUrl = if (posterUrl.isBlank() && metadata.posterUrl.isNotBlank()) metadata.posterUrl else posterUrl,
         backdropUrl = if (backdropUrl.isBlank() && metadata.backdropUrl.isNotBlank()) metadata.backdropUrl else backdropUrl,
-        genre = if (genre.isBlank() && metadata.genre.isNotBlank()) metadata.genre else genre,
-        plot = if (plot.isBlank() && metadata.overview.isNotBlank()) metadata.overview else plot,
-        cast = if (cast.isBlank() && metadata.cast.isNotBlank()) metadata.cast else cast,
-        director = if (director.isBlank() && metadata.director.isNotBlank()) metadata.director else director,
+        genre = metadata.genre.ifBlank { genre },
+        plot = metadata.overview.ifBlank { plot },
+        cast = metadata.cast.ifBlank { cast },
+        director = metadata.director.ifBlank { director },
         year = if (year == 0 && metadata.year > 0) metadata.year else year,
         duration = if (duration == 0 && metadata.runtime > 0) metadata.runtime else duration,
         rating = if (rating == 0.0 && metadata.rating > 0) metadata.rating else rating,
@@ -1284,10 +1299,10 @@ private fun Series.mergeWith(metadata: MetadataResult?): Series {
     return copy(
         posterUrl = if (posterUrl.isBlank() && metadata.posterUrl.isNotBlank()) metadata.posterUrl else posterUrl,
         backdropUrl = if (backdropUrl.isBlank() && metadata.backdropUrl.isNotBlank()) metadata.backdropUrl else backdropUrl,
-        genre = if (genre.isBlank() && metadata.genre.isNotBlank()) metadata.genre else genre,
-        plot = if (plot.isBlank() && metadata.overview.isNotBlank()) metadata.overview else plot,
-        cast = if (cast.isBlank() && metadata.cast.isNotBlank()) metadata.cast else cast,
-        director = if (director.isBlank() && metadata.director.isNotBlank()) metadata.director else director,
+        genre = metadata.genre.ifBlank { genre },
+        plot = metadata.overview.ifBlank { plot },
+        cast = metadata.cast.ifBlank { cast },
+        director = metadata.director.ifBlank { director },
         year = if (year == 0 && metadata.year > 0) metadata.year else year,
         rating = if (rating == 0.0 && metadata.rating > 0) metadata.rating else rating,
         imdbId = if (imdbId.isBlank() && metadata.imdbId.isNotBlank()) metadata.imdbId else imdbId,

@@ -36,7 +36,7 @@ fun rememberTvFocusVisualState(
     defaultSurface: Color = Color.Transparent,
     selectedSurface: Color = ImaxColors.Primary.copy(alpha = 0.14f),
     focusedSurface: Color = ImaxColors.SurfaceElevated,
-    selectedFocusedSurface: Color = Color(0xFF6A4635),
+    selectedFocusedSurface: Color = Color(0xFF4A1C27),
     defaultContentColor: Color = ImaxColors.TextPrimary,
     defaultSecondaryContentColor: Color = ImaxColors.TextSecondary,
     selectedContentColor: Color = Color(0xFFFFE3D1),
@@ -44,22 +44,22 @@ fun rememberTvFocusVisualState(
     selectedFocusedContentColor: Color = Color.White,
     selectedBorderColor: Color = ImaxColors.Primary.copy(alpha = 0.58f),
     focusedBorderColor: Color = ImaxColors.FocusBorder,
-    selectedFocusedBorderColor: Color = Color(0xFFFFE1C8),
+    selectedFocusedBorderColor: Color = ImaxColors.FocusBorder,
     selectedAccentColor: Color = ImaxColors.Primary.copy(alpha = 0.78f),
     focusedAccentColor: Color = ImaxColors.FocusBorder,
-    selectedFocusedAccentColor: Color = Color(0xFFFFE1C8)
+    selectedFocusedAccentColor: Color = ImaxColors.FocusBorder
 ): TvFocusVisualState {
     val isFocusedAndSelected = isFocused && isSelected
     val animationSpec = tween<Dp>(180)
 
     val scale by animateFloatAsState(
         targetValue = when {
-            isFocusedAndSelected -> 1.12f
-            isFocused -> 1.10f
-            isSelected -> 1f
+            isFocusedAndSelected -> 1.045f
+            isFocused -> 1.035f
+            isSelected -> 1.01f
             else -> 1f
         },
-        animationSpec = tween(180),
+        animationSpec = tween(160),
         label = "tvFocusScale"
     )
     val shadowElevation by animateDpAsState(
@@ -74,12 +74,12 @@ fun rememberTvFocusVisualState(
     )
     val borderWidth by animateDpAsState(
         targetValue = when {
-            isFocusedAndSelected -> 4.dp
-            isFocused -> 3.5.dp
-            isSelected -> 1.dp
+            isFocusedAndSelected -> 5.dp
+            isFocused -> 4.dp
+            isSelected -> 2.dp
             else -> 0.dp
         },
-        animationSpec = animationSpec,
+        animationSpec = tween(160),
         label = "tvFocusBorderWidth"
     )
     val backgroundColor by animateColorAsState(

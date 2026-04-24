@@ -8,7 +8,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusGroup
-import androidx.compose.foundation.focusable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
@@ -28,13 +29,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
@@ -99,8 +97,8 @@ fun TvRailCategoryItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-    var isFocused by remember { mutableStateOf(false) }
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
     val itemShape = RoundedCornerShape(18.dp)
 
     val backgroundColor by animateColorAsState(
@@ -145,7 +143,7 @@ fun TvRailCategoryItem(
 
     val effectiveBorderWidth by animateDpAsState(
         targetValue = when {
-            isFocused -> 0.dp
+            isFocused -> 4.dp
             isSelected -> 1.dp
             else -> 0.dp
         },
@@ -155,6 +153,7 @@ fun TvRailCategoryItem(
 
     val borderColor by animateColorAsState(
         targetValue = when {
+            isFocused -> ImaxColors.FocusBorder
             isSelected -> Color.White.copy(alpha = 0.4f)
             else -> Color.Transparent
         },
@@ -163,7 +162,11 @@ fun TvRailCategoryItem(
     )
 
     val accentWidth by animateDpAsState(
-        targetValue = if (isSelected) 4.dp else 0.dp,
+        targetValue = when {
+            isFocused -> 8.dp
+            isSelected -> 4.dp
+            else -> 0.dp
+        },
         animationSpec = tween(180),
         label = "tvCategoryAccentWidth"
     )
@@ -178,12 +181,12 @@ fun TvRailCategoryItem(
                 this.shape = itemShape
                 clip = false
                 shadowElevation = if (isFocused) 16.dp.toPx() else 0f
-                ambientShadowColor = Color.White
+                ambientShadowColor = ImaxColors.FocusGlow
+                spotShadowColor = ImaxColors.FocusGlow
             }
             .clip(itemShape)
             .background(backgroundColor)
             .border(effectiveBorderWidth, borderColor, itemShape)
-            .onFocusChanged { isFocused = it.isFocused }
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -197,7 +200,7 @@ fun TvRailCategoryItem(
                 .width(accentWidth)
                 .height(36.dp)
                 .clip(RoundedCornerShape(999.dp))
-                .background(if (isFocused) Color.Black else Color.White)
+                .background(if (isFocused) ImaxColors.FocusBorder else Color.White)
         )
         Spacer(modifier = Modifier.width(if (accentWidth > 0.dp) 12.dp else 6.dp))
         Text(

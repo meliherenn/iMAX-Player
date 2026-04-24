@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -432,27 +433,31 @@ private fun ChannelListItem(
     onFavoriteToggle: () -> Unit
 ) {
     val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-    var isFocused by remember(channel.id, isTv) { mutableStateOf(false) }
+    val isFocused by interactionSource.collectIsFocusedAsState()
     val itemShape = RoundedCornerShape(12.dp)
 
     val targetBackgroundColor = if (isTv) {
-        if (isFocused) Color.White else ImaxColors.CardBackground
+        if (isFocused) ImaxColors.SurfaceElevated else ImaxColors.CardBackground
     } else {
         if (isFocused) ImaxColors.SurfaceVariant else ImaxColors.CardBackground
     }
     val backgroundColor by animateColorAsState(targetBackgroundColor, tween(150), label = "channelBg")
 
-    val targetContentColor = if (isTv && isFocused) Color.Black else ImaxColors.TextPrimary
+    val targetContentColor = ImaxColors.TextPrimary
     val contentColor by animateColorAsState(targetContentColor, tween(150), label = "channelText")
 
-    val targetSecondaryColor = if (isTv && isFocused) Color.DarkGray else ImaxColors.TextTertiary
+    val targetSecondaryColor = if (isTv && isFocused) ImaxColors.TextSecondary else ImaxColors.TextTertiary
     val secondaryContentColor by animateColorAsState(targetSecondaryColor, tween(150), label = "channelSecondaryText")
 
-    val targetScale = if (isTv && isFocused) 1.05f else 1f
+    val targetScale = if (isTv && isFocused) 1.035f else 1f
     val scale by animateFloatAsState(targetScale, tween(150), label = "channelScale")
 
-    val borderWidth = if (isTv && isFocused) 0.dp else if (!isTv && isFocused) 1.dp else 0.dp
-    val borderColor = if (!isTv && isFocused) ImaxColors.FocusBorder else Color.Transparent
+    val borderWidth = when {
+        isTv && isFocused -> 4.dp
+        !isTv && isFocused -> 1.dp
+        else -> 0.dp
+    }
+    val borderColor = if (isFocused) ImaxColors.FocusBorder else Color.Transparent
 
     Row(
         modifier = modifier
@@ -461,15 +466,15 @@ private fun ChannelListItem(
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
-                shadowElevation = if (isTv && isFocused) 12.dp.toPx() else 0f
-                ambientShadowColor = Color.White
+                shadowElevation = if (isTv && isFocused) 18.dp.toPx() else 0f
+                ambientShadowColor = ImaxColors.FocusGlow
+                spotShadowColor = ImaxColors.FocusGlow
                 this.shape = itemShape
                 clip = false
             }
             .clip(itemShape)
             .background(backgroundColor, itemShape)
             .border(borderWidth, borderColor, itemShape)
-            .onFocusChanged { isFocused = it.isFocused }
             .clickable(
                 interactionSource = interactionSource,
                 indication = if (isTv) null else androidx.compose.foundation.LocalIndication.current,
@@ -485,7 +490,7 @@ private fun ChannelListItem(
             modifier = Modifier
                 .size(if (isTv) 48.dp else 40.dp)
                 .clip(CircleShape)
-                .background(if (isTv && isFocused) Color.LightGray else ImaxColors.Surface)
+                .background(if (isTv && isFocused) ImaxColors.Primary.copy(alpha = 0.14f) else ImaxColors.Surface)
         )
         Spacer(modifier = Modifier.width(12.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -504,7 +509,7 @@ private fun ChannelListItem(
                 Text(
                     text = epgProgram.title,
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (isTv && isFocused) Color.DarkGray else ImaxColors.TextSecondary,
+                    color = if (isTv && isFocused) ImaxColors.TextSecondary else ImaxColors.TextSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -512,7 +517,7 @@ private fun ChannelListItem(
                     progress = { epgProgram.progressFraction },
                     modifier = Modifier.fillMaxWidth().height(2.dp).padding(top = 2.dp),
                     color = ImaxColors.Primary,
-                    trackColor = if (isTv && isFocused) Color.LightGray else ImaxColors.Surface
+                    trackColor = if (isTv && isFocused) ImaxColors.CardBorder else ImaxColors.Surface
                 )
             }
         }
@@ -527,14 +532,14 @@ private fun ChannelListItem(
             Icon(
                 imageVector = if (channel.isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
                 contentDescription = "Favorite",
-                tint = if (isTv && isFocused) Color.Black else if (channel.isFavorite) ImaxColors.Primary else ImaxColors.TextTertiary,
+                tint = if (channel.isFavorite) ImaxColors.Primary else if (isTv && isFocused) ImaxColors.TextSecondary else ImaxColors.TextTertiary,
                 modifier = Modifier.size(22.dp)
             )
         }
         Icon(
             imageVector = Icons.Filled.PlayArrow,
             contentDescription = stringResource(R.string.action_play),
-            tint = if (isTv && isFocused) Color.Black else ImaxColors.Primary,
+            tint = ImaxColors.Primary,
             modifier = Modifier.size(24.dp)
         )
     }

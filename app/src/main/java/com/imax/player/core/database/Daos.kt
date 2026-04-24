@@ -263,10 +263,10 @@ interface FavoriteDao {
 
 @Dao
 interface MetadataCacheDao {
-    @Query("SELECT * FROM metadata_cache WHERE title = :title AND (year = :year OR year = 0 OR :year = 0) AND language = :language LIMIT 1")
+    @Query("SELECT * FROM metadata_cache WHERE title = :title AND (year = :year OR year = 0 OR :year = 0) AND language = :language ORDER BY cachedAt DESC LIMIT 1")
     suspend fun find(title: String, year: Int = 0, language: String = ""): MetadataCacheEntity?
 
-    @Query("SELECT * FROM metadata_cache WHERE tmdbId = :tmdbId AND language = :language LIMIT 1")
+    @Query("SELECT * FROM metadata_cache WHERE tmdbId = :tmdbId AND language = :language ORDER BY cachedAt DESC LIMIT 1")
     suspend fun findByTmdbId(tmdbId: Int, language: String = ""): MetadataCacheEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

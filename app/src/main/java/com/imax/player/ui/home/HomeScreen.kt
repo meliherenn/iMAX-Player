@@ -7,6 +7,9 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -20,7 +23,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -508,6 +510,7 @@ private fun ContentRail(
     val dimens = LocalImaxDimens.current
     SectionHeader(title = title, modifier = Modifier.padding(horizontal = horizontalPad))
     LazyRow(
+        modifier = Modifier.focusGroup(),
         contentPadding = PaddingValues(horizontal = horizontalPad),
         horizontalArrangement = Arrangement.spacedBy(dimens.cardSpacing),
         content = { itemContent() }
@@ -522,7 +525,11 @@ private fun ContinueWatchingCard(
     onFocus: () -> Unit
 ) {
     val dimens = LocalImaxDimens.current
-    var isFocused by remember { mutableStateOf(false) }
+    val interactionSource = remember(item.id, item.contentId, item.contentType) { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    LaunchedEffect(isFocused, item.id, item.contentId, item.contentType) {
+        if (isFocused) onFocus()
+    }
     val width = if (isTv) 240.dp else 184.dp
     val title = remember(item) { item.seriesName.ifBlank { item.title } }
     val subtitle = remember(item) { continueWatchingSubtitle(item) }
@@ -581,12 +588,11 @@ private fun ContinueWatchingCard(
                 color = borderColor,
                 shape = RoundedCornerShape(dimens.borderRadius)
             )
-            .clickable(onClick = onClick)
-            .onFocusChanged { fs ->
-                isFocused = fs.isFocused
-                if (fs.isFocused) onFocus()
-            }
-            .focusable()
+            .clickable(
+                interactionSource = interactionSource,
+                indication = if (isTv) null else LocalIndication.current,
+                onClick = onClick
+            )
     ) {
         Box(modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
             PosterImage(url = item.posterUrl, contentDescription = item.title, modifier = Modifier.fillMaxSize())
@@ -719,7 +725,11 @@ private fun ChannelCard(
     onFocus: () -> Unit
 ) {
     val dimens = LocalImaxDimens.current
-    var isFocused by remember { mutableStateOf(false) }
+    val interactionSource = remember(channel.id) { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    LaunchedEffect(isFocused, channel.id) {
+        if (isFocused) onFocus()
+    }
 
     val tvFocusState = if (isTv) {
         rememberTvFocusVisualState(
@@ -748,49 +758,81 @@ private fun ChannelCard(
     )
     val borderColor = tvFocusState?.borderColor ?: ImaxColors.FocusBorder
 
-    Column(
+    Box(
         modifier = Modifier
             .width(if (isTv) 160.dp else 110.dp)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
             }
-            .clip(RoundedCornerShape(dimens.borderRadius))
-            .background(backgroundColor)
-            .then(
-                if (isTv && isFocused && tvFocusState != null) {
-                    Modifier.shadow(
-                        elevation = tvFocusState.shadowElevation,
-                        shape = RoundedCornerShape(dimens.borderRadius),
-                        spotColor = tvFocusState.glowColor
-                    )
-                } else Modifier
-            )
-            .border(
-                width = borderWidth,
-                color = borderColor,
-                shape = RoundedCornerShape(dimens.borderRadius)
-            )
-            .clickable(onClick = onClick)
-            .onFocusChanged { fs ->
-                isFocused = fs.isFocused
-                if (fs.isFocused) onFocus()
-            }
-            .focusable()
-            .padding(12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        PosterImage(
-            url = channel.logoUrl,
-            contentDescription = channel.name,
-            contentScale = ContentScale.Fit,
-            modifier = Modifier.size(if (isTv) 64.dp else 48.dp)
-                .clip(RoundedCornerShape(8.dp))
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(text = channel.name, style = MaterialTheme.typography.titleSmall,
-            color = ImaxColors.TextPrimary,
-            maxLines = 2, overflow = TextOverflow.Ellipsis,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(dimens.borderRadius))
+                .background(backgroundColor)
+                .then(
+                    if (isTv && isFocused && tvFocusState != null) {
+                        Modifier.shadow(
+                            elevation = tvFocusState.shadowElevation,
+                            shape = RoundedCornerShape(dimens.borderRadius),
+                            spotColor = ImaxColors.Primary.copy(alpha = 0.75f)
+                        )
+                    } else {
+                        Modifier
+                    }
+                )
+                .border(
+                    width = if (isTv && isFocused) 4.dp else borderWidth,
+                    color = if (isTv && isFocused) ImaxColors.Primary else borderColor,
+                    shape = RoundedCornerShape(dimens.borderRadius)
+                )
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = if (isTv) null else LocalIndication.current,
+                    onClick = onClick
+                )
+                .padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            PosterImage(
+                url = channel.logoUrl,
+                contentDescription = channel.name,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .size(if (isTv) 64.dp else 48.dp)
+                    .clip(RoundedCornerShape(8.dp))
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = channel.name,
+                style = MaterialTheme.typography.titleSmall,
+                color = if (isTv && isFocused) Color.White else ImaxColors.TextPrimary,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+        }
+
+        if (isTv && isFocused) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(7.dp)
+                    .width(7.dp)
+                    .height(54.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(ImaxColors.Primary)
+            )
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(8.dp)
+                    .size(12.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(ImaxColors.Primary)
+            )
+        }
     }
 }

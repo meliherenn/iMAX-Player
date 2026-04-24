@@ -10,6 +10,8 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -33,6 +35,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.pointerInput
@@ -1582,20 +1585,45 @@ private fun ChannelSwitchSheet(
                         ) {
                             items(channels, key = { it.id }) { channel ->
                                 val isCurrent = channel.id == currentChannelId
-                                var isFocused by remember { mutableStateOf(false) }
+                                val interactionSource = remember(channel.id) { MutableInteractionSource() }
+                                val isFocused by interactionSource.collectIsFocusedAsState()
+                                val itemShape = RoundedCornerShape(12.dp)
                                 
                                 Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = if (isFocused) Color.White else if (isCurrent) ImaxColors.Primary.copy(alpha = 0.14f) else ImaxColors.SurfaceVariant,
+                                    shape = itemShape,
+                                    color = when {
+                                        isFocused -> ImaxColors.SurfaceElevated
+                                        isCurrent -> ImaxColors.Primary.copy(alpha = 0.14f)
+                                        else -> ImaxColors.SurfaceVariant
+                                    },
                                     border = BorderStroke(
-                                        width = if (isFocused) 0.dp else if (isCurrent) 1.dp else 0.dp,
-                                        color = if (isCurrent && !isFocused) ImaxColors.Primary else Color.Transparent
+                                        width = when {
+                                            isFocused -> 4.dp
+                                            isCurrent -> 1.dp
+                                            else -> 0.dp
+                                        },
+                                        color = when {
+                                            isFocused -> ImaxColors.FocusBorder
+                                            isCurrent -> ImaxColors.Primary
+                                            else -> Color.Transparent
+                                        }
                                     ),
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .onFocusChanged { isFocused = it.isFocused }
-                                        .focusable(enabled = !isCurrent && !isSwitching)
-                                        .clickable(enabled = !isCurrent && !isSwitching) { onChannelSelected(channel) }
+                                        .graphicsLayer {
+                                            scaleX = if (isFocused) 1.025f else 1f
+                                            scaleY = if (isFocused) 1.025f else 1f
+                                            shadowElevation = if (isFocused) 18.dp.toPx() else 0f
+                                            ambientShadowColor = ImaxColors.FocusGlow
+                                            spotShadowColor = ImaxColors.FocusGlow
+                                            shape = itemShape
+                                            clip = false
+                                        }
+                                        .clickable(
+                                            enabled = !isCurrent && !isSwitching,
+                                            interactionSource = interactionSource,
+                                            indication = null
+                                        ) { onChannelSelected(channel) }
                                 ) {
                                     Row(
                                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
@@ -1605,7 +1633,7 @@ private fun ChannelSwitchSheet(
                                             Text(
                                                 text = channel.name,
                                                 style = MaterialTheme.typography.titleMedium,
-                                                color = if (isFocused) Color.Black else ImaxColors.TextPrimary,
+                                                color = ImaxColors.TextPrimary,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis
                                             )
@@ -1614,7 +1642,7 @@ private fun ChannelSwitchSheet(
                                                 Text(
                                                     text = channel.groupTitle,
                                                     style = MaterialTheme.typography.bodySmall,
-                                                    color = if (isFocused) Color.DarkGray else ImaxColors.TextTertiary,
+                                                    color = if (isFocused) ImaxColors.TextSecondary else ImaxColors.TextTertiary,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis
                                                 )
@@ -1624,13 +1652,13 @@ private fun ChannelSwitchSheet(
                                             Text(
                                                 text = stringResource(R.string.now_playing),
                                                 style = MaterialTheme.typography.labelMedium,
-                                                color = if (isFocused) Color.Black else ImaxColors.Primary
+                                                color = ImaxColors.Primary
                                             )
                                         } else {
                                             Icon(
                                                 imageVector = Icons.Filled.PlayArrow,
                                                 contentDescription = null,
-                                                tint = if (isFocused) Color.Black else ImaxColors.Primary
+                                                tint = ImaxColors.Primary
                                             )
                                         }
                                     }

@@ -8,6 +8,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -382,6 +385,7 @@ private fun TvHistoryRail(
     )
     Spacer(modifier = Modifier.height(12.dp))
     LazyRow(
+        modifier = Modifier.focusGroup(),
         contentPadding = PaddingValues(horizontal = dimens.screenPadding),
         horizontalArrangement = Arrangement.spacedBy(dimens.cardSpacing)
     ) {
@@ -409,7 +413,8 @@ private fun TvHistoryCard(
     onSecondaryAction: () -> Unit
 ) {
     val dimens = LocalImaxDimens.current
-    var isFocused by remember { mutableStateOf(false) }
+    val interactionSource = remember(item.id, item.contentId, item.contentType) { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
     val progress = item.progress.coerceIn(0f, 1f)
     val title = item.seriesName.ifBlank { item.title }
 
@@ -448,9 +453,11 @@ private fun TvHistoryCard(
                 color = tvFocusState.borderColor.takeIf { isFocused } ?: Color.Transparent,
                 shape = RoundedCornerShape(22.dp)
             )
-            .clickable(onClick = onResume)
-            .onFocusChanged { isFocused = it.isFocused }
-            .focusable()
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onResume
+            )
     ) {
         Box(
             modifier = Modifier
@@ -532,11 +539,25 @@ private fun TvHistoryCard(
                 overflow = TextOverflow.Ellipsis
             )
             Spacer(modifier = Modifier.height(12.dp))
-            ImaxOutlinedButton(
-                text = if (item.contentType == ContentType.LIVE) stringResource(R.string.action_play) else stringResource(R.string.action_details),
-                onClick = onSecondaryAction,
-                isTv = true
-            )
+            Surface(
+                shape = RoundedCornerShape(999.dp),
+                color = ImaxColors.Primary.copy(alpha = if (isFocused) 0.24f else 0.14f),
+                border = androidx.compose.foundation.BorderStroke(
+                    width = if (isFocused) 1.5.dp else 1.dp,
+                    color = ImaxColors.Primary.copy(alpha = if (isFocused) 0.85f else 0.45f)
+                )
+            ) {
+                Text(
+                    text = if (item.contentType == ContentType.LIVE) {
+                        stringResource(R.string.action_play)
+                    } else {
+                        stringResource(R.string.action_details)
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (isFocused) Color.White else ImaxColors.Primary,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+                )
+            }
         }
     }
 }
@@ -618,6 +639,7 @@ private fun TvFavoritesContent(
             )
             Spacer(modifier = Modifier.height(12.dp))
             LazyRow(
+                modifier = Modifier.focusGroup(),
                 contentPadding = PaddingValues(horizontal = dimens.screenPadding),
                 horizontalArrangement = Arrangement.spacedBy(dimens.cardSpacing)
             ) {
@@ -738,6 +760,7 @@ private fun TvMovieRail(
     )
     Spacer(modifier = Modifier.height(12.dp))
     LazyRow(
+        modifier = Modifier.focusGroup(),
         contentPadding = PaddingValues(horizontal = dimens.screenPadding),
         horizontalArrangement = Arrangement.spacedBy(dimens.cardSpacing)
     ) {
@@ -771,6 +794,7 @@ private fun TvSeriesRail(
     )
     Spacer(modifier = Modifier.height(12.dp))
     LazyRow(
+        modifier = Modifier.focusGroup(),
         contentPadding = PaddingValues(horizontal = dimens.screenPadding),
         horizontalArrangement = Arrangement.spacedBy(dimens.cardSpacing)
     ) {
@@ -794,7 +818,8 @@ private fun TvFavoriteChannelCard(
     onClick: () -> Unit
 ) {
     val dimens = LocalImaxDimens.current
-    var isFocused by remember { mutableStateOf(false) }
+    val interactionSource = remember(channel.id) { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
 
     val tvFocusState = rememberTvFocusVisualState(
         isFocused = isFocused,
@@ -808,60 +833,93 @@ private fun TvFavoriteChannelCard(
     val borderWidth by animateDpAsState(targetValue = tvFocusState.borderWidth.coerceAtLeast(if (isFocused) dimens.focusBorderWidth else 0.dp), animationSpec = tween(180), label = "fcBorder")
     val backgroundColor by animateColorAsState(targetValue = tvFocusState.backgroundColor, animationSpec = tween(180), label = "fcBackground")
 
-    Column(
+    Box(
         modifier = Modifier
             .width(170.dp)
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
             }
-            .clip(RoundedCornerShape(20.dp))
-            .background(backgroundColor)
-            .then(
-                if (isFocused) {
-                    Modifier.shadow(
-                        elevation = tvFocusState.shadowElevation,
-                        shape = RoundedCornerShape(20.dp),
-                        spotColor = tvFocusState.glowColor
-                    )
-                } else Modifier
-            )
-            .border(
-                width = borderWidth,
-                color = tvFocusState.borderColor.takeIf { isFocused } ?: Color.Transparent,
-                shape = RoundedCornerShape(20.dp)
-            )
-            .clickable(onClick = onClick)
-            .onFocusChanged { isFocused = it.isFocused }
-            .focusable()
-            .padding(horizontal = 16.dp, vertical = 18.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        PosterImage(
-            url = channel.logoUrl,
-            contentDescription = channel.name,
-            contentScale = ContentScale.Fit,
+        Column(
             modifier = Modifier
-                .size(72.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(ImaxColors.Surface)
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-        Text(
-            text = channel.name,
-            style = MaterialTheme.typography.titleMedium,
-            color = ImaxColors.TextPrimary,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
-        if (channel.groupTitle.isNotBlank()) {
-            Spacer(modifier = Modifier.height(4.dp))
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(backgroundColor)
+                .then(
+                    if (isFocused) {
+                        Modifier.shadow(
+                            elevation = tvFocusState.shadowElevation,
+                            shape = RoundedCornerShape(20.dp),
+                            spotColor = ImaxColors.Primary.copy(alpha = 0.75f)
+                        )
+                    } else {
+                        Modifier
+                    }
+                )
+                .border(
+                    width = if (isFocused) 4.dp else borderWidth,
+                    color = if (isFocused) ImaxColors.Primary else Color.Transparent,
+                    shape = RoundedCornerShape(20.dp)
+                )
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = onClick
+                )
+                .padding(horizontal = 16.dp, vertical = 18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            PosterImage(
+                url = channel.logoUrl,
+                contentDescription = channel.name,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .size(72.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(ImaxColors.Surface)
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
             Text(
-                text = channel.groupTitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = ImaxColors.TextTertiary,
-                maxLines = 1,
+                text = channel.name,
+                style = MaterialTheme.typography.titleMedium,
+                color = if (isFocused) Color.White else ImaxColors.TextPrimary,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis
+            )
+
+            if (channel.groupTitle.isNotBlank()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = channel.groupTitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isFocused) Color.White.copy(alpha = 0.82f) else ImaxColors.TextTertiary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+
+        if (isFocused) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(8.dp)
+                    .width(7.dp)
+                    .height(58.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(ImaxColors.Primary)
+            )
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(9.dp)
+                    .size(12.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(ImaxColors.Primary)
             )
         }
     }

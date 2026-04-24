@@ -187,10 +187,10 @@ class ContentRepository @Inject constructor(
      * Fetch metadata from TMDB for a movie or series with missing details.
      * Returns the MetadataResult if successful and confidence is sufficient, null otherwise.
      */
-    suspend fun enrichMetadata(title: String, year: Int, contentType: ContentType): MetadataResult? {
+    suspend fun enrichMetadata(title: String, year: Int, contentType: ContentType, tmdbId: Int = 0): MetadataResult? {
         return withContext(Dispatchers.IO) {
             try {
-                val result = metadataProvider.fetchMetadata(title, year, contentType)
+                val result = metadataProvider.fetchMetadata(title, year, contentType, tmdbId)
                 // MetadataProvider already handles confidence thresholds
                 // A null return means no confident match was found
                 result
@@ -220,10 +220,10 @@ class ContentRepository @Inject constructor(
         withContext(Dispatchers.IO) {
             val entity = movieDao.getById(movieId) ?: return@withContext
             val updated = entity.copy(
-                plot = if (entity.plot.isBlank() && metadata.overview.isNotBlank()) metadata.overview else entity.plot,
-                cast = if (entity.cast.isBlank() && metadata.cast.isNotBlank()) metadata.cast else entity.cast,
-                director = if (entity.director.isBlank() && metadata.director.isNotBlank()) metadata.director else entity.director,
-                genre = if (entity.genre.isBlank() && metadata.genre.isNotBlank()) metadata.genre else entity.genre,
+                plot = metadata.overview.ifBlank { entity.plot },
+                cast = metadata.cast.ifBlank { entity.cast },
+                director = metadata.director.ifBlank { entity.director },
+                genre = metadata.genre.ifBlank { entity.genre },
                 rating = if (entity.rating == 0.0 && metadata.rating > 0) metadata.rating else entity.rating,
                 year = if (entity.year == 0 && metadata.year > 0) metadata.year else entity.year,
                 posterUrl = if (entity.posterUrl.isBlank() && metadata.posterUrl.isNotBlank()) metadata.posterUrl else entity.posterUrl,
@@ -243,10 +243,10 @@ class ContentRepository @Inject constructor(
         withContext(Dispatchers.IO) {
             val entity = seriesDao.getById(seriesId) ?: return@withContext
             val updated = entity.copy(
-                plot = if (entity.plot.isBlank() && metadata.overview.isNotBlank()) metadata.overview else entity.plot,
-                cast = if (entity.cast.isBlank() && metadata.cast.isNotBlank()) metadata.cast else entity.cast,
-                director = if (entity.director.isBlank() && metadata.director.isNotBlank()) metadata.director else entity.director,
-                genre = if (entity.genre.isBlank() && metadata.genre.isNotBlank()) metadata.genre else entity.genre,
+                plot = metadata.overview.ifBlank { entity.plot },
+                cast = metadata.cast.ifBlank { entity.cast },
+                director = metadata.director.ifBlank { entity.director },
+                genre = metadata.genre.ifBlank { entity.genre },
                 rating = if (entity.rating == 0.0 && metadata.rating > 0) metadata.rating else entity.rating,
                 year = if (entity.year == 0 && metadata.year > 0) metadata.year else entity.year,
                 posterUrl = if (entity.posterUrl.isBlank() && metadata.posterUrl.isNotBlank()) metadata.posterUrl else entity.posterUrl,

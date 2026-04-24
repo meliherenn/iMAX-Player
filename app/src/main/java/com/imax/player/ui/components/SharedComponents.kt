@@ -9,6 +9,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -94,7 +96,8 @@ fun ContentPosterCard(
 ) {
     val dimens = LocalImaxDimens.current
     val width = cardWidth ?: dimens.cardWidth
-    var isFocused by remember(title, posterUrl, year, isTv) { mutableStateOf(false) }
+    val interactionSource = remember(title, posterUrl, year, isTv) { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
     val tvFocusState = if (isTv) {
         rememberTvFocusVisualState(
             isFocused = isFocused,
@@ -148,25 +151,31 @@ fun ContentPosterCard(
         modifier = modifier
             .width(width)
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .onFocusChanged { isFocused = it.isFocused }
+            .shadow(
+                elevation = if (isFocused) tvFocusState?.shadowElevation ?: 12.dp else 0.dp,
+                shape = RoundedCornerShape(dimens.borderRadius),
+                clip = false,
+                ambientColor = (tvFocusState?.glowColor ?: ImaxColors.FocusGlow).copy(alpha = glowAlpha),
+                spotColor = (tvFocusState?.glowColor ?: ImaxColors.FocusGlow).copy(alpha = glowAlpha)
+            )
             .clip(RoundedCornerShape(dimens.borderRadius))
+            .background(backgroundColor, RoundedCornerShape(dimens.borderRadius))
             .then(
-                if (isFocused) Modifier
-                    .shadow(
-                        elevation = tvFocusState?.shadowElevation ?: 12.dp,
-                        shape = RoundedCornerShape(dimens.borderRadius),
-                        spotColor = (tvFocusState?.glowColor ?: ImaxColors.FocusGlow).copy(alpha = glowAlpha)
-                    )
-                    .border(
-                        borderWidth,
+                if (isFocused) {
+                    Modifier.border(
+                        borderWidth.coerceAtLeast(if (isTv) 4.dp else borderWidth),
                         tvFocusState?.borderColor ?: ImaxColors.FocusBorder,
                         RoundedCornerShape(dimens.borderRadius)
                     )
-                else Modifier
+                } else {
+                    Modifier
+                }
             )
-            .clickable(onClick = onClick)
-            .focusable()
-            .background(backgroundColor)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = if (isTv) null else LocalIndication.current,
+                onClick = onClick
+            )
     ) {
         Box(
             modifier = Modifier
@@ -418,7 +427,6 @@ fun GradientButton(
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .onFocusChanged { isFocused = it.isFocused }
-            .focusable(enabled = enabled)
             .then(
                 if (isFocused) Modifier.border(if (isTv) 3.dp else 2.dp, ImaxColors.FocusBorder, RoundedCornerShape(12.dp))
                 else Modifier
@@ -478,7 +486,6 @@ fun ImaxOutlinedButton(
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .onFocusChanged { isFocused = it.isFocused }
-            .focusable(enabled = enabled)
             .then(
                 if (isFocused) Modifier.border(if (isTv) 3.dp else 2.dp, ImaxColors.FocusBorder, RoundedCornerShape(12.dp))
                 else Modifier

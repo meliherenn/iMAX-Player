@@ -72,8 +72,8 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
@@ -149,6 +149,13 @@ private data class TvPanelOption(
     val enabled: Boolean = true,
     val onClick: () -> Unit
 )
+
+
+private fun nextAspectRatioMode(current: AspectRatioMode): AspectRatioMode {
+    val modes = AspectRatioMode.entries
+    val index = modes.indexOf(current).takeIf { it >= 0 } ?: 0
+    return modes[(index + 1) % modes.size]
+}
 
 @Composable
 fun TvPlayerScreen(
@@ -381,10 +388,13 @@ fun TvPlayerScreen(
         val targetAction = resolvedOverlayAction(requestedOverlayAction)
         if (requestedOverlayAction != targetAction) {
             requestedOverlayAction = targetAction
+            return@LaunchedEffect
         }
         if (lastOverlayAction !in availableOverlayActions) {
             lastOverlayAction = targetAction
         }
+
+        withFrameNanos { }
 
         when {
             activePanel != TvPlayerPanel.NONE -> Unit
@@ -398,7 +408,9 @@ fun TvPlayerScreen(
                     .getValue(targetAction)
                     .requestFocusSafely("player overlay action $targetAction")
             }
-            else -> rootFocusRequester.requestFocusSafely("player root surface")
+            else -> {
+                rootFocusRequester.requestFocusSafely("player root surface")
+            }
         }
     }
 
@@ -509,6 +521,9 @@ fun TvPlayerScreen(
                         if (!overlayVisible && activePanel == TvPlayerPanel.NONE) {
                             registerInteraction()
                             if (isLivePlayback) {
+                                if (isChannelSwitching) {
+                                    return@onPreviewKeyEvent true
+                                }
                                 val targetChannel = session.previousChannel
                                 Timber.tag(TV_PLAYER_LOG_TAG).d(
                                     "remote left live zap previous current=%s target=%s switching=%s",
@@ -518,8 +533,8 @@ fun TvPlayerScreen(
                                 )
                                 if (targetChannel != null) {
                                     showTransientZapFeedback(TvOverlayAction.MAIN_PREVIOUS, targetChannel.name)
+                                    viewModel.playPreviousChannel()
                                 }
-                                viewModel.playPreviousChannel()
                             } else {
                                 clearTransientZapFeedback()
                                 viewModel.seekBackward()
@@ -535,6 +550,9 @@ fun TvPlayerScreen(
                         if (!overlayVisible && activePanel == TvPlayerPanel.NONE) {
                             registerInteraction()
                             if (isLivePlayback) {
+                                if (isChannelSwitching) {
+                                    return@onPreviewKeyEvent true
+                                }
                                 val targetChannel = session.nextChannel
                                 Timber.tag(TV_PLAYER_LOG_TAG).d(
                                     "remote right live zap next current=%s target=%s switching=%s",
@@ -544,8 +562,8 @@ fun TvPlayerScreen(
                                 )
                                 if (targetChannel != null) {
                                     showTransientZapFeedback(TvOverlayAction.MAIN_NEXT, targetChannel.name)
+                                    viewModel.playNextChannel()
                                 }
-                                viewModel.playNextChannel()
                             } else {
                                 clearTransientZapFeedback()
                                 viewModel.seekForward()
@@ -747,26 +765,31 @@ fun TvPlayerScreen(
                 isChannelSwitching = isChannelSwitching,
                 onDismiss = ::closePanel,
                 onSelectChannel = { channel ->
-                    if (!isChannelSwitching) {
-                        viewModel.playChannel(channel)
+                    viewModel.playChannel(channel)
+                    hideOverlay()
+                    showTransientZapFeedback(TvOverlayAction.MAIN_NEXT, channel.name)
+                },
+                onSelectAudio = {
+                    if (playerState.selectedAudioTrack != it) {
+                        viewModel.selectAudio(it)
                         closePanel()
                     }
                 },
-                onSelectAudio = {
-                    viewModel.selectAudio(it)
-                    closePanel()
-                },
                 onSelectSubtitle = {
-                    viewModel.selectSubtitle(it)
-                    closePanel()
+                    if (playerState.selectedSubtitleTrack != it) {
+                        viewModel.selectSubtitle(it)
+                        closePanel()
+                    }
                 },
                 onDisableSubtitles = {
                     viewModel.disableSubtitles()
                     closePanel()
                 },
                 onSelectAspectRatio = {
-                    viewModel.setAspectRatio(it)
-                    closePanel()
+                    if (playerState.aspectRatioMode != it) {
+                        viewModel.setAspectRatio(it)
+                        closePanel()
+                    }
                 },
                 onSelectSpeed = {
                     viewModel.setSpeed(it)
@@ -905,31 +928,7 @@ private fun TvPlaybackOverlay(
         }
     }
 
-    fun actionRequester(action: TvOverlayAction?): FocusRequester {
-        return action?.let { overlayActionRequesters.getValue(it) } ?: FocusRequester.Cancel
-    }
 
-    fun utilityActionForMain(slot: Int): TvOverlayAction? {
-        if (utilityActions.isEmpty()) return null
-
-        return when (slot) {
-            0 -> utilityActions.first()
-            1 -> utilityActions[utilityActions.lastIndex / 2]
-            else -> utilityActions.last()
-        }
-    }
-
-    fun mainActionForUtility(index: Int): TvOverlayAction {
-        if (utilityActions.size <= 1) {
-            return TvOverlayAction.PLAY_PAUSE
-        }
-
-        return when {
-            index == 0 -> TvOverlayAction.MAIN_PREVIOUS
-            index == utilityActions.lastIndex -> TvOverlayAction.MAIN_NEXT
-            else -> TvOverlayAction.PLAY_PAUSE
-        }
-    }
 
     Box(
         modifier = Modifier
@@ -965,9 +964,6 @@ private fun TvPlaybackOverlay(
                         icon = Icons.AutoMirrored.Filled.ArrowBack,
                         label = stringResource(R.string.cancel),
                         focusRequester = overlayActionRequesters.getValue(TvOverlayAction.BACK),
-                        focusProperties = {
-                            down = overlayActionRequesters.getValue(TvOverlayAction.PLAY_PAUSE)
-                        },
                         onFocused = { onActionFocused(TvOverlayAction.BACK) },
                         onClick = onBack
                     )
@@ -1043,11 +1039,6 @@ private fun TvPlaybackOverlay(
                         label = if (isLivePlayback) stringResource(R.string.previous_channel) else "10s",
                         enabled = if (isLivePlayback) hasPreviousChannel else true,
                         focusRequester = overlayActionRequesters.getValue(TvOverlayAction.MAIN_PREVIOUS),
-                        focusProperties = {
-                            up = overlayActionRequesters.getValue(TvOverlayAction.BACK)
-                            right = overlayActionRequesters.getValue(TvOverlayAction.PLAY_PAUSE)
-                            down = actionRequester(utilityActionForMain(0))
-                        },
                         onFocused = { onActionFocused(TvOverlayAction.MAIN_PREVIOUS) },
                         onClick = onPrevious
                     )
@@ -1057,12 +1048,6 @@ private fun TvPlaybackOverlay(
                         enabled = true,
                         primary = true,
                         focusRequester = overlayActionRequesters.getValue(TvOverlayAction.PLAY_PAUSE),
-                        focusProperties = {
-                            up = overlayActionRequesters.getValue(TvOverlayAction.BACK)
-                            left = overlayActionRequesters.getValue(TvOverlayAction.MAIN_PREVIOUS)
-                            right = overlayActionRequesters.getValue(TvOverlayAction.MAIN_NEXT)
-                            down = actionRequester(utilityActionForMain(1))
-                        },
                         onFocused = { onActionFocused(TvOverlayAction.PLAY_PAUSE) },
                         onClick = onPlayPause
                     )
@@ -1071,11 +1056,6 @@ private fun TvPlaybackOverlay(
                         label = if (isLivePlayback) stringResource(R.string.next_channel) else "10s",
                         enabled = if (isLivePlayback) hasNextChannel else true,
                         focusRequester = overlayActionRequesters.getValue(TvOverlayAction.MAIN_NEXT),
-                        focusProperties = {
-                            up = overlayActionRequesters.getValue(TvOverlayAction.BACK)
-                            left = overlayActionRequesters.getValue(TvOverlayAction.PLAY_PAUSE)
-                            down = actionRequester(utilityActionForMain(2))
-                        },
                         onFocused = { onActionFocused(TvOverlayAction.MAIN_NEXT) },
                         onClick = onNext
                     )
@@ -1091,11 +1071,6 @@ private fun TvPlaybackOverlay(
                                 icon = Icons.AutoMirrored.Filled.List,
                                 label = stringResource(R.string.channel_list),
                                 focusRequester = overlayActionRequesters.getValue(action),
-                                focusProperties = {
-                                    left = actionRequester(utilityActions.getOrNull(index - 1))
-                                    right = actionRequester(utilityActions.getOrNull(index + 1))
-                                    up = overlayActionRequesters.getValue(mainActionForUtility(index))
-                                },
                                 onFocused = { onActionFocused(action) },
                                 onClick = onOpenChannels
                             )
@@ -1104,11 +1079,6 @@ private fun TvPlaybackOverlay(
                                 icon = Icons.Filled.SkipPrevious,
                                 label = stringResource(R.string.previous_episode),
                                 focusRequester = overlayActionRequesters.getValue(action),
-                                focusProperties = {
-                                    left = actionRequester(utilityActions.getOrNull(index - 1))
-                                    right = actionRequester(utilityActions.getOrNull(index + 1))
-                                    up = overlayActionRequesters.getValue(mainActionForUtility(index))
-                                },
                                 onFocused = { onActionFocused(action) },
                                 onClick = onPreviousEpisode
                             )
@@ -1117,11 +1087,6 @@ private fun TvPlaybackOverlay(
                                 icon = Icons.Filled.SkipNext,
                                 label = stringResource(R.string.next_episode),
                                 focusRequester = overlayActionRequesters.getValue(action),
-                                focusProperties = {
-                                    left = actionRequester(utilityActions.getOrNull(index - 1))
-                                    right = actionRequester(utilityActions.getOrNull(index + 1))
-                                    up = overlayActionRequesters.getValue(mainActionForUtility(index))
-                                },
                                 onFocused = { onActionFocused(action) },
                                 onClick = onNextEpisode
                             )
@@ -1130,11 +1095,6 @@ private fun TvPlaybackOverlay(
                                 icon = Icons.Filled.Audiotrack,
                                 label = stringResource(R.string.setting_audio_track),
                                 focusRequester = overlayActionRequesters.getValue(action),
-                                focusProperties = {
-                                    left = actionRequester(utilityActions.getOrNull(index - 1))
-                                    right = actionRequester(utilityActions.getOrNull(index + 1))
-                                    up = overlayActionRequesters.getValue(mainActionForUtility(index))
-                                },
                                 onFocused = { onActionFocused(action) },
                                 onClick = onOpenAudio
                             )
@@ -1143,11 +1103,6 @@ private fun TvPlaybackOverlay(
                                 icon = Icons.Filled.Subtitles,
                                 label = stringResource(R.string.setting_subtitles),
                                 focusRequester = overlayActionRequesters.getValue(action),
-                                focusProperties = {
-                                    left = actionRequester(utilityActions.getOrNull(index - 1))
-                                    right = actionRequester(utilityActions.getOrNull(index + 1))
-                                    up = overlayActionRequesters.getValue(mainActionForUtility(index))
-                                },
                                 onFocused = { onActionFocused(action) },
                                 onClick = onOpenSubtitle
                             )
@@ -1156,11 +1111,6 @@ private fun TvPlaybackOverlay(
                                 icon = Icons.Filled.AspectRatio,
                                 label = stringResource(R.string.setting_display_mode),
                                 focusRequester = overlayActionRequesters.getValue(action),
-                                focusProperties = {
-                                    left = actionRequester(utilityActions.getOrNull(index - 1))
-                                    right = actionRequester(utilityActions.getOrNull(index + 1))
-                                    up = overlayActionRequesters.getValue(mainActionForUtility(index))
-                                },
                                 onFocused = { onActionFocused(action) },
                                 onClick = onOpenScreenMode
                             )
@@ -1169,11 +1119,6 @@ private fun TvPlaybackOverlay(
                                 icon = Icons.Filled.Settings,
                                 label = stringResource(R.string.nav_settings),
                                 focusRequester = overlayActionRequesters.getValue(action),
-                                focusProperties = {
-                                    left = actionRequester(utilityActions.getOrNull(index - 1))
-                                    right = actionRequester(utilityActions.getOrNull(index + 1))
-                                    up = overlayActionRequesters.getValue(mainActionForUtility(index))
-                                },
                                 onFocused = { onActionFocused(action) },
                                 onClick = onOpenSettings
                             )
@@ -1208,8 +1153,7 @@ private fun TvPlayerPanelHost(
 ) {
     Box(
         modifier = modifier
-            .background(Color.Black.copy(alpha = 0.44f))
-            .clickable(onClick = onDismiss),
+            .background(Color.Black.copy(alpha = 0.44f)),
         contentAlignment = Alignment.CenterEnd
     ) {
         when (activePanel) {
@@ -1224,7 +1168,7 @@ private fun TvPlayerPanelHost(
                             title = channel.name,
                             subtitle = channel.groupTitle.ifBlank { null },
                             selected = channel.id == currentChannelId,
-                            enabled = channel.id != currentChannelId && !isChannelSwitching,
+                            enabled = channel.id != currentChannelId,
                             onClick = { onSelectChannel(channel) }
                         )
                     }
@@ -1320,9 +1264,26 @@ private fun TvPlayerPanelHost(
                     modifier = Modifier.clickable(enabled = false) {},
                     items = listOf(
                         TvPanelOption(
+                            title = stringResource(R.string.setting_display_mode),
+                            subtitle = playerState.aspectRatioMode.label,
+                            onClick = { onSelectAspectRatio(nextAspectRatioMode(playerState.aspectRatioMode)) }
+                        ),
+                        TvPanelOption(
                             title = stringResource(R.string.setting_playback_speed),
                             subtitle = "${playerState.playbackSpeed}x",
                             onClick = onOpenSpeedPanel
+                        ),
+                        TvPanelOption(
+                            title = stringResource(R.string.setting_audio_track),
+                            subtitle = playerState.audioTracks.firstOrNull { it.isSelected }?.name ?: "—",
+                            enabled = playerState.audioTracks.isNotEmpty(),
+                            onClick = { /* TODO if needed */ }
+                        ),
+                        TvPanelOption(
+                            title = stringResource(R.string.setting_subtitles),
+                            subtitle = playerState.subtitleTracks.firstOrNull { it.isSelected }?.name
+                                ?: stringResource(R.string.language_off),
+                            onClick = { /* TODO if needed */ }
                         ),
                         TvPanelOption(
                             title = stringResource(R.string.setting_stream_info),
@@ -1374,8 +1335,16 @@ private fun TvOptionPanel(
             ?: items.indexOfFirst { it.enabled }.takeIf { it >= 0 }
     }
 
+    var visualFocusIndex by remember(title, optionKeys) {
+        mutableStateOf(initialFocusIndex)
+    }
+
     LaunchedEffect(title, optionKeys, initialFocusIndex) {
+        visualFocusIndex = initialFocusIndex
+
         if (initialFocusIndex != null) {
+            kotlinx.coroutines.delay(80)
+
             optionRequesters
                 .getOrNull(initialFocusIndex)
                 ?.requestFocusSafely("player option panel $title")
@@ -1423,10 +1392,12 @@ private fun TvOptionPanel(
                             subtitle = item.subtitle,
                             selected = item.selected,
                             enabled = item.enabled,
+                            visuallyFocused = visualFocusIndex == index,
+                            onClick = item.onClick,
                             focusRequester = optionRequesters.getOrNull(index),
-                            previousFocusRequester = optionRequesters.getOrNull(index - 1),
-                            nextFocusRequester = optionRequesters.getOrNull(index + 1),
-                            onClick = item.onClick
+                            onFocused = {
+                                visualFocusIndex = index
+                            }
                         )
                     }
                 }
@@ -1572,7 +1543,6 @@ private fun TvActionButton(
     label: String,
     enabled: Boolean,
     focusRequester: FocusRequester,
-    focusProperties: (androidx.compose.ui.focus.FocusProperties.() -> Unit)? = null,
     onFocused: () -> Unit,
     onClick: () -> Unit,
     primary: Boolean = false
@@ -1607,17 +1577,11 @@ private fun TvActionButton(
                 shadowElevation = focusState.shadowElevation.toPx()
             }
             .focusRequester(focusRequester)
-            .then(
-                if (focusProperties != null) {
-                    Modifier.focusProperties { focusProperties() }
-                } else {
-                    Modifier
-                }
-            )
             .onFocusChanged {
                 isFocused = it.isFocused
                 if (it.isFocused) onFocused()
             }
+            .clickable(enabled = enabled, onClick = onClick)
             .focusable(enabled = enabled),
         shape = RoundedCornerShape(28.dp),
         color = focusState.backgroundColor,
@@ -1632,7 +1596,6 @@ private fun TvActionButton(
     ) {
         Row(
             modifier = Modifier
-                .clickable(enabled = enabled, onClick = onClick)
                 .padding(horizontal = 24.dp, vertical = 18.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -1659,7 +1622,6 @@ private fun TvActionChip(
     icon: ImageVector,
     label: String,
     focusRequester: FocusRequester? = null,
-    focusProperties: (androidx.compose.ui.focus.FocusProperties.() -> Unit)? = null,
     onFocused: () -> Unit,
     onClick: () -> Unit
 ) {
@@ -1691,17 +1653,11 @@ private fun TvActionChip(
                 scaleY = focusState.scale
                 shadowElevation = focusState.shadowElevation.toPx()
             }
-            .then(
-                if (focusProperties != null) {
-                    Modifier.focusProperties { focusProperties() }
-                } else {
-                    Modifier
-                }
-            )
             .onFocusChanged {
                 isFocused = it.isFocused
                 if (it.isFocused) onFocused()
             }
+            .clickable(onClick = onClick)
             .focusable(),
         shape = RoundedCornerShape(999.dp),
         color = focusState.backgroundColor,
@@ -1716,7 +1672,6 @@ private fun TvActionChip(
     ) {
         Row(
             modifier = Modifier
-                .clickable(onClick = onClick)
                 .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -1750,24 +1705,31 @@ private fun TvPanelOptionRow(
     subtitle: String?,
     selected: Boolean,
     enabled: Boolean,
+    visuallyFocused: Boolean,
     onClick: () -> Unit,
     focusRequester: FocusRequester? = null,
-    previousFocusRequester: FocusRequester? = null,
-    nextFocusRequester: FocusRequester? = null
+    onFocused: () -> Unit = {}
 ) {
-    var isFocused by remember(title, subtitle, selected, enabled) { mutableStateOf(false) }
+    var hasRealFocus by remember(title, subtitle, selected, enabled) {
+        mutableStateOf(false)
+    }
+
+    val isVisuallyFocused = hasRealFocus || visuallyFocused
+
     val focusState = rememberTvFocusVisualState(
-        isFocused = isFocused,
+        isFocused = isVisuallyFocused,
         isSelected = selected,
         defaultSurface = Color.Transparent,
         selectedSurface = ImaxColors.Primary.copy(alpha = 0.16f),
-        focusedSurface = ImaxColors.SurfaceVariant,
-        selectedFocusedSurface = Color(0xFF5A4035),
+        focusedSurface = Color(0xFF3A2A22),
+        selectedFocusedSurface = Color(0xFF6A3F2A),
         defaultContentColor = Color.White,
         defaultSecondaryContentColor = ImaxColors.TextSecondary,
         selectedContentColor = Color(0xFFFFE4D3),
         focusedContentColor = Color.White,
-        selectedFocusedContentColor = Color.White
+        selectedFocusedContentColor = Color.White,
+        focusedBorderColor = Color(0xFFFFC98F),
+        selectedFocusedBorderColor = Color(0xFFFFE1BC)
     )
 
     Surface(
@@ -1781,11 +1743,13 @@ private fun TvPanelOptionRow(
                 scaleY = focusState.scale
                 shadowElevation = focusState.shadowElevation.toPx()
             }
-            .focusProperties {
-                up = previousFocusRequester ?: FocusRequester.Cancel
-                down = nextFocusRequester ?: FocusRequester.Cancel
+            .onFocusChanged {
+                hasRealFocus = it.isFocused
+                if (it.isFocused) {
+                    onFocused()
+                }
             }
-            .onFocusChanged { isFocused = it.isFocused }
+            .clickable(enabled = enabled, onClick = onClick)
             .focusable(enabled = enabled),
         shape = RoundedCornerShape(18.dp),
         color = focusState.backgroundColor,
@@ -1797,10 +1761,27 @@ private fun TvPanelOptionRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(enabled = enabled, onClick = onClick)
                 .padding(horizontal = 18.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            Box(
+                modifier = Modifier
+                    .width(if (isVisuallyFocused) 8.dp else if (selected) 4.dp else 0.dp)
+                    .height(42.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(
+                        when {
+                            isVisuallyFocused -> Color(0xFFFFC98F)
+                            selected -> ImaxColors.Primary
+                            else -> Color.Transparent
+                        }
+                    )
+            )
+
+            if (isVisuallyFocused || selected) {
+                Spacer(modifier = Modifier.width(12.dp))
+            }
+
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,

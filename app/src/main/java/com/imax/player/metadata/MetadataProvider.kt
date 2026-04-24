@@ -7,11 +7,11 @@ import com.imax.player.core.database.MetadataCacheDao
 import com.imax.player.core.database.MetadataCacheEntity
 import com.imax.player.core.model.ContentType
 import com.imax.player.core.network.TmdbApi
+import com.imax.player.core.network.dto.TmdbDetailResponse
 import com.imax.player.core.network.dto.TmdbSearchResult
 import com.imax.player.core.datastore.SettingsDataStore
 import kotlinx.coroutines.flow.first
 import timber.log.Timber
-import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -46,6 +46,7 @@ class MetadataProvider @Inject constructor(
         private const val SHORT_TITLE_THRESHOLD = 3
         private const val SHORT_TITLE_MIN_CONFIDENCE = 55.0
         private const val CACHE_TTL_MS = 7 * 24 * 3600 * 1000L
+        private const val TURKISH_METADATA_LANGUAGE = "tr-TR"
     }
 
     suspend fun getCachedMetadata(
@@ -69,7 +70,8 @@ class MetadataProvider @Inject constructor(
     suspend fun fetchMetadata(
         title: String,
         year: Int = 0,
-        contentType: ContentType = ContentType.MOVIE
+        contentType: ContentType = ContentType.MOVIE,
+        tmdbId: Int = 0
     ): MetadataResult? {
         if (apiKey.isBlank()) {
             Timber.w("TMDB API key not configured")
@@ -87,25 +89,38 @@ class MetadataProvider @Inject constructor(
             val languageTag = currentLanguageTag()
 
             // Check locale-aware cache
-            val cached = cacheDao.find(normalizedTitle, effectiveYear, languageTag)
+            val cached = if (tmdbId > 0) {
+                cacheDao.findByTmdbId(tmdbId, languageTag)
+            } else {
+                cacheDao.find(normalizedTitle, effectiveYear, languageTag)
+            }
             if (cached != null && System.currentTimeMillis() - cached.cachedAt < CACHE_TTL_MS) {
                 Timber.d("Cache hit for '$normalizedTitle' (lang=$languageTag)")
                 return cached.toResult()
             }
 
-            val searchResponse = when (contentType) {
-                ContentType.MOVIE -> tmdbApi.searchMovie(apiKey, cleanTitle, if (effectiveYear > 0) effectiveYear else null, 1, languageTag)
-                ContentType.SERIES -> tmdbApi.searchTv(apiKey, cleanTitle, if (effectiveYear > 0) effectiveYear else null, 1, languageTag)
-                ContentType.LIVE -> return null
+            if (tmdbId > 0) {
+                val detail = fetchDetailByTmdbId(tmdbId, contentType, languageTag) ?: return null
+                val result = buildResult(
+                    detail = detail,
+                    bestMatch = null,
+                    effectiveYear = effectiveYear,
+                    confidence = 100.0,
+                    languageTag = languageTag
+                )
+                cacheResult(normalizedTitle, result, languageTag, contentType)
+                return result
             }
 
-            if (searchResponse.results.isEmpty()) {
+            val searchResults = searchMetadataCandidates(cleanTitle, title, effectiveYear, contentType, languageTag)
+
+            if (searchResults.isEmpty()) {
                 Timber.d("No TMDB results for '$cleanTitle'")
                 return null
             }
 
             // Smart scoring to establish best match with confidence
-            val scoredResults = searchResponse.results.map { result ->
+            val scoredResults = searchResults.distinctBy { it.id }.map { result ->
                 val score = calculateMatchScore(cleanTitle, title, effectiveYear, result, contentType)
                 Pair(result, score)
             }.sortedByDescending { it.second }
@@ -138,83 +153,15 @@ class MetadataProvider @Inject constructor(
                 ContentType.LIVE -> return null
             }
 
-            // ─── Overview resolution with locale-aware fallback ───
-            var finalOverview = detail.overview
-            var finalTagline = detail.tagline ?: ""
-
-            if (finalOverview.isBlank()) {
-                val translations = detail.translations?.translations ?: emptyList()
-                val resolved = resolveTranslation(translations, languageTag, detail.originalLanguage)
-                if (resolved != null) {
-                    if (resolved.overview.isNotBlank()) finalOverview = resolved.overview
-                    if (finalTagline.isBlank() && resolved.tagline.isNotBlank()) finalTagline = resolved.tagline
-                }
-            }
-
-            // ─── Director / Creator resolution ───
-            val director = detail.credits?.crew?.find { it.job == "Director" }?.name
-                ?: detail.createdBy?.firstOrNull()?.name
-                ?: ""
-
-            // ─── Runtime resolution (movie vs TV) ───
-            val runtime = detail.runtime
-                ?: detail.episodeRunTime?.firstOrNull()
-                ?: 0
-
-            // ─── Trailer URL ───
-            val trailerUrl = detail.videos?.results
-                ?.filter { it.site.equals("YouTube", ignoreCase = true) && it.type.equals("Trailer", ignoreCase = true) }
-                ?.maxByOrNull { if (it.official) 1 else 0 }
-                ?.let { "https://www.youtube.com/watch?v=${it.key}" }
-                ?: detail.videos?.results
-                    ?.firstOrNull { it.site.equals("YouTube", ignoreCase = true) }
-                    ?.let { "https://www.youtube.com/watch?v=${it.key}" }
-                ?: ""
-
-            val result = MetadataResult(
-                tmdbId = detail.id,
-                imdbId = detail.imdbId ?: detail.externalIds?.imdbId ?: "",
-                posterUrl = detail.posterPath?.let { "${Constants.TMDB_IMAGE_BASE_URL}${Constants.TMDB_POSTER_SIZE}$it" }
-                    ?: bestMatch.posterPath?.let { "${Constants.TMDB_IMAGE_BASE_URL}${Constants.TMDB_POSTER_SIZE}$it" }
-                    ?: "",
-                backdropUrl = detail.backdropPath?.let { "${Constants.TMDB_IMAGE_BASE_URL}${Constants.TMDB_BACKDROP_SIZE}$it" }
-                    ?: bestMatch.backdropPath?.let { "${Constants.TMDB_IMAGE_BASE_URL}${Constants.TMDB_BACKDROP_SIZE}$it" }
-                    ?: "",
-                overview = finalOverview,
-                tagline = finalTagline,
-                genre = detail.genres.joinToString(", ") { it.name },
-                cast = detail.credits?.cast?.take(15)?.joinToString(", ") { it.name } ?: "",
-                director = director,
-                runtime = runtime,
-                rating = if (detail.voteAverage > 0) detail.voteAverage else bestMatch.voteAverage,
-                year = StringUtils.extractYear(detail.releaseDate ?: detail.firstAirDate)
-                    ?: StringUtils.extractYear(bestMatch.releaseDate ?: bestMatch.firstAirDate)
-                    ?: effectiveYear,
-                trailerUrl = trailerUrl,
-                confidence = bestScore
+            val result = buildResult(
+                detail = detail,
+                bestMatch = bestMatch,
+                effectiveYear = effectiveYear,
+                confidence = bestScore,
+                languageTag = languageTag
             )
 
-            // Cache with locale awareness
-            cacheDao.insert(
-                MetadataCacheEntity(
-                    title = normalizedTitle,
-                    year = result.year,
-                    language = languageTag,
-                    tmdbId = result.tmdbId,
-                    imdbId = result.imdbId,
-                    posterUrl = result.posterUrl,
-                    backdropUrl = result.backdropUrl,
-                    overview = result.overview,
-                    tagline = result.tagline,
-                    genre = result.genre,
-                    cast = result.cast,
-                    director = result.director,
-                    runtime = result.runtime,
-                    rating = result.rating,
-                    trailerUrl = result.trailerUrl,
-                    contentType = contentType.name
-                )
-            )
+            cacheResult(normalizedTitle, result, languageTag, contentType)
 
             return result
         } catch (e: Exception) {
@@ -224,12 +171,129 @@ class MetadataProvider @Inject constructor(
     }
 
     private suspend fun currentLanguageTag(): String {
-        val appLanguage = settingsDataStore.settings.first().appLanguage
-        return when (appLanguage.lowercase()) {
-            "tr" -> "tr-TR"
-            "en" -> "en-US"
-            else -> Locale.getDefault().toLanguageTag()
+        settingsDataStore.settings.first()
+        return TURKISH_METADATA_LANGUAGE
+    }
+
+    private suspend fun fetchDetailByTmdbId(
+        tmdbId: Int,
+        contentType: ContentType,
+        languageTag: String
+    ): TmdbDetailResponse? {
+        return when (contentType) {
+            ContentType.MOVIE -> tmdbApi.getMovieDetails(tmdbId, apiKey, language = languageTag)
+            ContentType.SERIES -> tmdbApi.getTvDetails(tmdbId, apiKey, language = languageTag)
+            ContentType.LIVE -> null
         }
+    }
+
+    private suspend fun searchMetadataCandidates(
+        cleanTitle: String,
+        originalTitle: String,
+        effectiveYear: Int,
+        contentType: ContentType,
+        languageTag: String
+    ): List<TmdbSearchResult> {
+        val queries = buildList {
+            add(cleanTitle)
+            val extractedTitle = StringUtils.extractYearFromTitle(originalTitle).first
+            add(StringUtils.cleanTitleForSearch(extractedTitle))
+            add(originalTitle)
+        }.map { it.trim() }
+            .filter { it.length >= 2 }
+            .distinct()
+
+        return queries.flatMap { query ->
+            val year = effectiveYear.takeIf { it > 0 }
+            when (contentType) {
+                ContentType.MOVIE -> tmdbApi.searchMovie(apiKey, query, year, 1, languageTag).results
+                ContentType.SERIES -> tmdbApi.searchTv(apiKey, query, year, 1, languageTag).results
+                ContentType.LIVE -> emptyList()
+            }
+        }
+    }
+
+    private fun buildResult(
+        detail: TmdbDetailResponse,
+        bestMatch: TmdbSearchResult?,
+        effectiveYear: Int,
+        confidence: Double,
+        languageTag: String
+    ): MetadataResult {
+        val translations = detail.translations?.translations ?: emptyList()
+        val translated = resolveTranslation(translations, languageTag, detail.originalLanguage)
+        val finalOverview = translated?.overview?.takeIf { it.isNotBlank() }
+            ?: detail.overview
+        val finalTagline = translated?.tagline?.takeIf { it.isNotBlank() }
+            ?: detail.tagline.orEmpty()
+
+        val director = detail.credits?.crew?.find { it.job == "Director" }?.name
+            ?: detail.createdBy?.firstOrNull()?.name
+            ?: ""
+
+        val runtime = detail.runtime
+            ?: detail.episodeRunTime?.firstOrNull()
+            ?: 0
+
+        val trailerUrl = detail.videos?.results
+            ?.filter { it.site.equals("YouTube", ignoreCase = true) && it.type.equals("Trailer", ignoreCase = true) }
+            ?.maxByOrNull { if (it.official) 1 else 0 }
+            ?.let { "https://www.youtube.com/watch?v=${it.key}" }
+            ?: detail.videos?.results
+                ?.firstOrNull { it.site.equals("YouTube", ignoreCase = true) }
+                ?.let { "https://www.youtube.com/watch?v=${it.key}" }
+            ?: ""
+
+        return MetadataResult(
+            tmdbId = detail.id,
+            imdbId = detail.imdbId ?: detail.externalIds?.imdbId ?: "",
+            posterUrl = detail.posterPath?.let { "${Constants.TMDB_IMAGE_BASE_URL}${Constants.TMDB_POSTER_SIZE}$it" }
+                ?: bestMatch?.posterPath?.let { "${Constants.TMDB_IMAGE_BASE_URL}${Constants.TMDB_POSTER_SIZE}$it" }
+                ?: "",
+            backdropUrl = detail.backdropPath?.let { "${Constants.TMDB_IMAGE_BASE_URL}${Constants.TMDB_BACKDROP_SIZE}$it" }
+                ?: bestMatch?.backdropPath?.let { "${Constants.TMDB_IMAGE_BASE_URL}${Constants.TMDB_BACKDROP_SIZE}$it" }
+                ?: "",
+            overview = finalOverview,
+            tagline = finalTagline,
+            genre = detail.genres.joinToString(", ") { it.name },
+            cast = detail.credits?.cast?.take(15)?.joinToString(", ") { it.name } ?: "",
+            director = director,
+            runtime = runtime,
+            rating = if (detail.voteAverage > 0) detail.voteAverage else bestMatch?.voteAverage ?: 0.0,
+            year = StringUtils.extractYear(detail.releaseDate ?: detail.firstAirDate)
+                ?: StringUtils.extractYear(bestMatch?.releaseDate ?: bestMatch?.firstAirDate)
+                ?: effectiveYear,
+            trailerUrl = trailerUrl,
+            confidence = confidence
+        )
+    }
+
+    private suspend fun cacheResult(
+        normalizedTitle: String,
+        result: MetadataResult,
+        languageTag: String,
+        contentType: ContentType
+    ) {
+        cacheDao.insert(
+            MetadataCacheEntity(
+                title = normalizedTitle,
+                year = result.year,
+                language = languageTag,
+                tmdbId = result.tmdbId,
+                imdbId = result.imdbId,
+                posterUrl = result.posterUrl,
+                backdropUrl = result.backdropUrl,
+                overview = result.overview,
+                tagline = result.tagline,
+                genre = result.genre,
+                cast = result.cast,
+                director = result.director,
+                runtime = result.runtime,
+                rating = result.rating,
+                trailerUrl = result.trailerUrl,
+                contentType = contentType.name
+            )
+        )
     }
 
     /**
@@ -329,9 +393,10 @@ class MetadataProvider @Inject constructor(
     /**
      * Resolve the best translation following priority:
      * 1. Requested locale (e.g. Turkish)
-     * 2. English
-     * 3. Original language of the content
-     * 4. Any available non-blank translation
+     * 2. Original Turkish language data, if the content itself is Turkish
+     *
+     * English is intentionally not used as a fallback for the Turkish metadata
+     * surface; otherwise old "filled but English" details keep leaking into UI.
      */
     private fun resolveTranslation(
         translations: List<com.imax.player.core.network.dto.TmdbTranslation>,
@@ -348,22 +413,15 @@ class MetadataProvider @Inject constructor(
         }?.data
         if (requested != null) return requested
 
-        // 2. Try English
-        val english = translations.find { 
-            it.language.lowercase() == "en" && !it.data?.overview.isNullOrBlank() 
-        }?.data
-        if (english != null) return english
-
-        // 3. Try original language of the content
-        if (!originalLanguage.isNullOrBlank()) {
+        // 2. Try original language only when it is Turkish.
+        if (originalLanguage.equals("tr", ignoreCase = true)) {
             val original = translations.find { 
-                it.language.lowercase() == originalLanguage.lowercase() && !it.data?.overview.isNullOrBlank() 
+                it.language.equals("tr", ignoreCase = true) && !it.data?.overview.isNullOrBlank()
             }?.data
             if (original != null) return original
         }
 
-        // 4. Any available non-blank translation (last resort)
-        return translations.find { !it.data?.overview.isNullOrBlank() }?.data
+        return null
     }
 
     private fun MetadataCacheEntity.toResult() = MetadataResult(
