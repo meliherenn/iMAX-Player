@@ -1,5 +1,6 @@
 package com.imax.player.ui.components
 
+import android.net.Uri
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -35,8 +36,10 @@ import coil.compose.AsyncImagePainter
 import coil.request.ImageRequest
 import com.imax.player.R
 import androidx.compose.ui.res.stringResource
+import com.imax.player.core.common.Constants
 import com.imax.player.core.designsystem.theme.ImaxColors
 import com.imax.player.core.designsystem.theme.LocalImaxDimens
+import java.util.Locale
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Card Components
@@ -250,11 +253,16 @@ fun PosterImage(
     contentScale: ContentScale = ContentScale.Crop
 ) {
     var isLoading by remember { mutableStateOf(true) }
+    var hasImageError by remember(url) { mutableStateOf(false) }
+    var fallbackToHttp by remember(url) { mutableStateOf(false) }
+    val resolvedUrl = remember(url, fallbackToHttp) {
+        if (fallbackToHttp) downgradeArtworkUrlToHttp(url) else url
+    }
 
     Box(modifier = modifier) {
         AsyncImage(
             model = ImageRequest.Builder(LocalContext.current)
-                .data(url.ifBlank { null })
+                .data(resolvedUrl.ifBlank { null })
                 .crossfade(true)
                 .build(),
             contentDescription = contentDescription,
@@ -262,13 +270,73 @@ fun PosterImage(
             modifier = Modifier.fillMaxSize(),
             onState = { state ->
                 isLoading = state is AsyncImagePainter.State.Loading
+                hasImageError = state is AsyncImagePainter.State.Error
+                if (state is AsyncImagePainter.State.Error &&
+                    !fallbackToHttp &&
+                    shouldRetryArtworkOverHttp(url)
+                ) {
+                    fallbackToHttp = true
+                    hasImageError = false
+                    isLoading = true
+                }
             }
         )
 
-        if (isLoading || url.isBlank()) {
+        if (isLoading) {
             ShimmerBox(modifier = Modifier.fillMaxSize())
+        } else if (resolvedUrl.isBlank() || hasImageError) {
+            PosterFallback(modifier = Modifier.fillMaxSize())
         }
     }
+}
+
+@Composable
+private fun PosterFallback(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier.background(ImaxColors.SurfaceElevated),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = Icons.Filled.Image,
+            contentDescription = null,
+            tint = ImaxColors.TextTertiary.copy(alpha = 0.7f),
+            modifier = Modifier.size(28.dp)
+        )
+    }
+}
+
+private fun shouldRetryArtworkOverHttp(url: String): Boolean {
+    val parsed = url.takeIf(String::isNotBlank)?.let(Uri::parse) ?: return false
+    val host = parsed.host?.lowercase().orEmpty()
+    if (parsed.scheme?.lowercase() != "https") {
+        return false
+    }
+    if (host.isBlank() || host.endsWith("tmdb.org") || host.endsWith("themoviedb.org")) {
+        return false
+    }
+
+    val path = parsed.encodedPath?.lowercase().orEmpty()
+    return path.contains("/logo/") ||
+        path.endsWith(".png") ||
+        path.endsWith(".jpg") ||
+        path.endsWith(".jpeg") ||
+        path.endsWith(".webp")
+}
+
+private fun downgradeArtworkUrlToHttp(url: String): String {
+    val parsed = url.takeIf(String::isNotBlank)?.let(Uri::parse) ?: return url
+    if (parsed.scheme?.lowercase() != "https") {
+        return url
+    }
+
+    if (url.startsWith(Constants.TMDB_IMAGE_BASE_URL, ignoreCase = true)) {
+        return url
+    }
+
+    return parsed.buildUpon()
+        .scheme("http")
+        .build()
+        .toString()
 }
 
 @Composable
@@ -314,7 +382,7 @@ fun RatingBadge(
         color = ImaxColors.RatingStarColor.copy(alpha = 0.9f)
     ) {
         Text(
-            text = String.format("%.1f", rating),
+            text = String.format(Locale.getDefault(), "%.1f", rating),
             style = MaterialTheme.typography.labelSmall,
             color = Color.Black,
             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
@@ -334,7 +402,8 @@ fun GradientButton(
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
     enabled: Boolean = true,
-    isTv: Boolean = false
+    isTv: Boolean = false,
+    focusRequester: FocusRequester? = null
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
@@ -346,8 +415,10 @@ fun GradientButton(
     Button(
         onClick = onClick,
         modifier = modifier
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .onFocusChanged { isFocused = it.isFocused }
+            .focusable(enabled = enabled)
             .then(
                 if (isFocused) Modifier.border(if (isTv) 3.dp else 2.dp, ImaxColors.FocusBorder, RoundedCornerShape(12.dp))
                 else Modifier
@@ -392,7 +463,8 @@ fun ImaxOutlinedButton(
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
     enabled: Boolean = true,
-    isTv: Boolean = false
+    isTv: Boolean = false,
+    focusRequester: FocusRequester? = null
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
@@ -403,8 +475,10 @@ fun ImaxOutlinedButton(
     OutlinedButton(
         onClick = onClick,
         modifier = modifier
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .onFocusChanged { isFocused = it.isFocused }
+            .focusable(enabled = enabled)
             .then(
                 if (isFocused) Modifier.border(if (isTv) 3.dp else 2.dp, ImaxColors.FocusBorder, RoundedCornerShape(12.dp))
                 else Modifier

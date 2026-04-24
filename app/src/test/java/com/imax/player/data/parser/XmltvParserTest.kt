@@ -68,8 +68,8 @@ class XmltvParserTest {
     fun `start time is normalized to UTC millis`() = runTest {
         val programs = parser.parse(xmlStream(minimalXmltv))
         // 2026-04-19 12:00:00 +0300 = 2026-04-19 09:00:00 UTC
-        // UTC epoch ms: 1745053200000
-        val expectedUtc = 1745053200000L
+        // UTC epoch ms: 1776589200000
+        val expectedUtc = 1776589200000L
         assertThat(programs[0].startTime).isEqualTo(expectedUtc)
     }
 

@@ -38,6 +38,7 @@ import com.imax.player.core.designsystem.theme.LocalImaxDimens
 import com.imax.player.core.model.*
 import com.imax.player.ui.components.*
 import com.imax.player.ui.navigation.Routes
+import java.util.Locale
 
 @Composable
 fun HomeScreen(
@@ -387,7 +388,7 @@ private fun TvHeroBanner(
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         if (featured.year > 0) Text(featured.year.toString(), style = MaterialTheme.typography.bodyMedium, color = ImaxColors.TextSecondary)
-                        if (featured.rating > 0) Text("⭐ ${String.format("%.1f", featured.rating)}", style = MaterialTheme.typography.bodyMedium, color = ImaxColors.RatingStarColor)
+                        if (featured.rating > 0) Text("⭐ ${String.format(Locale.getDefault(), "%.1f", featured.rating)}", style = MaterialTheme.typography.bodyMedium, color = ImaxColors.RatingStarColor)
                         if (featured.genre.isNotBlank()) Text(featured.genre.take(30), style = MaterialTheme.typography.bodyMedium, color = ImaxColors.TextSecondary)
                     }
                     if (featured.plot.isNotBlank()) {
@@ -471,7 +472,7 @@ private fun MobileHeroBannerInfo(
         Spacer(modifier = Modifier.height(4.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (featured.year > 0) Text(featured.year.toString(), style = MaterialTheme.typography.bodySmall, color = ImaxColors.TextSecondary)
-            if (featured.rating > 0) Text("⭐ ${String.format("%.1f", featured.rating)}", style = MaterialTheme.typography.bodySmall, color = ImaxColors.RatingStarColor)
+            if (featured.rating > 0) Text("⭐ ${String.format(Locale.getDefault(), "%.1f", featured.rating)}", style = MaterialTheme.typography.bodySmall, color = ImaxColors.RatingStarColor)
         }
         if (featured.plot.isNotBlank()) {
             Spacer(modifier = Modifier.height(4.dp))

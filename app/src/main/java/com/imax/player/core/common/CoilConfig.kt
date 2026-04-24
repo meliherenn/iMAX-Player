@@ -6,6 +6,7 @@ import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import coil.request.CachePolicy
 import okhttp3.OkHttpClient
+import okhttp3.logging.HttpLoggingInterceptor
 import java.util.concurrent.TimeUnit
 
 /**
@@ -30,6 +31,9 @@ fun buildImaxImageLoader(context: Context, okHttpClient: OkHttpClient): ImageLoa
         }
         .okHttpClient {
             okHttpClient.newBuilder()
+                .apply {
+                    interceptors().removeAll { it is HttpLoggingInterceptor }
+                }
                 .connectTimeout(15, TimeUnit.SECONDS)
                 .readTimeout(20, TimeUnit.SECONDS)
                 .build()

@@ -2,9 +2,8 @@ package com.imax.player.core.player
 
 import app.cash.turbine.test
 import com.google.common.truth.Truth.assertThat
-import io.mockk.*
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.*
 import org.junit.After
 import org.junit.Before
@@ -15,17 +14,18 @@ class SleepTimerManagerTest {
 
     private lateinit var sleepTimer: SleepTimerManager
     private val testDispatcher = StandardTestDispatcher()
-    private val testScope = TestScope(testDispatcher)
 
     @Before
     fun setup() {
-        sleepTimer = SleepTimerManager()
+        Dispatchers.setMain(testDispatcher)
+        sleepTimer = SleepTimerManager(testDispatcher)
     }
 
     @After
     fun tearDown() {
         sleepTimer.cancel()
         sleepTimer.release()
+        Dispatchers.resetMain()
     }
 
     @Test
@@ -102,9 +102,9 @@ class SleepTimerManagerTest {
     @Test
     fun `remainingFormatted shows seconds when less than 1 min`() {
         sleepTimer.start(1) {}
-        // 60000ms → "1d 0s" — but let's check it's non-empty
         val formatted = sleepTimer.state.value.remainingFormatted
         assertThat(formatted).isNotEmpty()
+        assertThat(formatted).isEqualTo("1m 0s")
     }
 
     @Test

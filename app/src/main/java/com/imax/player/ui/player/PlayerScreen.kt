@@ -1,7 +1,6 @@
 package com.imax.player.ui.player
 
 import android.app.Activity
-import android.view.SurfaceView
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
@@ -18,9 +17,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -39,7 +41,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -47,746 +48,20 @@ import com.imax.player.R
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.viewModelScope
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.ui.AspectRatioFrameLayout
-import androidx.media3.ui.PlayerView
 import com.imax.player.core.common.StringUtils
-import com.imax.player.core.datastore.AppSettings
-import com.imax.player.core.datastore.SettingsDataStore
 import com.imax.player.core.designsystem.theme.ImaxColors
 import com.imax.player.core.designsystem.theme.LocalImaxDimens
 import com.imax.player.core.model.*
 import com.imax.player.core.player.*
-import com.imax.player.data.repository.ContentRepository
-import com.imax.player.data.repository.PlaylistRepository
-import com.imax.player.ui.live.rankChannelsForMobile
-import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.coroutines.withTimeout
-import timber.log.Timber
-import javax.inject.Inject
-
-data class PlayerSessionState(
-    val title: String = "",
-    val movie: Movie? = null,
-    val series: Series? = null,
-    val currentEpisode: Episode? = null,
-    val previousEpisode: Episode? = null,
-    val nextEpisode: Episode? = null,
-    val currentChannel: Channel? = null,
-    val previousChannel: Channel? = null,
-    val nextChannel: Channel? = null,
-    val availableChannels: List<Channel> = emptyList(),
-    val liveGroup: String = ""
-)
-
-data class LiveChannelSwitchState(
-    val isSwitching: Boolean = false,
-    val targetChannelId: Long? = null,
-    val targetTitle: String = "",
-    val errorMessage: String? = null
-)
-
-@HiltViewModel
-class PlayerViewModel @Inject constructor(
-    val playerManager: PlayerManager,
-    private val settingsDataStore: SettingsDataStore,
-    private val contentRepository: ContentRepository,
-    private val playlistRepository: PlaylistRepository,
-    val retryManager: StreamRetryManager,
-    val sleepTimer: SleepTimerManager,
-    private val epgRepository: com.imax.player.data.repository.EpgRepository
-) : ViewModel() {
-    val state: StateFlow<PlayerState> = playerManager.state
-    val switchState: StateFlow<EngineSwitchState> = playerManager.switchState
-    val activeEngineName: StateFlow<String> = playerManager.activeEngineName
-    val settings: StateFlow<AppSettings> = settingsDataStore.settings
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppSettings())
-    val retryState: StateFlow<RetryState> = retryManager.state
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), RetryState())
-    val sleepTimerState = sleepTimer.state
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), SleepTimerState())
-    private val _session = MutableStateFlow(PlayerSessionState())
-    val session: StateFlow<PlayerSessionState> = _session.asStateFlow()
-    private val _liveChannelSwitch = MutableStateFlow(LiveChannelSwitchState())
-    val liveChannelSwitch: StateFlow<LiveChannelSwitchState> = _liveChannelSwitch.asStateFlow()
-    private val _engineReady = MutableStateFlow(false)
-    val engineReady: StateFlow<Boolean> = _engineReady.asStateFlow()
-    private val _currentEpgProgram = MutableStateFlow<com.imax.player.data.parser.EpgProgram?>(null)
-    val currentEpgProgram: StateFlow<com.imax.player.data.parser.EpgProgram?> = _currentEpgProgram.asStateFlow()
-    private val _nextEpgProgram = MutableStateFlow<com.imax.player.data.parser.EpgProgram?>(null)
-    val nextEpgProgram: StateFlow<com.imax.player.data.parser.EpgProgram?> = _nextEpgProgram.asStateFlow()
-
-    private var currentUrl = ""
-    private var currentOriginalUrl = ""
-    private var currentTitle = ""
-    private var currentContentId = 0L
-    private var currentContentType = ""
-    private var currentGroupContext = ""
-    private var isInitialized = false
-    private var enableTvPlaybackWorkarounds = false
-    private var currentPlaybackCandidates: List<String> = emptyList()
-    private var liveChannelSwitchJob: kotlinx.coroutines.Job? = null
-    private var pendingLiveChannel: Channel? = null
-
-    init {
-        // Periodic progress save
-        viewModelScope.launch {
-            while (true) {
-                delay(15_000)
-                saveProgressInternal()
-            }
-        }
-        // Auto-retry when ERROR state detected
-        viewModelScope.launch {
-            state
-                .map { it.playbackState }
-                .distinctUntilChanged()
-                .collect { playbackState ->
-                    if (playbackState == PlaybackState.ERROR && !retryManager.state.value.isRetrying) {
-                        // MPV native hatası ise otomatik fallback dene
-                        handlePlaybackError(state.value.errorMessage)
-
-                        val autoRetry = settings.value.liveReconnectOnFailure
-                        if (autoRetry && currentContentType == ContentType.LIVE.name) {
-                            retryManager.startRetry(
-                                errorMessage = state.value.errorMessage,
-                                onRetry = { retryCurrent() },
-                                onExhausted = { Timber.w("Auto-retry exhausted") }
-                            )
-                        }
-                    } else if (playbackState == PlaybackState.PLAYING) {
-                        retryManager.onPlaybackSuccess()
-                    }
-                }
-        }
-    }
-
-    // Hata geldiğinde otomatik fallback dene
-    private fun handlePlaybackError(errorMessage: String?) {
-        val isMpvUnavailable = errorMessage?.contains("MPV bu cihazda desteklenmiyor") == true
-        val isMpvNativeError = errorMessage?.contains("native hata") == true
-        val isMpvLibError = errorMessage?.contains("MPV kütüphanesi yüklenemedi") == true
-
-        if (isMpvUnavailable || isMpvNativeError || isMpvLibError) {
-            // Engine hatasıysa fallback dene
-            viewModelScope.launch {
-                delay(500)
-                val fallbackSuccess = playerManager.tryFallback(persistent = true)
-                if (fallbackSuccess && currentUrl.isNotEmpty()) {
-                    delay(300)
-                    playerManager.play(currentUrl, 0)
-                }
-            }
-        }
-    }
-
-    // ─── Sleep Timer ────────────────────────────────────────────────────────────
-    fun setSleepTimer(minutes: Int) {
-        sleepTimer.start(minutes) {
-            playerManager.getEngine()?.pause()
-        }
-    }
-    fun cancelSleepTimer() = sleepTimer.cancel()
-    fun extendSleepTimer(minutes: Int) = sleepTimer.extend(minutes)
-
-    // ─── EPG ────────────────────────────────────────────────────────────────────
-    fun loadEpg(epgChannelId: String) {
-        if (epgChannelId.isBlank()) return
-        viewModelScope.launch {
-            _currentEpgProgram.value = epgRepository.getCurrentProgram(epgChannelId)
-            _nextEpgProgram.value = epgRepository.getNextProgram(epgChannelId)
-        }
-    }
-
-    fun init(
-        url: String,
-        title: String,
-        startPos: Long,
-        contentId: Long,
-        contentType: String,
-        groupContext: String
-    ) {
-        if (
-            currentOriginalUrl == url &&
-            currentTitle == title &&
-            currentContentId == contentId &&
-            currentContentType == contentType &&
-            currentGroupContext == groupContext &&
-            state.value.playbackState != PlaybackState.IDLE
-        ) {
-            return
-        }
-
-        val playbackCandidates = resolvePlaybackCandidates(url, contentType)
-        val resolvedUrl = playbackCandidates.firstOrNull().orEmpty()
-
-        currentOriginalUrl = url
-        currentUrl = resolvedUrl
-        currentPlaybackCandidates = playbackCandidates
-        currentTitle = title
-        currentContentId = contentId
-        currentContentType = contentType
-        currentGroupContext = groupContext
-
-        viewModelScope.launch {
-            clearLiveChannelSwitchError()
-            if (!isInitialized) {
-                _engineReady.value = false
-                playerManager.initializeWithSettings()
-                isInitialized = true
-                _engineReady.value = true
-            }
-            refreshSessionContext(url, title, contentId, contentType, groupContext)
-
-            Timber.d("PlayerVM.init: enableTvPlaybackWorkarounds=$enableTvPlaybackWorkarounds, contentType=$contentType, candidates=${playbackCandidates.size}")
-
-            val playbackStarted = if (
-                enableTvPlaybackWorkarounds &&
-                contentType.equals(ContentType.LIVE.name, ignoreCase = true)
-            ) {
-                Timber.d("PlayerVM.init: Using startLiveChannelPlayback path")
-                startLiveChannelPlayback(playbackCandidates, startPos)
-            } else {
-                Timber.d("PlayerVM.init: Using direct play path (no TV workarounds)")
-                playerManager.play(resolvedUrl, startPos)
-                true
-            }
-
-            Timber.d("PlayerVM.init: playbackStarted=$playbackStarted")
-
-            if (playbackStarted && contentType == ContentType.LIVE.name && contentId > 0L) {
-                contentRepository.updateChannelLastWatched(contentId)
-            } else if (!playbackStarted) {
-                _liveChannelSwitch.value = LiveChannelSwitchState(
-                    errorMessage = buildPlaybackFailureMessage(title.ifBlank { "This channel" })
-                )
-            }
-        }
-    }
-
-    fun configureTvPlayback(enabled: Boolean) {
-        enableTvPlaybackWorkarounds = enabled
-    }
-
-    fun clearLiveChannelSwitchError() {
-        if (_liveChannelSwitch.value.errorMessage != null && !_liveChannelSwitch.value.isSwitching) {
-            _liveChannelSwitch.value = LiveChannelSwitchState()
-        }
-    }
-
-    fun togglePlayPause() {
-        val s = state.value
-        if (s.isPlaying) playerManager.getEngine().pause() else playerManager.getEngine().resume()
-    }
-
-    fun seekForward() {
-        playerManager.getEngine().seekForward(settings.value.seekForwardMs)
-    }
-
-    fun seekBackward() {
-        playerManager.getEngine().seekBackward(settings.value.seekBackwardMs)
-    }
-
-    fun seekTo(pos: Long) = playerManager.getEngine().seekTo(pos)
-    fun setSpeed(speed: Float) = playerManager.getEngine().setPlaybackSpeed(speed)
-    fun selectAudio(index: Int) = playerManager.getEngine().selectAudioTrack(index)
-    fun selectSubtitle(index: Int) = playerManager.getEngine().selectSubtitleTrack(index)
-    fun disableSubtitles() = playerManager.getEngine().disableSubtitles()
-
-    fun setAspectRatio(mode: AspectRatioMode) {
-        playerManager.setAspectRatio(mode)
-    }
-
-    fun setVideoQualityMode(mode: VideoQualityMode) {
-        playerManager.setVideoQualityMode(mode)
-    }
-
-    fun selectVideoTrack(index: Int) {
-        playerManager.selectVideoTrack(index)
-    }
-
-    fun switchEngine() {
-        playerManager.switchEngine()
-    }
-
-    fun saveProgress() {
-        viewModelScope.launch(Dispatchers.IO) {
-            saveProgressInternal()
-        }
-    }
-
-    fun retryCurrent() {
-        viewModelScope.launch {
-            clearLiveChannelSwitchError()
-            val startPosition = if (currentContentType == ContentType.LIVE.name) 0L else state.value.currentPosition
-            if (enableTvPlaybackWorkarounds && currentContentType == ContentType.LIVE.name) {
-                val candidates = currentPlaybackCandidates.ifEmpty {
-                    resolvePlaybackCandidates(currentOriginalUrl.ifBlank { currentUrl }, currentContentType)
-                }
-                val started = startLiveChannelPlayback(candidates, startPosition)
-                if (!started) {
-                    _liveChannelSwitch.value = LiveChannelSwitchState(
-                        errorMessage = buildPlaybackFailureMessage(currentTitle.ifBlank { "This channel" })
-                    )
-                }
-            } else {
-                playerManager.play(currentUrl, startPosition)
-            }
-        }
-    }
-
-    fun playNextEpisode() {
-        session.value.nextEpisode?.let { episode ->
-            playEpisode(episode)
-        }
-    }
-
-    fun playPreviousEpisode() {
-        session.value.previousEpisode?.let { episode ->
-            playEpisode(episode)
-        }
-    }
-
-    fun playNextChannel() {
-        session.value.nextChannel?.let { channel ->
-            playChannel(channel)
-        }
-    }
-
-    fun playPreviousChannel() {
-        session.value.previousChannel?.let { channel ->
-            playChannel(channel)
-        }
-    }
-
-    fun playChannel(channel: Channel) {
-        if (session.value.currentChannel?.id == channel.id && currentContentType == ContentType.LIVE.name) {
-            return
-        }
-
-        clearLiveChannelSwitchError()
-        if (_liveChannelSwitch.value.isSwitching) {
-            pendingLiveChannel = channel
-            return
-        }
-
-        liveChannelSwitchJob?.cancel()
-        liveChannelSwitchJob = viewModelScope.launch {
-            processLiveChannelSwitchQueue(channel)
-        }
-    }
-
-    private fun playEpisode(episode: Episode) {
-        viewModelScope.launch {
-            val series = session.value.series ?: contentRepository.getSeriesById(episode.seriesId)
-            switchToContent(
-                url = episode.streamUrl,
-                title = buildEpisodePlayerTitle(series?.name.orEmpty(), episode),
-                contentId = episode.id,
-                contentType = ContentType.SERIES.name,
-                startPosition = episode.lastPosition,
-                groupContext = ""
-            )
-        }
-    }
-
-    /**
-     * Optimized exit: save progress async, navigate back immediately,
-     * then release player on IO dispatcher to avoid main-thread jank.
-     */
-    fun exitPlayer(onBack: () -> Unit) {
-        viewModelScope.launch(Dispatchers.IO) {
-            saveProgressInternal()
-        }
-        onBack()
-        playerManager.release()
-    }
-
-    override fun onCleared() {
-        super.onCleared()
-        liveChannelSwitchJob?.cancel()
-        saveProgress()
-        retryManager.cancel()
-        playerManager.release()
-    }
-
-    private suspend fun processLiveChannelSwitchQueue(initialChannel: Channel) {
-        var nextChannel: Channel? = initialChannel
-
-        while (nextChannel != null) {
-            pendingLiveChannel = null
-            switchLiveChannel(nextChannel)
-            nextChannel = pendingLiveChannel?.takeIf { it.id != currentContentId }
-        }
-    }
-
-    private suspend fun switchToContent(
-        url: String,
-        title: String,
-        contentId: Long,
-        contentType: String,
-        startPosition: Long,
-        groupContext: String
-    ) {
-        withContext(Dispatchers.IO) {
-            saveProgressInternal()
-        }
-
-        val resolvedUrl = resolvePlaybackUrl(url, contentType)
-        currentOriginalUrl = url
-        currentUrl = resolvedUrl
-        currentTitle = title
-        currentContentId = contentId
-        currentContentType = contentType
-        currentGroupContext = groupContext
-
-        refreshSessionContext(resolvedUrl, title, contentId, contentType, groupContext)
-        playerManager.play(resolvedUrl, startPosition)
-
-        if (contentType == ContentType.LIVE.name && contentId > 0L) {
-            contentRepository.updateChannelLastWatched(contentId)
-        }
-    }
-
-    private suspend fun switchLiveChannel(channel: Channel) {
-        if (_liveChannelSwitch.value.isSwitching) return
-
-        val previousUrl = currentUrl
-        val previousOriginalUrl = currentOriginalUrl
-        val previousTitle = currentTitle
-        val previousContentId = currentContentId
-        val previousContentType = currentContentType
-        val previousGroupContext = currentGroupContext
-        val previousPlaybackCandidates = currentPlaybackCandidates
-        val previousSession = session.value
-        val targetGroupContext = currentGroupContext.ifBlank { channel.groupTitle }
-        val playbackCandidates = resolvePlaybackCandidates(channel.streamUrl, ContentType.LIVE.name)
-
-        _liveChannelSwitch.value = LiveChannelSwitchState(
-            isSwitching = true,
-            targetChannelId = channel.id,
-            targetTitle = channel.name
-        )
-
-        var switchErrorMessage: String? = null
-
-        try {
-            coroutineScope {
-                currentOriginalUrl = channel.streamUrl
-                currentUrl = playbackCandidates.firstOrNull().orEmpty()
-                currentPlaybackCandidates = playbackCandidates
-                currentTitle = channel.name
-                currentContentId = channel.id
-                currentContentType = ContentType.LIVE.name
-                currentGroupContext = targetGroupContext
-
-                val started = startLiveChannelPlayback(playbackCandidates)
-                if (!started) {
-                    throw IllegalStateException("Live channel switch did not reach a stable playback state")
-                }
-
-                refreshSessionContext(
-                    url = channel.streamUrl,
-                    title = channel.name,
-                    contentId = channel.id,
-                    contentType = ContentType.LIVE.name,
-                    groupContext = targetGroupContext
-                )
-                contentRepository.updateChannelLastWatched(channel.id)
-            }
-        } catch (cancelled: CancellationException) {
-            currentOriginalUrl = previousOriginalUrl
-            currentUrl = previousUrl
-            currentTitle = previousTitle
-            currentContentId = previousContentId
-            currentContentType = previousContentType
-            currentGroupContext = previousGroupContext
-            currentPlaybackCandidates = previousPlaybackCandidates
-            _session.value = previousSession
-            throw cancelled
-        } catch (_: Exception) {
-            currentOriginalUrl = previousOriginalUrl
-            currentUrl = previousUrl
-            currentTitle = previousTitle
-            currentContentId = previousContentId
-            currentContentType = previousContentType
-            currentGroupContext = previousGroupContext
-            currentPlaybackCandidates = previousPlaybackCandidates
-            _session.value = previousSession
-            switchErrorMessage = buildPlaybackFailureMessage(channel.name)
-
-            if (previousUrl.isNotBlank()) {
-                playerManager.play(previousUrl, 0L)
-            }
-        } finally {
-            _liveChannelSwitch.value = LiveChannelSwitchState(errorMessage = switchErrorMessage)
-        }
-    }
-
-    private suspend fun startLiveChannelPlayback(
-        candidates: List<String>,
-        startPosition: Long = 0L
-    ): Boolean {
-        val uniqueCandidates = candidates
-            .map(String::trim)
-            .filter(String::isNotBlank)
-            .distinct()
-
-        uniqueCandidates.forEachIndexed { candidateIndex, candidate ->
-            val attempts = if (candidateIndex == 0) 2 else 1
-
-            repeat(attempts) { attempt ->
-                Timber.d("LivePlayback: trying candidate[$candidateIndex] attempt[$attempt] engine=${playerManager.engineName} url=$candidate")
-                playerManager.getEngine().stop()
-                delay(if (attempt == 0) 160L else 240L)
-                playerManager.play(candidate, startPosition)
-
-                val targetState = withTimeoutOrNull(5_500L) {
-                    state
-                        .map { it.playbackState }
-                        .drop(1)
-                        .first { playbackState ->
-                            playbackState == PlaybackState.PLAYING ||
-                                playbackState == PlaybackState.ERROR
-                        }
-                }
-
-                Timber.d("LivePlayback: candidate[$candidateIndex] attempt[$attempt] result=$targetState")
-
-                if (targetState != PlaybackState.ERROR) {
-                    currentUrl = candidate
-                    Timber.d("LivePlayback: SUCCESS on candidate[$candidateIndex]")
-                    return true
-                }
-            }
-        }
-
-        return false
-    }
-
-    private suspend fun refreshSessionContext(
-        url: String,
-        title: String,
-        contentId: Long,
-        contentType: String,
-        groupContext: String
-    ) {
-        val updatedSession = withContext(Dispatchers.IO) {
-            when (contentType.uppercase()) {
-                ContentType.MOVIE.name -> {
-                    val movie = contentRepository.getMovie(contentId)
-                    PlayerSessionState(
-                        title = movie?.name ?: title,
-                        movie = movie
-                    )
-                }
-                ContentType.SERIES.name -> {
-                    val episode = contentRepository.getEpisode(contentId)
-                    val series = episode?.let { contentRepository.getSeriesById(it.seriesId) }
-                    val episodes = when {
-                        episode == null -> emptyList()
-                        else -> {
-                            val localEpisodes = contentRepository.getAllEpisodes(episode.seriesId)
-                            if (localEpisodes.isNotEmpty()) {
-                                localEpisodes
-                            } else if (series != null) {
-                                contentRepository.syncSeriesEpisodes(series)
-                                contentRepository.getAllEpisodes(series.id)
-                            } else {
-                                emptyList()
-                            }
-                        }
-                    }
-                    val currentIndex = episodes.indexOfFirst { it.id == episode?.id }
-
-                    PlayerSessionState(
-                        title = if (episode != null) {
-                            buildEpisodePlayerTitle(series?.name.orEmpty(), episode)
-                        } else {
-                            title
-                        },
-                        series = series,
-                        currentEpisode = episode,
-                        previousEpisode = episodes.getOrNull(currentIndex - 1),
-                        nextEpisode = episodes.getOrNull(currentIndex + 1)
-                    )
-                }
-                ContentType.LIVE.name -> {
-                    val currentChannel = contentRepository.getChannel(contentId)
-                    val playlist = playlistRepository.getActivePlaylist().first()
-                    val scopedChannels = if (playlist != null && groupContext.isNotBlank()) {
-                        contentRepository.getChannelsByGroup(playlist.id, groupContext).first()
-                    } else {
-                        emptyList()
-                    }
-                    val primaryChannels = when {
-                        scopedChannels.isNotEmpty() -> scopedChannels
-                        playlist != null -> contentRepository.getChannels(playlist.id).first()
-                        else -> emptyList()
-                    }
-                    val rankedChannels = rankChannelsForMobile(primaryChannels)
-                    val currentIndex = rankedChannels.indexOfFirst { channel ->
-                        channel.id == contentId || channel.streamUrl == url
-                    }
-
-                    PlayerSessionState(
-                        title = currentChannel?.name ?: title,
-                        currentChannel = currentChannel,
-                        previousChannel = rankedChannels.getOrNull(currentIndex - 1),
-                        nextChannel = rankedChannels.getOrNull(currentIndex + 1),
-                        availableChannels = rankedChannels,
-                        liveGroup = groupContext
-                    )
-                }
-                else -> PlayerSessionState(title = title)
-            }
-        }
-
-        _session.value = updatedSession
-    }
-
-    private suspend fun saveProgressInternal() {
-        val snapshot = state.value
-        if (currentContentId <= 0L) return
-
-        when (currentContentType.uppercase()) {
-            ContentType.MOVIE.name -> saveMovieProgress(snapshot)
-            ContentType.SERIES.name -> saveSeriesProgress(snapshot)
-            ContentType.LIVE.name -> contentRepository.updateChannelLastWatched(currentContentId)
-        }
-    }
-
-    private suspend fun saveMovieProgress(snapshot: PlayerState) {
-        if (snapshot.currentPosition <= 0L) return
-
-        val movie = session.value.movie ?: contentRepository.getMovie(currentContentId) ?: return
-        val totalDuration = snapshot.duration.takeIf { it > 0L } ?: movie.totalDuration
-        val progress = calculateProgress(snapshot.currentPosition, totalDuration)
-
-        contentRepository.updateMovieProgress(movie.id, snapshot.currentPosition, totalDuration)
-        contentRepository.addWatchHistory(
-            WatchHistoryItem(
-                contentId = movie.id,
-                contentType = ContentType.MOVIE,
-                title = movie.name,
-                posterUrl = movie.posterUrl,
-                streamUrl = movie.streamUrl,
-                position = snapshot.currentPosition,
-                totalDuration = totalDuration,
-                progress = progress
-            )
-        )
-    }
-
-    private suspend fun saveSeriesProgress(snapshot: PlayerState) {
-        if (snapshot.currentPosition <= 0L) return
-
-        val currentEpisode = session.value.currentEpisode ?: contentRepository.getEpisode(currentContentId) ?: return
-        val currentSeries = session.value.series ?: contentRepository.getSeriesById(currentEpisode.seriesId)
-        val totalDuration = snapshot.duration.takeIf { it > 0L } ?: currentEpisode.totalDuration
-        val progress = calculateProgress(snapshot.currentPosition, totalDuration)
-
-        contentRepository.updateEpisodeProgress(currentEpisode.id, snapshot.currentPosition, totalDuration)
-        contentRepository.updateSeriesLastWatchedEpisode(currentEpisode.seriesId, currentEpisode.id)
-        contentRepository.addWatchHistory(
-            WatchHistoryItem(
-                contentId = currentEpisode.id,
-                contentType = ContentType.SERIES,
-                title = currentEpisode.name.ifBlank { "Episode ${currentEpisode.episodeNumber}" },
-                posterUrl = currentEpisode.posterUrl.ifBlank { currentSeries?.posterUrl.orEmpty() },
-                streamUrl = currentEpisode.streamUrl,
-                position = snapshot.currentPosition,
-                totalDuration = totalDuration,
-                progress = progress,
-                seasonNumber = currentEpisode.seasonNumber,
-                episodeNumber = currentEpisode.episodeNumber,
-                seriesName = currentSeries?.name.orEmpty()
-            )
-        )
-    }
-
-    private fun calculateProgress(position: Long, totalDuration: Long): Float {
-        return if (position > 0L && totalDuration > 0L) {
-            (position.toFloat() / totalDuration.toFloat()).coerceIn(0f, 1f)
-        } else {
-            0f
-        }
-    }
-
-    private fun resolvePlaybackUrl(url: String, contentType: String): String {
-        val trimmedUrl = url.trim().removeSuffix(".")
-
-        return when {
-            contentType.equals(ContentType.LIVE.name, ignoreCase = true) &&
-                trimmedUrl.contains("/live/") &&
-                trimmedUrl.endsWith(".m3u8", ignoreCase = true) -> {
-                trimmedUrl.removeSuffix(".m3u8") + ".ts"
-            }
-
-            else -> trimmedUrl
-        }
-    }
-
-    private fun resolvePlaybackCandidates(url: String, contentType: String): List<String> {
-        val trimmedUrl = url.trim().removeSuffix(".")
-        val defaultResolvedUrl = resolvePlaybackUrl(trimmedUrl, contentType)
-
-        if (
-            !enableTvPlaybackWorkarounds ||
-            !contentType.equals(ContentType.LIVE.name, ignoreCase = true)
-        ) {
-            return listOf(defaultResolvedUrl)
-        }
-
-        return buildList {
-            add(trimmedUrl)
-            if (defaultResolvedUrl != trimmedUrl) {
-                add(defaultResolvedUrl)
-            }
-            if (trimmedUrl.contains("/live/") && trimmedUrl.endsWith(".ts", ignoreCase = true)) {
-                add(trimmedUrl.removeSuffix(".ts") + ".m3u8")
-            }
-        }.map(String::trim)
-            .filter(String::isNotBlank)
-            .distinct()
-    }
-
-    private fun buildPlaybackFailureMessage(title: String): String {
-        return "$title could not be opened reliably on TV. Try retrying or switching player engine."
-    }
-
-    private fun buildEpisodePlayerTitle(seriesName: String, episode: Episode): String {
-        val prefix = buildString {
-            if (seriesName.isNotBlank()) {
-                append(seriesName)
-                append(" ")
-            }
-            append("S${episode.seasonNumber}E${episode.episodeNumber}")
-        }
-
-        return if (episode.name.isNotBlank()) {
-            "$prefix • ${episode.name}"
-        } else {
-            prefix
-        }
-    }
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
-@androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 fun PlayerScreen(
     url: String,
@@ -800,9 +75,7 @@ fun PlayerScreen(
     viewModel: PlayerViewModel = hiltViewModel()
 ) {
     val playerState by viewModel.state.collectAsStateWithLifecycle()
-    val switchState by viewModel.switchState.collectAsStateWithLifecycle()
-    val activeEngineName by viewModel.activeEngineName.collectAsStateWithLifecycle()
-    val engineReady by viewModel.engineReady.collectAsStateWithLifecycle()
+    val playerReady by viewModel.playerReady.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val session by viewModel.session.collectAsStateWithLifecycle()
     val liveChannelSwitch by viewModel.liveChannelSwitch.collectAsStateWithLifecycle()
@@ -810,7 +83,7 @@ fun PlayerScreen(
     val sleepTimerState by viewModel.sleepTimerState.collectAsStateWithLifecycle()
     val currentEpgProgram by viewModel.currentEpgProgram.collectAsStateWithLifecycle()
     val nextEpgProgram by viewModel.nextEpgProgram.collectAsStateWithLifecycle()
-    var controlsVisible by remember { mutableStateOf(true) }
+    var controlsVisible by rememberSaveable { mutableStateOf(true) }
     var showSettingsSheet by remember { mutableStateOf(false) }
     var showChannelSheet by remember { mutableStateOf(false) }
     var showSleepTimerSheet by remember { mutableStateOf(false) }
@@ -838,6 +111,9 @@ fun PlayerScreen(
     val isLivePlayback = contentType == ContentType.LIVE.name || session.currentChannel != null
     val isSeriesPlayback = contentType == ContentType.SERIES.name || session.currentEpisode != null
     val isChannelSwitching = liveChannelSwitch.isSwitching
+    val showSwitchingOverlay = isChannelSwitching && !playerState.isPlaybackConfirmed
+    val showBufferingOverlay = playerState.playbackState == PlaybackState.BUFFERING &&
+        !playerState.isPlaybackConfirmed
     val showUpNext = remember(
         isTv,
         isSeriesPlayback,
@@ -861,6 +137,10 @@ fun PlayerScreen(
             )
     }
 
+    LaunchedEffect(url, contentId, isLivePlayback, settings.startFullscreenLive) {
+        controlsVisible = !(isLivePlayback && settings.startFullscreenLive)
+    }
+
     // Register player screen as active so onUserLeaveHint() triggers PiP
     DisposableEffect(Unit) {
         (activity as? com.imax.player.MainActivity)?.isPlayerScreenActive = true
@@ -869,10 +149,10 @@ fun PlayerScreen(
         }
     }
 
-    val playbackActive = remember(playerState.playbackState, switchState) {
+    val playbackActive = remember(playerState.playbackState, isChannelSwitching) {
         playerState.playbackState == PlaybackState.PLAYING ||
             playerState.playbackState == PlaybackState.BUFFERING ||
-            switchState == EngineSwitchState.SWITCHING
+            isChannelSwitching
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1099,162 +379,25 @@ fun PlayerScreen(
                 }
             )
     ) {
-        // Video surface recreated gracefully: hides during SWITCHING to dispose old surface
-        val engine = remember(activeEngineName, engineReady) {
-            if (engineReady) viewModel.playerManager.getEngine() else null
-        }
-        if (!engineReady || engine == null) {
-            CircularProgressIndicator(
-                color = ImaxColors.Primary,
-                modifier = Modifier.size(40.dp).align(Alignment.Center)
-            )
-        } else if (switchState == EngineSwitchState.SWITCHING) {
-            Spacer(modifier = Modifier.fillMaxSize())
-        } else {
-            key(engine.engineName) {
-                when (engine) {
-                is ExoPlayerEngine -> {
-                    val exoPlayer = engine.getExoPlayer()
-                    val currentAspectMode = playerState.aspectRatioMode
-                    if (exoPlayer != null) {
-                        BoxWithConstraints(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            val viewportAspectRatio = if (maxHeight > 0.dp) {
-                                maxWidth.value / maxHeight.value
-                            } else {
-                                null
-                            }
-                            val viewportModifier = playerViewportModifier(
-                                targetAspectRatio = engine.getViewportAspectRatio(currentAspectMode),
-                                viewportAspectRatio = viewportAspectRatio
-                            )
-
-                            AndroidView(
-                                factory = { ctx ->
-                                    PlayerView(ctx).apply {
-                                        player = exoPlayer
-                                        useController = false
-                                        setKeepContentOnPlayerReset(true)
-                                        keepScreenOn = playbackActive
-                                        layoutParams = FrameLayout.LayoutParams(
-                                            ViewGroup.LayoutParams.MATCH_PARENT,
-                                            ViewGroup.LayoutParams.MATCH_PARENT
-                                        )
-                                        // Give the engine a reference so it can apply resizeMode
-                                        engine.setPlayerView(this)
-                                    }
-                                },
-                                update = { pv ->
-                                    pv.player = exoPlayer
-                                    pv.keepScreenOn = playbackActive
-                                    pv.resizeMode = engine.getResizeModeFor(currentAspectMode)
-                                    pv.videoSurfaceView?.keepScreenOn = playbackActive
-                                },
-                                modifier = viewportModifier
-                            )
-                        }
-                        // Clean up PlayerView reference on dispose
-                        DisposableEffect(engine.engineName) {
-                            onDispose {
-                                engine.clearPlayerView()
-                            }
-                        }
-                    }
-                }
-                is VlcPlayerEngine -> {
-                    // Surface-first VLC rendering:
-                    // Create SurfaceView → call engine.setSurface() → VLC starts playback
-                    BoxWithConstraints(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        val viewportAspectRatio = if (maxHeight > 0.dp) {
-                            maxWidth.value / maxHeight.value
-                        } else {
-                            null
-                        }
-                        val viewportModifier = playerViewportModifier(
-                            targetAspectRatio = forcedViewportAspectRatio(
-                                mode = playerState.aspectRatioMode,
-                                videoWidth = playerState.videoWidth,
-                                videoHeight = playerState.videoHeight
-                            ),
-                            viewportAspectRatio = viewportAspectRatio
-                        )
-
-                        AndroidView(
-                            factory = { ctx ->
-                                SurfaceView(ctx).apply {
-                                    layoutParams = FrameLayout.LayoutParams(
-                                        ViewGroup.LayoutParams.MATCH_PARENT,
-                                        ViewGroup.LayoutParams.MATCH_PARENT
-                                    )
-                                    keepScreenOn = playbackActive
-                                    // Ensure surface is on top (VLC needs this for proper z-order)
-                                    setZOrderMediaOverlay(false)
-                                }.also { surfaceView ->
-                                    // Attach surface to VLC — this triggers pending playback if queued
-                                    engine.setSurface(surfaceView)
-                                }
-                            },
-                            update = { surfaceView ->
-                                surfaceView.keepScreenOn = playbackActive
-                                // Update surface size on recomposition/layout change
-                                if (surfaceView.width > 0 && surfaceView.height > 0) {
-                                    engine.updateSurfaceSize(surfaceView.width, surfaceView.height)
-                                }
-                            },
-                            modifier = viewportModifier
-                        )
-                    }
-                    // Detach surface on dispose to prevent leaks and stale references
-                    DisposableEffect(engine.engineName) {
-                        onDispose {
-                            engine.detachSurface()
-                        }
-                    }
-                    }
-                is MpvPlayerEngine -> {
-                    // MPV rendering via SurfaceView from getView()
-                    BoxWithConstraints(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        val viewportAspectRatio = if (maxHeight > 0.dp) {
-                            maxWidth.value / maxHeight.value
-                        } else {
-                            null
-                        }
-                        val viewportModifier = playerViewportModifier(
-                            targetAspectRatio = forcedViewportAspectRatio(
-                                mode = playerState.aspectRatioMode,
-                                videoWidth = playerState.videoWidth,
-                                videoHeight = playerState.videoHeight
-                            ),
-                            viewportAspectRatio = viewportAspectRatio
-                        )
-
-                        AndroidView(
-                            factory = { _ ->
-                                (engine.getView() as? SurfaceView) ?: SurfaceView(context).also {
-                                    Timber.w("MpvPlayerEngine.getView() returned null, using fallback SurfaceView")
-                                }
-                            },
-                            update = { surfaceView ->
-                                surfaceView.keepScreenOn = playbackActive
-                            },
-                            modifier = viewportModifier
-                        )
-                    }
-                    }
-                }
+        PlayerSurfaceHost(
+            modifier = Modifier.fillMaxSize(),
+            playerEngine = viewModel.playerManager.getEngine(),
+            playerState = playerState,
+            surfaceState = PlayerSurfaceHostState(
+                playerReady = playerReady,
+                playbackActive = playbackActive,
+                shellMode = PlayerShellMode.MOBILE
+            ),
+            placeholder = {
+                CircularProgressIndicator(
+                    color = ImaxColors.Primary,
+                    modifier = Modifier.size(40.dp).align(Alignment.Center)
+                )
             }
-        }
+        )
 
         // Buffering indicator
-        if (playerState.playbackState == PlaybackState.BUFFERING) {
+        if (showBufferingOverlay) {
             CircularProgressIndicator(
                 color = ImaxColors.Primary,
                 modifier = Modifier.size(48.dp).align(Alignment.Center)
@@ -1283,7 +426,7 @@ fun PlayerScreen(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Icon(
-                        imageVector = if (isLeft) Icons.Filled.Brightness6 else Icons.Filled.VolumeUp,
+                        imageVector = if (isLeft) Icons.Filled.Brightness6 else Icons.AutoMirrored.Filled.VolumeUp,
                         contentDescription = null,
                         tint = Color.White,
                         modifier = Modifier.size(28.dp)
@@ -1340,7 +483,6 @@ fun PlayerScreen(
         // Error state — with StreamRetryManager auto-retry countdown
         if (
             playerState.playbackState == PlaybackState.ERROR &&
-            switchState != EngineSwitchState.SWITCHING &&
             !isChannelSwitching
         ) {
             Box(
@@ -1408,62 +550,22 @@ fun PlayerScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             modifier = Modifier.padding(horizontal = 16.dp)
                         )
-                        Text(
-                            text = "Motor: $activeEngineName",
-                            color = Color.White.copy(alpha = 0.5f),
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            OutlinedButton(
-                                onClick = { viewModel.retryCurrent() },
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    contentColor = Color.White
-                                )
-                            ) { Text("Yeniden Dene") }
-                            OutlinedButton(
-                                onClick = { viewModel.switchEngine() },
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    contentColor = ImaxColors.Primary
-                                )
-                            ) { Text("Motor Değiştir") }
-                        }
+
                         OutlinedButton(
-                            onClick = {
-                                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW)
-                                    .apply { setDataAndType(android.net.Uri.parse(url), "video/*") }
-                                context.startActivity(
-                                    android.content.Intent.createChooser(intent, "Harici Oynatıcı")
-                                )
-                                viewModel.togglePlayPause()
-                            },
+                            onClick = { viewModel.retryCurrent() },
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
-                        ) { Text("Harici Oynatıcı") }
+                        ) {
+                            Text(stringResource(R.string.retry))
+                        }
                     }
                 }
             }
         }
 
-        // Engine switch transition overlay
-        AnimatedVisibility(
-            visible = switchState == EngineSwitchState.SWITCHING,
-            enter = fadeIn(tween(200)),
-            exit = fadeOut(tween(300)),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            Box(
-                modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.85f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = ImaxColors.Primary, modifier = Modifier.size(40.dp))
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(stringResource(R.string.switching_engine), style = MaterialTheme.typography.bodyLarge, color = Color.White)
-                }
-            }
-        }
+
 
         AnimatedVisibility(
-            visible = isChannelSwitching,
+            visible = showSwitchingOverlay,
             enter = fadeIn(tween(160)),
             exit = fadeOut(tween(220)),
             modifier = Modifier.fillMaxSize()
@@ -1492,42 +594,6 @@ fun PlayerScreen(
                             overflow = TextOverflow.Ellipsis
                         )
                     }
-                }
-            }
-        }
-
-        // Switch success indicator
-        AnimatedVisibility(
-            visible = switchState == EngineSwitchState.SUCCESS,
-            enter = fadeIn(tween(200)),
-            exit = fadeOut(tween(800)),
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = 80.dp)
-        ) {
-            Surface(shape = RoundedCornerShape(8.dp), color = ImaxColors.Primary.copy(alpha = 0.9f)) {
-                Row(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Filled.Check, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                    Text("Switched to $activeEngineName",
-                        style = MaterialTheme.typography.labelLarge, color = Color.White)
-                }
-            }
-        }
-
-        // Switch failed indicator
-        AnimatedVisibility(
-            visible = switchState == EngineSwitchState.FAILED,
-            enter = fadeIn(tween(200)),
-            exit = fadeOut(tween(800)),
-            modifier = Modifier.align(Alignment.TopCenter).padding(top = 80.dp)
-        ) {
-            Surface(shape = RoundedCornerShape(8.dp), color = ImaxColors.Error.copy(alpha = 0.9f)) {
-                Row(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Filled.Warning, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
-                    Text("Engine switch failed, rolled back",
-                        style = MaterialTheme.typography.labelLarge, color = Color.White)
                 }
             }
         }
@@ -1595,7 +661,7 @@ fun PlayerScreen(
 
         // Controls overlay — hidden in PiP mode
         AnimatedVisibility(
-            visible = controlsVisible && !isPipMode && switchState != EngineSwitchState.SWITCHING && !isChannelSwitching,
+            visible = controlsVisible && !isPipMode && !isChannelSwitching,
             enter = fadeIn(tween(200)),
             exit = fadeOut(tween(300))
         ) {
@@ -1639,7 +705,7 @@ fun PlayerScreen(
                     }
                     if (!isTv && isLivePlayback) {
                         PlayerControlButton(
-                            icon = Icons.Filled.List,
+                            icon = Icons.AutoMirrored.Filled.List,
                             contentDescription = stringResource(R.string.channel_list),
                             size = 22.dp,
                             onClick = {
@@ -1650,13 +716,6 @@ fun PlayerScreen(
                             modifier = Modifier.alpha(if (isChannelSwitching) 0.45f else 1f)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                    }
-                    // Engine badge
-                    Surface(shape = RoundedCornerShape(4.dp), color = ImaxColors.SurfaceVariant.copy(alpha = 0.6f)) {
-                        Text(activeEngineName,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = ImaxColors.TextSecondary,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
                     }
                 }
 
@@ -1781,7 +840,7 @@ fun PlayerScreen(
                         if (isLivePlayback) {
                             Spacer(modifier = Modifier.width(4.dp))
                             PlayerControlButton(
-                                icon = Icons.Filled.List,
+                                icon = Icons.AutoMirrored.Filled.List,
                                 contentDescription = stringResource(R.string.channel_list),
                                 label = session.liveGroup.ifBlank { stringResource(R.string.channels) },
                                 onClick = {
@@ -1984,7 +1043,6 @@ fun PlayerScreen(
     if (showSettingsSheet) {
         PlayerSettingsSheet(
             playerState = playerState,
-            engineName = activeEngineName,
             isTv = isTv,
             onDismiss = { showSettingsSheet = false },
             onSetAspectRatio = { viewModel.setAspectRatio(it) },
@@ -1993,17 +1051,7 @@ fun PlayerScreen(
             onSelectVideoTrack = { viewModel.selectVideoTrack(it) },
             onSelectAudio = { viewModel.selectAudio(it) },
             onSelectSubtitle = { viewModel.selectSubtitle(it) },
-            onDisableSubtitles = { viewModel.disableSubtitles() },
-            onSwitchEngine = { viewModel.switchEngine(); showSettingsSheet = false },
-            onPlayInExternalPlayer = { 
-                showSettingsSheet = false
-                controlsVisible = false
-                viewModel.togglePlayPause() // Pause playback
-                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-                    setDataAndType(android.net.Uri.parse(url), "video/*")
-                }
-                context.startActivity(android.content.Intent.createChooser(intent, "Play in External Player"))
-            }
+            onDisableSubtitles = { viewModel.disableSubtitles() }
         )
     }
 }
@@ -2055,49 +1103,6 @@ fun EpgMiniStrip(
     }
 }
 
-private fun forcedViewportAspectRatio(
-    mode: AspectRatioMode,
-    videoWidth: Int,
-    videoHeight: Int
-): Float? {
-    return when (mode) {
-        AspectRatioMode.FORCE_16_9 -> 16f / 9f
-        AspectRatioMode.FORCE_4_3 -> 4f / 3f
-        AspectRatioMode.ORIGINAL -> {
-            if (videoWidth > 0 && videoHeight > 0) {
-                videoWidth.toFloat() / videoHeight.toFloat()
-            } else {
-                null
-            }
-        }
-        else -> null
-    }
-}
-
-private fun playerViewportModifier(
-    targetAspectRatio: Float?,
-    viewportAspectRatio: Float?
-): Modifier {
-    if (
-        targetAspectRatio == null ||
-        viewportAspectRatio == null ||
-        targetAspectRatio <= 0f ||
-        viewportAspectRatio <= 0f
-    ) {
-        return Modifier.fillMaxSize()
-    }
-
-    return if (viewportAspectRatio > targetAspectRatio) {
-        Modifier
-            .fillMaxHeight()
-            .aspectRatio(targetAspectRatio, matchHeightConstraintsFirst = true)
-    } else {
-        Modifier
-            .fillMaxWidth()
-            .aspectRatio(targetAspectRatio)
-    }
-}
-
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Player Settings Bottom Sheet
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2106,7 +1111,6 @@ private fun playerViewportModifier(
 @Composable
 private fun PlayerSettingsSheet(
     playerState: PlayerState,
-    engineName: String,
     isTv: Boolean,
     onDismiss: () -> Unit,
     onSetAspectRatio: (AspectRatioMode) -> Unit,
@@ -2115,9 +1119,7 @@ private fun PlayerSettingsSheet(
     onSelectVideoTrack: (Int) -> Unit,
     onSelectAudio: (Int) -> Unit,
     onSelectSubtitle: (Int) -> Unit,
-    onDisableSubtitles: () -> Unit,
-    onSwitchEngine: () -> Unit,
-    onPlayInExternalPlayer: () -> Unit
+    onDisableSubtitles: () -> Unit
 ) {
     var activeSection by remember { mutableStateOf<String?>(null) }
 
@@ -2138,7 +1140,6 @@ private fun PlayerSettingsSheet(
                 ) {
                     PlayerSettingsContent(
                         playerState = playerState,
-                        engineName = engineName,
                         isTv = true,
                         activeSection = activeSection,
                         onSectionChange = { activeSection = it },
@@ -2148,9 +1149,7 @@ private fun PlayerSettingsSheet(
                         onSelectVideoTrack = onSelectVideoTrack,
                         onSelectAudio = onSelectAudio,
                         onSelectSubtitle = onSelectSubtitle,
-                        onDisableSubtitles = onDisableSubtitles,
-                        onSwitchEngine = onSwitchEngine,
-                        onPlayInExternalPlayer = onPlayInExternalPlayer
+                        onDisableSubtitles = onDisableSubtitles
                     )
                 }
             }
@@ -2173,7 +1172,6 @@ private fun PlayerSettingsSheet(
     ) {
         PlayerSettingsContent(
             playerState = playerState,
-            engineName = engineName,
             isTv = false,
             activeSection = activeSection,
             onSectionChange = { activeSection = it },
@@ -2183,9 +1181,7 @@ private fun PlayerSettingsSheet(
             onSelectVideoTrack = onSelectVideoTrack,
             onSelectAudio = onSelectAudio,
             onSelectSubtitle = onSelectSubtitle,
-            onDisableSubtitles = onDisableSubtitles,
-            onSwitchEngine = onSwitchEngine,
-            onPlayInExternalPlayer = onPlayInExternalPlayer
+            onDisableSubtitles = onDisableSubtitles
         )
     }
 }
@@ -2193,7 +1189,6 @@ private fun PlayerSettingsSheet(
 @Composable
 private fun PlayerSettingsContent(
     playerState: PlayerState,
-    engineName: String,
     isTv: Boolean,
     activeSection: String?,
     onSectionChange: (String?) -> Unit,
@@ -2203,9 +1198,7 @@ private fun PlayerSettingsContent(
     onSelectVideoTrack: (Int) -> Unit,
     onSelectAudio: (Int) -> Unit,
     onSelectSubtitle: (Int) -> Unit,
-    onDisableSubtitles: () -> Unit,
-    onSwitchEngine: () -> Unit,
-    onPlayInExternalPlayer: () -> Unit
+    onDisableSubtitles: () -> Unit
 ) {
         Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.7f)) {
             // Header
@@ -2273,28 +1266,6 @@ private fun PlayerSettingsContent(
                             subtitle = selectedSub?.name ?: "Off",
                             isTv = isTv,
                             onClick = { onSectionChange("subtitle") }
-                        )
-                    }
-
-                    // Engine Switch
-                    item {
-                        SettingsMenuItem(
-                            icon = Icons.Filled.SwitchVideo,
-                            title = stringResource(R.string.setting_player_engine),
-                            subtitle = engineName,
-                            isTv = isTv,
-                            onClick = onSwitchEngine
-                        )
-                    }
-
-                    // External Player
-                    item {
-                        SettingsMenuItem(
-                            icon = Icons.Filled.OpenInNew,
-                            title = "Play in External Player",
-                            subtitle = "Use outside player",
-                            isTv = isTv,
-                            onClick = onPlayInExternalPlayer
                         )
                     }
 
@@ -2426,7 +1397,6 @@ private fun PlayerSettingsContent(
                         "info" -> {
                             item {
                                 Column(modifier = Modifier.padding(20.dp)) {
-                                    StreamInfoRow("Engine", engineName)
                                     StreamInfoRow("Resolution", playerState.currentVideoResolution.ifBlank { "—" })
                                     StreamInfoRow("Bitrate", playerState.currentVideoBitrate.ifBlank { "—" })
                                     StreamInfoRow("Codec", playerState.currentVideoCodec.ifBlank { "—" })

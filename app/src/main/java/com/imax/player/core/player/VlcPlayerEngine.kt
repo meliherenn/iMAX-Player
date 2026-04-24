@@ -5,93 +5,88 @@ import android.net.Uri
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.*
+import javax.inject.Inject
+import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
 import org.videolan.libvlc.interfaces.IVLCVout
 import timber.log.Timber
-import javax.inject.Inject
 
-/**
- * Production VLC player engine.
- *
- * KEY DESIGN — Surface-first with SurfaceHolder.Callback:
- * 1. play() queues URL if no surface is ready
- * 2. setSurface() registers SurfaceHolder.Callback
- * 3. surfaceCreated() → attach vout + trigger pending play
- * 4. surfaceChanged() → update window size (this is where real dimensions arrive)
- * 5. surfaceDestroyed() → detach vout
- *
- * This ensures VLC NEVER renders to a 0x0 or null surface.
- */
+@Singleton
 class VlcPlayerEngine @Inject constructor(
     @ApplicationContext private val context: Context
 ) : PlayerEngine {
 
-    private var libVLC: LibVLC? = null
-    private var mediaPlayer: MediaPlayer? = null
-    private val _state = MutableStateFlow(PlayerState())
-    override val state: StateFlow<PlayerState> = _state.asStateFlow()
     override val engineName: String = "VLC"
 
+    override fun isAvailable(): Boolean {
+        // VLC is shipped via libvlc-all and supports main architectures
+        return true
+    }
+
+    private var libVlc: LibVLC? = null
+    private var mediaPlayer: MediaPlayer? = null
     private var scope: CoroutineScope? = null
     private var progressJob: Job? = null
-    private var vlcAvailable: Boolean? = null
 
-    // Configuration
     private var configuredBufferMs: Long = 30_000L
-    private var configuredLatencyMode: String = "BALANCED"
+    private var configuredLatencyMode: String = LiveLatencyMode.BALANCED.name
     private var configuredPreferHw: Boolean = true
+    private var currentPlaybackSpeed = 1f
+    private var currentAspectMode = AspectRatioMode.FIT
+    private var currentVideoQualityMode = VideoQualityMode.AUTO
+    private var preferredAudioLanguage: String? = null
+    private var preferredSubtitleLanguage: String? = null
+    private var subtitlesDisabled = false
+    private var currentProfile = PlaybackProfile.VOD
 
-    override fun setPlaybackConfiguration(bufferDurationMs: Long, liveLatencyMode: String, preferHwDecoding: Boolean) {
-        this.configuredBufferMs = bufferDurationMs
-        this.configuredLatencyMode = liveLatencyMode
-        this.configuredPreferHw = preferHwDecoding
-    }
-
-    // Surface lifecycle state
     private var currentSurfaceView: SurfaceView? = null
-    private var surfaceReady = false  // true only AFTER surfaceCreated callback
-
-    // Pending playback — queued until surface is ready
+    private var surfaceReady = false
+    private var firstFrameRendered = false
     private var pendingUrl: String? = null
-    private var pendingStartPos: Long = 0
-    private var currentAspectMode: AspectRatioMode = AspectRatioMode.FIT
+    private var pendingStartPos: Long = 0L
 
-    override fun isAvailable(): Boolean {
-        if (vlcAvailable != null) return vlcAvailable!!
-        return try {
-            Class.forName("org.videolan.libvlc.LibVLC")
-            vlcAvailable = true
-            true
-        } catch (e: ClassNotFoundException) {
-            Timber.w("libVLC not available on this device")
-            vlcAvailable = false
-            false
-        } catch (e: UnsatisfiedLinkError) {
-            Timber.w(e, "libVLC native libraries not available")
-            vlcAvailable = false
-            false
-        }
-    }
+    private var playbackState: PlaybackState = PlaybackState.IDLE
+    private var hasVideoTrack = false
+    private var hasAudioTrack = false
+    private var currentVideoWidth = 0
+    private var currentVideoHeight = 0
+    private var currentVideoCodec = ""
+    private var currentVideoResolution = ""
+    private var currentAudioTracks: List<TrackInfo> = emptyList()
+    private var currentSubtitleTracks: List<TrackInfo> = emptyList()
+    private var selectedAudioTrack = -1
+    private var selectedSubtitleTrack = -1
+    private var currentErrorMessage: String? = null
+
+    private val _state = MutableStateFlow(
+        PlayerState(
+            aspectRatioMode = currentAspectMode,
+            playbackSpeed = currentPlaybackSpeed,
+            videoQualityMode = currentVideoQualityMode
+        )
+    )
+    override val state: StateFlow<PlayerState> = _state.asStateFlow()
 
     override fun initialize() {
-        if (!isAvailable()) {
-            _state.value = _state.value.copy(
-                playbackState = PlaybackState.ERROR,
-                errorMessage = "VLC engine not available."
-            )
+        if (libVlc != null && mediaPlayer != null) {
             return
         }
 
         scope?.cancel()
-        scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
-
-        if (libVLC != null) return // Already initialized
+        scope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
 
         try {
             val hwOption = if (configuredPreferHw) "--avcodec-hw=any" else "--avcodec-hw=none"
@@ -102,87 +97,293 @@ class VlcPlayerEngine @Inject constructor(
                 "--subsdec-encoding=UTF-8",
                 "--aout=opensles",
                 "--audio-time-stretch"
-                // Don't force --vout; let VLC auto-detect for best compatibility
             )
 
-            libVLC = LibVLC(context, options)
-            mediaPlayer = MediaPlayer(libVLC!!).apply {
-                setEventListener { event -> handleVlcEvent(event) }
+            libVlc = LibVLC(context, options)
+            mediaPlayer = MediaPlayer(libVlc!!).apply {
+                setEventListener(::handleVlcEvent)
             }
-
+            publishState()
             Timber.d("VLC engine initialized")
-        } catch (e: Exception) {
-            Timber.e(e, "VLC init failed")
-            _state.value = _state.value.copy(
-                playbackState = PlaybackState.ERROR,
-                errorMessage = "VLC init failed: ${e.localizedMessage}"
-            )
+        } catch (throwable: Throwable) {
+            Timber.e(throwable, "VLC init failed")
+            currentErrorMessage = "VLC init failed: ${throwable.localizedMessage}"
+            playbackState = PlaybackState.ERROR
+            publishState()
         }
     }
 
     override fun release() {
-        Timber.d("VLC release() called")
         stopProgressTracking()
-        scope?.cancel()
-        scope = null
         pendingUrl = null
-        pendingStartPos = 0
-        currentAspectMode = AspectRatioMode.FIT
-
-        // Remove surface callback and detach
+        pendingStartPos = 0L
         cleanupSurface()
 
-        try { mediaPlayer?.stop() } catch (e: Exception) { Timber.w(e, "VLC stop error") }
-        try { mediaPlayer?.release() } catch (e: Exception) { Timber.w(e, "VLC mp release error") }
-        try { libVLC?.release() } catch (e: Exception) { Timber.w(e, "LibVLC release error") }
+        try {
+            mediaPlayer?.stop()
+        } catch (throwable: Throwable) {
+            Timber.w(throwable, "VLC stop failed during release")
+        }
+        try {
+            mediaPlayer?.release()
+        } catch (throwable: Throwable) {
+            Timber.w(throwable, "VLC player release failed")
+        }
+        try {
+            libVlc?.release()
+        } catch (throwable: Throwable) {
+            Timber.w(throwable, "LibVLC release failed")
+        }
 
         mediaPlayer = null
-        libVLC = null
-        _state.value = PlayerState()
-        Timber.d("VLC release() done")
+        libVlc = null
+        scope?.cancel()
+        scope = null
+
+        playbackState = PlaybackState.IDLE
+        hasVideoTrack = false
+        hasAudioTrack = false
+        firstFrameRendered = false
+        currentVideoWidth = 0
+        currentVideoHeight = 0
+        currentVideoCodec = ""
+        currentVideoResolution = ""
+        currentAudioTracks = emptyList()
+        currentSubtitleTracks = emptyList()
+        selectedAudioTrack = -1
+        selectedSubtitleTrack = -1
+        currentErrorMessage = null
+
+        _state.value = PlayerState(
+            aspectRatioMode = currentAspectMode,
+            playbackSpeed = currentPlaybackSpeed,
+            videoQualityMode = currentVideoQualityMode
+        )
     }
 
-    /**
-     * Play URL. If surface is not ready yet, queue for later.
-     */
-    override fun play(url: String, startPosition: Long) {
+    override fun play(url: String, startPosition: Long, profile: PlaybackProfile) {
         initialize()
-        if (mediaPlayer == null || libVLC == null) return
+        currentProfile = profile
+        currentErrorMessage = null
+        playbackState = PlaybackState.BUFFERING
+        firstFrameRendered = false
+        currentVideoWidth = 0
+        currentVideoHeight = 0
+        currentVideoCodec = ""
+        currentVideoResolution = ""
+        currentAudioTracks = emptyList()
+        currentSubtitleTracks = emptyList()
+        selectedAudioTrack = -1
+        selectedSubtitleTrack = -1
+        hasVideoTrack = false
+        hasAudioTrack = false
 
         if (!surfaceReady) {
-            Timber.d("VLC play queued (surface not ready): $url")
             pendingUrl = url
             pendingStartPos = startPosition
-            _state.value = _state.value.copy(playbackState = PlaybackState.BUFFERING)
+            publishState()
+            Timber.d("VLC playback queued until surface is ready: %s", url)
             return
         }
 
         startPlaybackInternal(url, startPosition)
     }
 
-    /**
-     * Actually start playback — called ONLY when surface is attached and ready.
-     */
+    override fun pause() {
+        mediaPlayer?.pause()
+        playbackState = PlaybackState.PAUSED
+        publishState()
+    }
+
+    override fun resume() {
+        mediaPlayer?.play()
+        playbackState = PlaybackState.PLAYING
+        publishState()
+    }
+
+    override fun stop() {
+        try {
+            mediaPlayer?.stop()
+        } catch (throwable: Throwable) {
+            Timber.w(throwable, "VLC stop failed")
+        }
+        stopProgressTracking()
+        pendingUrl = null
+        pendingStartPos = 0L
+        playbackState = PlaybackState.IDLE
+        firstFrameRendered = false
+        hasVideoTrack = false
+        hasAudioTrack = false
+        currentVideoWidth = 0
+        currentVideoHeight = 0
+        currentVideoCodec = ""
+        currentVideoResolution = ""
+        currentAudioTracks = emptyList()
+        currentSubtitleTracks = emptyList()
+        selectedAudioTrack = -1
+        selectedSubtitleTrack = -1
+        currentErrorMessage = null
+        publishState()
+    }
+
+    override fun seekTo(position: Long) {
+        mediaPlayer?.time = position
+        publishState()
+    }
+
+    override fun seekForward(ms: Long) {
+        val player = mediaPlayer ?: return
+        val duration = player.length.takeIf { it > 0L } ?: Long.MAX_VALUE
+        player.time = (player.time + ms).coerceAtMost(duration)
+        publishState()
+    }
+
+    override fun seekBackward(ms: Long) {
+        val player = mediaPlayer ?: return
+        player.time = (player.time - ms).coerceAtLeast(0L)
+        publishState()
+    }
+
+    override fun setPlaybackSpeed(speed: Float) {
+        currentPlaybackSpeed = speed
+        mediaPlayer?.rate = speed
+        publishState()
+    }
+
+    override fun selectAudioTrack(index: Int) {
+        val player = mediaPlayer ?: return
+        val tracks = player.audioTracks ?: return
+        if (index !in tracks.indices) {
+            return
+        }
+        player.audioTrack = tracks[index].id
+        updateTrackInfo()
+        publishState()
+    }
+
+    override fun selectSubtitleTrack(index: Int) {
+        val player = mediaPlayer ?: return
+        val tracks = player.spuTracks ?: return
+        if (index !in tracks.indices) {
+            return
+        }
+        subtitlesDisabled = false
+        player.spuTrack = tracks[index].id
+        updateTrackInfo()
+        publishState()
+    }
+
+    override fun disableSubtitles() {
+        subtitlesDisabled = true
+        mediaPlayer?.spuTrack = -1
+        selectedSubtitleTrack = -1
+        updateTrackInfo()
+        publishState()
+    }
+
+    override fun setAspectRatio(mode: AspectRatioMode) {
+        currentAspectMode = mode
+        applyAspectRatioMode()
+        publishState()
+    }
+
+    override fun setVideoQualityMode(mode: VideoQualityMode) {
+        currentVideoQualityMode = mode
+        publishState()
+    }
+
+    override fun setPlaybackConfiguration(
+        bufferDurationMs: Long,
+        liveLatencyMode: String,
+        preferHwDecoding: Boolean
+    ) {
+        configuredBufferMs = bufferDurationMs
+        configuredLatencyMode = liveLatencyMode
+        configuredPreferHw = preferHwDecoding
+    }
+
+    fun setPreferredAudioLanguage(langCode: String) {
+        preferredAudioLanguage = langCode.trim().takeIf { it.isNotBlank() }
+        applyPreferredTracks()
+    }
+
+    fun setPreferredSubtitleLanguage(langCode: String) {
+        val normalized = langCode.trim()
+        if (normalized.equals("off", ignoreCase = true) ||
+            normalized.equals("none", ignoreCase = true)
+        ) {
+            subtitlesDisabled = true
+            preferredSubtitleLanguage = null
+            disableSubtitles()
+            return
+        }
+
+        subtitlesDisabled = false
+        preferredSubtitleLanguage = normalized.takeIf { it.isNotBlank() }
+        applyPreferredTracks()
+    }
+
+    fun attachSurface(surfaceView: SurfaceView) {
+        currentSurfaceView?.holder?.removeCallback(surfaceHolderCallback)
+        currentSurfaceView = surfaceView
+        surfaceReady = false
+        firstFrameRendered = false
+        surfaceView.holder.addCallback(surfaceHolderCallback)
+
+        val holder = surfaceView.holder
+        if (holder.surface?.isValid == true && surfaceView.width > 0 && surfaceView.height > 0) {
+            attachVlcToSurface(surfaceView)
+        } else {
+            publishState()
+        }
+    }
+
+    fun detachSurface() {
+        cleanupSurface()
+        publishState()
+    }
+
+    fun updateSurfaceSize(width: Int, height: Int) {
+        if (width <= 0 || height <= 0) {
+            return
+        }
+        try {
+            mediaPlayer?.vlcVout?.let { vout ->
+                if (vout.areViewsAttached()) {
+                    vout.setWindowSize(width, height)
+                }
+            }
+        } catch (throwable: Throwable) {
+            Timber.w(throwable, "VLC window size update failed")
+        }
+        applyAspectRatioMode()
+        publishState()
+    }
+
     private fun startPlaybackInternal(url: String, startPosition: Long) {
-        val mp = mediaPlayer ?: return
-        val vlc = libVLC ?: return
+        val player = mediaPlayer ?: return
+        val vlc = libVlc ?: return
 
         try {
-            _state.value = _state.value.copy(playbackState = PlaybackState.BUFFERING)
+            stopProgressTracking()
+            playbackState = PlaybackState.BUFFERING
+
             try {
-                mp.stop()
-            } catch (_: Exception) {
+                player.stop()
+            } catch (_: Throwable) {
             }
 
             val media = Media(vlc, Uri.parse(url))
             media.setHWDecoderEnabled(configuredPreferHw, false)
-            
-            val isLive = url.contains("m3u8", ignoreCase = true) || url.contains("ts", ignoreCase = true)
+
+            val isLive = currentProfile == PlaybackProfile.LIVE ||
+                url.contains(".m3u8", ignoreCase = true) ||
+                url.contains(".ts", ignoreCase = true)
             val cacheMs = if (isLive) {
                 when (configuredLatencyMode.uppercase()) {
-                    "LOW_LATENCY" -> 500L
-                    "STABLE" -> 3000L
-                    else -> 1500L
+                    LiveLatencyMode.LOW_LATENCY.name -> 500L
+                    LiveLatencyMode.STABLE.name -> 3_000L
+                    else -> 1_500L
                 }
             } else {
                 configuredBufferMs
@@ -190,306 +391,270 @@ class VlcPlayerEngine @Inject constructor(
 
             media.addOption(":network-caching=$cacheMs")
             media.addOption(":live-caching=$cacheMs")
-            
-            if (configuredLatencyMode.uppercase() == "LOW_LATENCY" && isLive) {
-                media.addOption(":clock-jitter=0")
-            } else {
-                media.addOption(":clock-jitter=500")
-            }
+            media.addOption(
+                if (configuredLatencyMode.uppercase() == LiveLatencyMode.LOW_LATENCY.name && isLive) {
+                    ":clock-jitter=0"
+                } else {
+                    ":clock-jitter=500"
+                }
+            )
             media.addOption(":clock-synchro=0")
             media.addOption(":http-user-agent=iMAX Player/Android")
             media.addOption(":input-repeat=0")
 
-            mp.media = media
+            player.media = media
             media.release()
-            mp.play()
+            player.rate = currentPlaybackSpeed
+            player.play()
 
-            if (startPosition > 0) {
+            if (startPosition > 0L) {
                 scope?.launch {
-                    delay(500)
-                    if (mp.isPlaying || mp.length > 0) {
-                        mp.time = startPosition
+                    delay(500L)
+                    if (player.isPlaying || player.length > 0L) {
+                        player.time = startPosition
+                        publishState()
                     }
                 }
             }
 
-            Timber.d("VLC playback started: $url")
-        } catch (e: Exception) {
-            Timber.e(e, "VLC play failed: $url")
-            _state.value = _state.value.copy(
-                playbackState = PlaybackState.ERROR,
-                errorMessage = "VLC playback failed: ${e.localizedMessage}"
-            )
+            publishState()
+            Timber.d("VLC playback started: %s", url)
+        } catch (throwable: Throwable) {
+            Timber.e(throwable, "VLC play failed: %s", url)
+            currentErrorMessage = "VLC playback failed: ${throwable.localizedMessage}"
+            playbackState = PlaybackState.ERROR
+            publishState()
         }
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    //  SURFACE MANAGEMENT — THE CORE VIDEO FIX
-    //  Uses SurfaceHolder.Callback for lifecycle-safe attach
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    /**
-     * Called from PlayerScreen when AndroidView creates the SurfaceView.
-     *
-     * Registers a SurfaceHolder.Callback. VLC vout is attached
-     * ONLY in surfaceCreated() — NOT here — because at this point
-     * the SurfaceView has no valid Surface yet (width=0, height=0).
-     */
-    fun setSurface(surface: SurfaceView) {
-        Timber.d("setSurface() called")
-
-        // Remove old callback if switching surfaces
-        currentSurfaceView?.holder?.removeCallback(surfaceHolderCallback)
-
-        currentSurfaceView = surface
-        surfaceReady = false
-
-        // Register callback — surfaceCreated() will do the actual VLC attach
-        surface.holder.addCallback(surfaceHolderCallback)
-
-        // If the surface is already valid (holder.surface != null && width > 0),
-        // attach immediately. This handles the case where the surface was created
-        // before we registered the callback.
-        val holder = surface.holder
-        if (holder.surface != null && holder.surface.isValid) {
-            Timber.d("Surface already valid on setSurface(), attaching immediately")
-            attachVlcToSurface(surface)
-        }
-    }
-
-    /**
-     * Called from PlayerScreen on dispose. Cleans up surface references.
-     */
-    fun detachSurface() {
-        Timber.d("detachSurface() called")
-        cleanupSurface()
-    }
-
-    /**
-     * Update window size (called from AndroidView update{}).
-     */
-    fun updateSurfaceSize(width: Int, height: Int) {
-        if (width <= 0 || height <= 0) return
-        val mp = mediaPlayer ?: return
+    private fun attachVlcToSurface(surfaceView: SurfaceView) {
+        val player = mediaPlayer ?: return
         try {
-            val vout = mp.vlcVout
+            val vout = player.vlcVout
             if (vout.areViewsAttached()) {
+                vout.removeCallback(vlcVoutCallback)
+                vout.detachViews()
+            }
+            vout.setVideoView(surfaceView)
+            val width = surfaceView.holder.surfaceFrame.width()
+            val height = surfaceView.holder.surfaceFrame.height()
+            if (width > 0 && height > 0) {
                 vout.setWindowSize(width, height)
             }
-            applyAspectRatioMode()
-        } catch (e: Exception) {
-            Timber.w(e, "Error updating surface size")
-        }
-    }
-
-    /**
-     * The critical SurfaceHolder.Callback — this is how we know
-     * when the underlying Surface is ACTUALLY ready for rendering.
-     */
-    private val surfaceHolderCallback = object : SurfaceHolder.Callback {
-
-        override fun surfaceCreated(holder: SurfaceHolder) {
-            Timber.d("surfaceCreated() — attaching VLC vout")
-            currentSurfaceView?.let { attachVlcToSurface(it) }
-        }
-
-        override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-            Timber.d("surfaceChanged() ${width}x${height}")
-            if (width > 0 && height > 0) {
-                try {
-                    mediaPlayer?.vlcVout?.setWindowSize(width, height)
-                    applyAspectRatioMode()
-                } catch (e: Exception) {
-                    Timber.w(e, "Error on surfaceChanged")
-                }
-            }
-        }
-
-        override fun surfaceDestroyed(holder: SurfaceHolder) {
-            Timber.d("surfaceDestroyed() — detaching VLC vout")
-            detachVlcFromSurface()
-        }
-    }
-
-    /**
-     * Attach VLC video output to the given SurfaceView.
-     * Called from surfaceCreated or when surface is already valid.
-     */
-    private fun attachVlcToSurface(surface: SurfaceView) {
-        val mp = mediaPlayer
-        if (mp == null) {
-            Timber.w("attachVlcToSurface: mediaPlayer is null")
-            surfaceReady = false
-            return
-        }
-
-        try {
-            val vout = mp.vlcVout
-
-            // Detach existing views first
-            if (vout.areViewsAttached()) {
-                try {
-                    vout.detachViews()
-                } catch (e: Exception) {
-                    Timber.w(e, "Error detaching old views before reattach")
-                }
-            }
-
-            vout.setVideoView(surface)
-
-            // Set window size — at this point the surface HAS real dimensions
-            val w = surface.holder.surfaceFrame.width()
-            val h = surface.holder.surfaceFrame.height()
-            if (w > 0 && h > 0) {
-                vout.setWindowSize(w, h)
-                Timber.d("VLC vout window size set: ${w}x${h}")
-            }
-
             vout.addCallback(vlcVoutCallback)
             vout.attachViews()
             surfaceReady = true
             applyAspectRatioMode()
+            publishState()
 
-            Timber.d("VLC vout attached successfully")
-
-            // Fire pending play if queued
-            val url = pendingUrl
-            if (url != null) {
-                val pos = pendingStartPos
+            val queuedUrl = pendingUrl
+            if (queuedUrl != null) {
+                val queuedPosition = pendingStartPos
                 pendingUrl = null
-                pendingStartPos = 0
-                Timber.d("Starting pending VLC playback")
-                startPlaybackInternal(url, pos)
+                pendingStartPos = 0L
+                startPlaybackInternal(queuedUrl, queuedPosition)
             }
-        } catch (e: Exception) {
-            Timber.e(e, "Failed to attach VLC vout")
+        } catch (throwable: Throwable) {
             surfaceReady = false
+            Timber.e(throwable, "Failed to attach VLC surface")
+            publishState()
         }
     }
 
-    /**
-     * Detach VLC video output from surface.
-     */
     private fun detachVlcFromSurface() {
         surfaceReady = false
-        val mp = mediaPlayer ?: return
+        firstFrameRendered = false
         try {
-            val vout = mp.vlcVout
-            if (vout.areViewsAttached()) {
-                vout.removeCallback(vlcVoutCallback)
-                vout.detachViews()
-                Timber.d("VLC vout detached")
+            mediaPlayer?.vlcVout?.let { vout ->
+                if (vout.areViewsAttached()) {
+                    vout.removeCallback(vlcVoutCallback)
+                    vout.detachViews()
+                }
             }
-        } catch (e: Exception) {
-            Timber.w(e, "Error detaching VLC vout")
+        } catch (throwable: Throwable) {
+            Timber.w(throwable, "Failed to detach VLC surface")
         }
     }
 
-    /**
-     * Full cleanup of surface references and callbacks.
-     */
     private fun cleanupSurface() {
-        surfaceReady = false
-        // Remove SurfaceHolder callback
         try {
             currentSurfaceView?.holder?.removeCallback(surfaceHolderCallback)
-        } catch (e: Exception) {
-            Timber.w(e, "Error removing SurfaceHolder callback")
+        } catch (throwable: Throwable) {
+            Timber.w(throwable, "Failed to remove SurfaceHolder callback")
         }
-        // Detach VLC vout
         detachVlcFromSurface()
         currentSurfaceView = null
     }
 
+    private val surfaceHolderCallback = object : SurfaceHolder.Callback {
+        override fun surfaceCreated(holder: SurfaceHolder) {
+            currentSurfaceView?.let(::attachVlcToSurface)
+        }
+
+        override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+            updateSurfaceSize(width, height)
+        }
+
+        override fun surfaceDestroyed(holder: SurfaceHolder) {
+            detachVlcFromSurface()
+            publishState()
+        }
+    }
+
     private val vlcVoutCallback = object : IVLCVout.Callback {
         override fun onSurfacesCreated(vlcVout: IVLCVout) {
-            Timber.d("VLC Vout callback: surfaces created")
+            surfaceReady = true
+            publishState()
         }
 
         override fun onSurfacesDestroyed(vlcVout: IVLCVout) {
-            Timber.d("VLC Vout callback: surfaces destroyed")
+            surfaceReady = false
+            firstFrameRendered = false
+            publishState()
         }
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // Playback controls
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    private fun handleVlcEvent(event: MediaPlayer.Event) {
+        when (event.type) {
+            MediaPlayer.Event.Opening -> {
+                playbackState = PlaybackState.BUFFERING
+                currentErrorMessage = null
+            }
 
-    override fun pause() { mediaPlayer?.pause() }
-    override fun resume() { mediaPlayer?.play() }
-    override fun stop() {
-        mediaPlayer?.stop()
-        _state.value = PlayerState()
+            MediaPlayer.Event.Buffering -> {
+                if (event.buffering < 100f && playbackState != PlaybackState.PLAYING) {
+                    playbackState = PlaybackState.BUFFERING
+                }
+            }
+
+            MediaPlayer.Event.Playing -> {
+                playbackState = PlaybackState.PLAYING
+                currentErrorMessage = null
+                ensureDefaultAudioTrackSelected()
+                updateTrackInfo()
+                applyPreferredTracks()
+                startProgressTracking()
+            }
+
+            MediaPlayer.Event.Paused -> {
+                playbackState = PlaybackState.PAUSED
+                stopProgressTracking()
+            }
+
+            MediaPlayer.Event.Stopped -> {
+                playbackState = PlaybackState.STOPPED
+                stopProgressTracking()
+            }
+
+            MediaPlayer.Event.EndReached -> {
+                playbackState = PlaybackState.ENDED
+                stopProgressTracking()
+            }
+
+            MediaPlayer.Event.EncounteredError -> {
+                playbackState = PlaybackState.ERROR
+                currentErrorMessage = "VLC playback error"
+                stopProgressTracking()
+            }
+
+            MediaPlayer.Event.TimeChanged -> {
+                // Progress is published below.
+            }
+
+            MediaPlayer.Event.Vout -> {
+                val player = mediaPlayer
+                val track = player?.currentVideoTrack
+                currentVideoWidth = track?.width ?: 0
+                currentVideoHeight = track?.height ?: 0
+                currentVideoResolution = if (currentVideoWidth > 0 && currentVideoHeight > 0) {
+                    "${currentVideoWidth}x${currentVideoHeight}"
+                } else {
+                    ""
+                }
+                currentVideoCodec = track?.codec?.toString().orEmpty()
+                hasVideoTrack = currentVideoWidth > 0 && currentVideoHeight > 0
+                if (hasVideoTrack) {
+                    firstFrameRendered = true
+                }
+                applyAspectRatioMode()
+            }
+        }
+        publishState()
     }
 
-    override fun seekTo(position: Long) { mediaPlayer?.time = position }
-    override fun seekForward(ms: Long) {
-        val mp = mediaPlayer ?: return
-        mp.time = minOf(mp.time + ms, mp.length)
-    }
-    override fun seekBackward(ms: Long) {
-        val mp = mediaPlayer ?: return
-        mp.time = maxOf(mp.time - ms, 0)
+    private fun updateTrackInfo() {
+        val player = mediaPlayer ?: return
+        val audioTracks = player.audioTracks?.mapIndexed { index, track ->
+            TrackInfo(
+                index = index,
+                name = track.name ?: "Audio ${index + 1}",
+                isSelected = track.id == player.audioTrack
+            )
+        }.orEmpty()
+        val subtitleTracks = player.spuTracks?.mapIndexed { index, track ->
+            TrackInfo(
+                index = index,
+                name = track.name ?: "Subtitle ${index + 1}",
+                isSelected = track.id == player.spuTrack
+            )
+        }.orEmpty()
+
+        currentAudioTracks = audioTracks
+        currentSubtitleTracks = subtitleTracks
+        selectedAudioTrack = audioTracks.indexOfFirst { it.isSelected }
+        selectedSubtitleTrack = if (subtitlesDisabled || player.spuTrack == -1) {
+            -1
+        } else {
+            subtitleTracks.indexOfFirst { it.isSelected }
+        }
+        hasAudioTrack = audioTracks.isNotEmpty()
     }
 
-    override fun setPlaybackSpeed(speed: Float) {
-        mediaPlayer?.rate = speed
-        _state.value = _state.value.copy(playbackSpeed = speed)
-    }
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // Track selection
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    override fun selectAudioTrack(index: Int) {
-        val mp = mediaPlayer ?: return
-        val tracks = mp.audioTracks ?: return
-        if (index in tracks.indices) {
-            mp.audioTrack = tracks[index].id
-            _state.value = _state.value.copy(selectedAudioTrack = index)
-            updateTrackInfo()
+    private fun ensureDefaultAudioTrackSelected() {
+        val player = mediaPlayer ?: return
+        val tracks = player.audioTracks ?: return
+        if (tracks.isEmpty()) {
+            return
+        }
+        if (tracks.none { it.id == player.audioTrack }) {
+            player.audioTrack = tracks.first().id
         }
     }
 
-    override fun selectSubtitleTrack(index: Int) {
-        val mp = mediaPlayer ?: return
-        val tracks = mp.spuTracks ?: return
-        if (index in tracks.indices) {
-            mp.spuTrack = tracks[index].id
-            _state.value = _state.value.copy(selectedSubtitleTrack = index)
-            updateTrackInfo()
+    private fun applyPreferredTracks() {
+        val audioLanguage = preferredAudioLanguage
+        if (!audioLanguage.isNullOrBlank()) {
+            selectAudioTrackByLanguage(audioLanguage)
+        }
+
+        when {
+            subtitlesDisabled -> disableSubtitles()
+            !preferredSubtitleLanguage.isNullOrBlank() -> selectSubtitleTrackByLanguage(preferredSubtitleLanguage!!)
         }
     }
 
-    override fun disableSubtitles() {
-        mediaPlayer?.spuTrack = -1
-        _state.value = _state.value.copy(selectedSubtitleTrack = -1)
-    }
-
-    fun selectAudioTrackByLanguage(langCode: String): Boolean {
-        val mp = mediaPlayer ?: return false
-        val tracks = mp.audioTracks ?: return false
-        for ((idx, desc) in tracks.withIndex()) {
-            val name = (desc.name ?: "").lowercase()
-            if (matchesLanguage(name, langCode)) {
-                mp.audioTrack = desc.id
-                _state.value = _state.value.copy(selectedAudioTrack = idx)
-                Timber.d("VLC auto-selected audio: ${desc.name} for $langCode")
+    private fun selectAudioTrackByLanguage(langCode: String): Boolean {
+        val player = mediaPlayer ?: return false
+        val tracks = player.audioTracks ?: return false
+        for ((index, track) in tracks.withIndex()) {
+            if (matchesLanguage(track.name.orEmpty(), langCode)) {
+                player.audioTrack = track.id
+                updateTrackInfo()
+                selectedAudioTrack = index
                 return true
             }
         }
         return false
     }
 
-    fun selectSubtitleTrackByLanguage(langCode: String): Boolean {
-        val mp = mediaPlayer ?: return false
-        val tracks = mp.spuTracks ?: return false
-        for ((idx, desc) in tracks.withIndex()) {
-            val name = (desc.name ?: "").lowercase()
-            if (matchesLanguage(name, langCode)) {
-                mp.spuTrack = desc.id
-                _state.value = _state.value.copy(selectedSubtitleTrack = idx)
-                Timber.d("VLC auto-selected subtitle: ${desc.name} for $langCode")
+    private fun selectSubtitleTrackByLanguage(langCode: String): Boolean {
+        val player = mediaPlayer ?: return false
+        val tracks = player.spuTracks ?: return false
+        for ((index, track) in tracks.withIndex()) {
+            if (matchesLanguage(track.name.orEmpty(), langCode)) {
+                player.spuTrack = track.id
+                updateTrackInfo()
+                selectedSubtitleTrack = index
                 return true
             }
         }
@@ -497,30 +662,33 @@ class VlcPlayerEngine @Inject constructor(
     }
 
     private fun matchesLanguage(trackName: String, langCode: String): Boolean {
-        val n = langCode.lowercase()
-        return when (n) {
-            "tur", "tr", "turkish" -> trackName.contains("tur") || trackName.contains("turkish") || trackName.contains("türk")
-            "eng", "en", "english" -> trackName.contains("eng") || trackName.contains("english")
-            "ara", "ar", "arabic" -> trackName.contains("ara") || trackName.contains("arabic") || trackName.contains("عرب")
-            "deu", "de", "german" -> trackName.contains("deu") || trackName.contains("ger") || trackName.contains("german")
-            "fra", "fr", "french" -> trackName.contains("fra") || trackName.contains("fre") || trackName.contains("french")
-            "spa", "es", "spanish" -> trackName.contains("spa") || trackName.contains("spanish")
-            else -> trackName.contains(n)
+        val normalizedName = trackName.lowercase()
+        val normalizedCode = langCode.lowercase()
+        return when (normalizedCode) {
+            "tur", "tr", "turkish" ->
+                normalizedName.contains("tur") || normalizedName.contains("turkish") || normalizedName.contains("türk")
+
+            "eng", "en", "english" ->
+                normalizedName.contains("eng") || normalizedName.contains("english")
+
+            "ara", "ar", "arabic" ->
+                normalizedName.contains("ara") || normalizedName.contains("arabic") || normalizedName.contains("عرب")
+
+            "deu", "de", "german" ->
+                normalizedName.contains("deu") || normalizedName.contains("ger") || normalizedName.contains("german")
+
+            "fra", "fr", "french" ->
+                normalizedName.contains("fra") || normalizedName.contains("fre") || normalizedName.contains("french")
+
+            "spa", "es", "spanish" ->
+                normalizedName.contains("spa") || normalizedName.contains("spanish")
+
+            else -> normalizedName.contains(normalizedCode)
         }
     }
 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // Aspect ratio
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    override fun setAspectRatio(mode: AspectRatioMode) {
-        currentAspectMode = mode
-        _state.value = _state.value.copy(aspectRatioMode = mode)
-        applyAspectRatioMode()
-    }
-
     private fun applyAspectRatioMode() {
-        val mp = mediaPlayer ?: return
+        val player = mediaPlayer ?: return
         val surfaceView = currentSurfaceView
         val surfaceWidth = surfaceView?.width?.takeIf { it > 0 }
             ?: surfaceView?.holder?.surfaceFrame?.width()?.takeIf { it > 0 }
@@ -530,189 +698,64 @@ class VlcPlayerEngine @Inject constructor(
             ?: 0
 
         when (currentAspectMode) {
-            AspectRatioMode.AUTO -> {
-                mp.aspectRatio = null
-                mp.scale = 0f
-            }
+            AspectRatioMode.AUTO,
             AspectRatioMode.FIT -> {
-                mp.aspectRatio = null
-                mp.scale = 0f
+                player.aspectRatio = null
+                player.scale = 0f
             }
+
             AspectRatioMode.FILL -> {
-                mp.aspectRatio = null
-                mp.scale = calculateFillScale(surfaceWidth, surfaceHeight) ?: 0f
+                player.aspectRatio = null
+                player.scale = calculateFillScale(surfaceWidth, surfaceHeight) ?: 0f
             }
+
             AspectRatioMode.ZOOM -> {
-                mp.aspectRatio = null
-                mp.scale = calculateFillScale(surfaceWidth, surfaceHeight)?.times(1.1f) ?: 1.2f
+                player.aspectRatio = null
+                player.scale = calculateFillScale(surfaceWidth, surfaceHeight)?.times(1.1f) ?: 1.2f
             }
+
             AspectRatioMode.STRETCH -> {
                 if (surfaceWidth > 0 && surfaceHeight > 0) {
-                    mp.aspectRatio = "${surfaceWidth}:${surfaceHeight}"
-                    mp.scale = 0f
+                    player.aspectRatio = "${surfaceWidth}:${surfaceHeight}"
+                    player.scale = 0f
                 } else {
-                    mp.aspectRatio = null
-                    mp.scale = 0f
+                    player.aspectRatio = null
+                    player.scale = 0f
                 }
             }
+
             AspectRatioMode.ORIGINAL -> {
-                mp.aspectRatio = null
-                mp.scale = 1f
+                player.aspectRatio = null
+                player.scale = 1f
             }
+
             AspectRatioMode.FORCE_16_9 -> {
-                mp.aspectRatio = "16:9"
-                mp.scale = 0f
+                player.aspectRatio = "16:9"
+                player.scale = 0f
             }
+
             AspectRatioMode.FORCE_4_3 -> {
-                mp.aspectRatio = "4:3"
-                mp.scale = 0f
+                player.aspectRatio = "4:3"
+                player.scale = 0f
             }
         }
-        Timber.d(
-            "VLC aspect ratio set: mode=$currentAspectMode, aspectRatio=${mp.aspectRatio}, " +
-                "scale=${mp.scale}, surface=${surfaceWidth}x${surfaceHeight}"
-        )
     }
 
     private fun calculateFillScale(surfaceWidth: Int, surfaceHeight: Int): Float? {
-        val videoWidth = _state.value.videoWidth
-        val videoHeight = _state.value.videoHeight
-        if (surfaceWidth <= 0 || surfaceHeight <= 0 || videoWidth <= 0 || videoHeight <= 0) {
+        if (surfaceWidth <= 0 || surfaceHeight <= 0 || currentVideoWidth <= 0 || currentVideoHeight <= 0) {
             return null
         }
-        val widthScale = surfaceWidth.toFloat() / videoWidth.toFloat()
-        val heightScale = surfaceHeight.toFloat() / videoHeight.toFloat()
+        val widthScale = surfaceWidth.toFloat() / currentVideoWidth.toFloat()
+        val heightScale = surfaceHeight.toFloat() / currentVideoHeight.toFloat()
         return maxOf(widthScale, heightScale)
-    }
-
-    override fun getView(): Any? = mediaPlayer
-    fun getMediaPlayer(): MediaPlayer? = mediaPlayer
-    fun getLibVLC(): LibVLC? = libVLC
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // Event handling
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    private fun handleVlcEvent(event: MediaPlayer.Event) {
-        when (event.type) {
-            MediaPlayer.Event.Opening -> {
-                _state.value = _state.value.copy(playbackState = PlaybackState.BUFFERING)
-            }
-            MediaPlayer.Event.Playing -> {
-                ensureDefaultAudioTrackSelected()
-                _state.value = _state.value.copy(
-                    playbackState = PlaybackState.PLAYING,
-                    isPlaying = true,
-                    duration = mediaPlayer?.length ?: 0
-                )
-                updateTrackInfo()
-                startProgressTracking()
-            }
-            MediaPlayer.Event.Paused -> {
-                _state.value = _state.value.copy(playbackState = PlaybackState.PAUSED, isPlaying = false)
-                stopProgressTracking()
-            }
-            MediaPlayer.Event.Stopped -> {
-                _state.value = _state.value.copy(playbackState = PlaybackState.STOPPED, isPlaying = false)
-                stopProgressTracking()
-            }
-            MediaPlayer.Event.EndReached -> {
-                _state.value = _state.value.copy(playbackState = PlaybackState.ENDED, isPlaying = false)
-                stopProgressTracking()
-            }
-            MediaPlayer.Event.EncounteredError -> {
-                Timber.e("VLC playback error")
-                _state.value = _state.value.copy(
-                    playbackState = PlaybackState.ERROR,
-                    isPlaying = false,
-                    errorMessage = "VLC playback error"
-                )
-                stopProgressTracking()
-            }
-            MediaPlayer.Event.Buffering -> {
-                val pct = event.buffering
-                if (pct < 100f) {
-                    _state.value = _state.value.copy(playbackState = PlaybackState.BUFFERING)
-                } else {
-                    _state.value = _state.value.copy(
-                        playbackState = if (_state.value.isPlaying) PlaybackState.PLAYING else PlaybackState.PAUSED
-                    )
-                }
-            }
-            MediaPlayer.Event.Vout -> {
-                val mp = mediaPlayer ?: return
-                val vt = mp.currentVideoTrack
-                val vw = vt?.width ?: 0
-                val vh = vt?.height ?: 0
-                if (vw > 0 && vh > 0) {
-                    _state.value = _state.value.copy(videoWidth = vw, videoHeight = vh)
-                    currentSurfaceView?.let { sv ->
-                        val sw = sv.holder.surfaceFrame.width()
-                        val sh = sv.holder.surfaceFrame.height()
-                        if (sw > 0 && sh > 0) {
-                            try { mp.vlcVout.setWindowSize(sw, sh) } catch (_: Exception) {}
-                        }
-                    }
-                }
-                applyAspectRatioMode()
-            }
-            MediaPlayer.Event.TimeChanged -> {
-                val mp = mediaPlayer ?: return
-                _state.value = _state.value.copy(
-                    currentPosition = mp.time,
-                    duration = maxOf(mp.length, 0)
-                )
-            }
-        }
-    }
-
-    private fun updateTrackInfo() {
-        val mp = mediaPlayer ?: return
-
-        val audioTracks = mp.audioTracks?.mapIndexed { idx, desc ->
-            TrackInfo(index = idx, name = desc.name ?: "Audio ${idx + 1}", language = "", isSelected = desc.id == mp.audioTrack)
-        } ?: emptyList()
-
-        val subtitleTracks = mp.spuTracks?.mapIndexed { idx, desc ->
-            TrackInfo(index = idx, name = desc.name ?: "Subtitle ${idx + 1}", language = "", isSelected = desc.id == mp.spuTrack)
-        } ?: emptyList()
-
-        val vt = mp.currentVideoTrack
-        val resolution = if (vt != null) "${vt.width}x${vt.height}" else ""
-        val codec = vt?.codec ?: ""
-
-        _state.value = _state.value.copy(
-            audioTracks = audioTracks,
-            subtitleTracks = subtitleTracks,
-            currentVideoResolution = resolution,
-            currentVideoCodec = codec
-        )
-    }
-
-    private fun ensureDefaultAudioTrackSelected() {
-        val mp = mediaPlayer ?: return
-        val tracks = mp.audioTracks ?: return
-        if (tracks.isEmpty()) return
-
-        val selectedTrackId = mp.audioTrack
-        if (tracks.none { it.id == selectedTrackId }) {
-            mp.audioTrack = tracks.first().id
-            Timber.d("VLC applied default audio track fallback")
-        }
     }
 
     private fun startProgressTracking() {
         stopProgressTracking()
         progressJob = scope?.launch {
             while (isActive) {
-                val mp = mediaPlayer
-                if (mp != null && mp.isPlaying) {
-                    _state.value = _state.value.copy(
-                        currentPosition = mp.time,
-                        duration = maxOf(mp.length, 0)
-                    )
-                }
-                delay(1000)
+                publishState()
+                delay(250L)
             }
         }
     }
@@ -720,5 +763,58 @@ class VlcPlayerEngine @Inject constructor(
     private fun stopProgressTracking() {
         progressJob?.cancel()
         progressJob = null
+    }
+
+    private fun publishState() {
+        val player = mediaPlayer
+        val currentPosition = player?.time?.coerceAtLeast(0L) ?: 0L
+        val duration = player?.length?.takeIf { it > 0L } ?: 0L
+        val isPlaying = player?.isPlaying == true && playbackState == PlaybackState.PLAYING
+        val estimatedBufferedPosition = when {
+            playbackState == PlaybackState.BUFFERING || playbackState == PlaybackState.PLAYING ->
+                currentPosition + configuredBufferMs.coerceAtLeast(1_500L)
+
+            else -> currentPosition
+        }
+        val confirmed = when {
+            playbackState != PlaybackState.PLAYING -> false
+            hasVideoTrack -> surfaceReady &&
+                firstFrameRendered &&
+                currentVideoWidth > 0 &&
+                currentVideoHeight > 0
+
+            hasAudioTrack -> currentPosition >= 250L
+            else -> false
+        }
+
+        _state.value = PlayerState(
+            playbackState = playbackState,
+            isPlaying = isPlaying,
+            currentPosition = currentPosition,
+            duration = duration,
+            bufferedPosition = estimatedBufferedPosition,
+            playbackSpeed = currentPlaybackSpeed,
+            audioTracks = currentAudioTracks,
+            subtitleTracks = currentSubtitleTracks,
+            selectedAudioTrack = selectedAudioTrack,
+            selectedSubtitleTrack = selectedSubtitleTrack,
+            videoWidth = currentVideoWidth,
+            videoHeight = currentVideoHeight,
+            errorMessage = currentErrorMessage,
+            aspectRatioMode = currentAspectMode,
+            availableQualities = emptyList(),
+            videoQualityMode = currentVideoQualityMode,
+            currentVideoResolution = currentVideoResolution,
+            currentVideoBitrate = "",
+            currentVideoCodec = currentVideoCodec,
+            currentVideoFps = "",
+            isAdaptiveStream = false,
+            hasVideoTrack = hasVideoTrack,
+            hasAudioTrack = hasAudioTrack,
+            isSurfaceReady = surfaceReady,
+            hasRenderedFirstFrame = firstFrameRendered,
+            isPlaybackConfirmed = confirmed,
+            audioSessionId = if (hasAudioTrack && playbackState == PlaybackState.PLAYING) 1 else 0
+        )
     }
 }

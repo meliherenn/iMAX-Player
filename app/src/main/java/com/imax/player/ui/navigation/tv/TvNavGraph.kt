@@ -1,7 +1,6 @@
 package com.imax.player.ui.navigation.tv
 
 import android.app.Activity
-import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -51,6 +50,7 @@ import androidx.navigation.navArgument
 import com.imax.player.R
 import com.imax.player.core.designsystem.theme.ImaxColors
 import com.imax.player.ui.navigation.Routes
+import com.imax.player.ui.navigation.startup.StartupRoute
 import com.imax.player.ui.tv.TvContinueWatchingScreen
 import com.imax.player.ui.tv.TvDetailScreen
 import com.imax.player.ui.tv.TvFavoritesScreen
@@ -64,6 +64,7 @@ import com.imax.player.ui.tv.TvSeriesScreen
 import com.imax.player.ui.tv.TvSettingsScreen
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
+import timber.log.Timber
 
 private const val TV_STARTUP = "tv_startup"
 private const val TV_NAV_LOG_TAG = "TvNavGraph"
@@ -114,7 +115,7 @@ fun TvNavGraph(
         startDestination = TV_STARTUP
     ) {
         composable(TV_STARTUP) {
-            TvStartupRoute(
+            StartupRoute(
                 onReady = { route ->
                     navController.navigate(route) {
                         popUpTo(TV_STARTUP) { inclusive = true }
@@ -263,7 +264,7 @@ fun TvNavGraph(
         composable(
             route = Routes.PLAYER,
             arguments = listOf(
-                navArgument("url") { type = NavType.StringType },
+                navArgument("url") { type = NavType.StringType; defaultValue = "" },
                 navArgument("title") { type = NavType.StringType; defaultValue = "" },
                 navArgument("contentId") { type = NavType.LongType; defaultValue = 0L },
                 navArgument("contentType") { type = NavType.StringType; defaultValue = "" },
@@ -311,7 +312,7 @@ private fun decodeTvNavArg(value: String?, argumentName: String): String {
     return runCatching {
         URLDecoder.decode(rawValue, StandardCharsets.UTF_8.name())
     }.getOrElse { error ->
-        Log.w(TV_NAV_LOG_TAG, "Failed to decode TV nav argument: $argumentName", error)
+        Timber.tag(TV_NAV_LOG_TAG).w(error, "Failed to decode TV nav argument: %s", argumentName)
         rawValue
     }
 }
@@ -326,7 +327,7 @@ private fun TvExitConfirmationDialog(
     LaunchedEffect(Unit) {
         runCatching { cancelFocusRequester.requestFocus() }
             .onFailure { error ->
-                Log.w(TV_NAV_LOG_TAG, "Unable to focus TV exit dialog cancel button", error)
+                Timber.tag(TV_NAV_LOG_TAG).w(error, "Unable to focus TV exit dialog cancel button")
             }
     }
 

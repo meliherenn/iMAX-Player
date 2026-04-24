@@ -30,11 +30,7 @@ android {
         buildConfigField("String", "TMDB_API_KEY", "\"${localProperties.getProperty("TMDB_API_KEY", "")}\"")
 
         ndk {
-            // arm64-v8a modern Android cihazların tamamında var.
-            // armeabi-v7a (32-bit) bazı eski NDK sürümleriyle uyumsuz.
-            // Bu sayede libmpv'nin problematik arm 32-bit SO'su APK'ya dahil edilmez.
-            // 32-bit only cihazlarda MPV isAvailable()=false döner, ExoPlayer'a fallback yapar.
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
         }
     }
 
@@ -73,7 +69,9 @@ android {
         }
         jniLibs {
             useLegacyPackaging = true
-            pickFirsts += setOf("lib/*/libc++_shared.so")
+            pickFirsts += setOf(
+                "lib/*/libc++_shared.so"
+            )
         }
     }
 }
@@ -149,7 +147,8 @@ dependencies {
     implementation(libs.coroutines.core)
     implementation(libs.coroutines.android)
 
-    // Media3
+    // Playback
+    implementation(libs.libvlc)
     implementation(libs.media3.exoplayer)
     implementation(libs.media3.exoplayer.hls)
     implementation(libs.media3.exoplayer.dash)
@@ -157,10 +156,7 @@ dependencies {
     implementation(libs.media3.session)
     implementation(libs.media3.common)
     implementation(libs.media3.datasource.okhttp)
-
-    // VLC & MPV
-    implementation(libs.libvlc)
-    implementation(libs.libmpv)
+    implementation(libs.media3.ffmpeg.decoder)
 
     // Image Loading
     implementation(libs.coil)

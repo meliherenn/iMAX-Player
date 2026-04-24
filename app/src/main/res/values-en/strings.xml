@@ -58,9 +58,6 @@
     <string name="subtitle_tracks">Subtitle Tracks</string>
     <string name="playback_speed">Playback Speed</string>
     <string name="aspect_ratio">Aspect Ratio</string>
-    <string name="player_engine">Player Engine</string>
-    <string name="exoplayer">ExoPlayer</string>
-    <string name="vlc">VLC</string>
     <string name="seek_interval">Seek Interval</string>
     <string name="subtitle_language">Default Subtitle Language</string>
     <string name="audio_language">Default Audio Language</string>
@@ -85,7 +82,6 @@
     <string name="buffering">Buffering…</string>
     <string name="reconnecting">Reconnecting…</string>
     <string name="playback_error">Playback error. Retrying…</string>
-    <string name="switching_engine">Switching player engine…</string>
 
     <string name="settings_app_language">App Language</string>
     <string name="language_turkish">Türkçe</string>
@@ -106,12 +102,17 @@
     
     <string name="action_play">Play</string>
     <string name="action_play_episode">Play S%1$dE%2$d</string>
+    <string name="action_resume_episode">Resume S%1$dE%2$d</string>
     <string name="action_pause">Pause</string>
     <string name="action_details">Details</string>
     <string name="action_resume">Resume</string>
     <string name="section_continue_watching">Continue Watching</string>
     <string name="section_favorites">Favorites</string>
     <string name="section_recent_channels">Recent Channels</string>
+    <string name="previous_episode">Previous Episode</string>
+    <string name="previous_channel">Previous Channel</string>
+    <string name="next_channel">Next Channel</string>
+    <string name="channel_list">Channel List</string>
     
     <string name="settings_app_general">App / General</string>
     <string name="settings_playlist_account">Playlist / Account</string>
@@ -125,8 +126,29 @@
     <string name="setting_playback_speed">Playback Speed</string>
     <string name="setting_audio_track">Audio Track</string>
     <string name="setting_subtitles">Subtitles</string>
-    <string name="setting_player_engine">Player Engine</string>
     <string name="setting_stream_info">Stream Info</string>
+    <string name="setting_player_engine">Player Engine</string>
+    <string name="settings_parental_control">Parental Control</string>
+    <string name="settings_exit_playlist_confirm_message">Are you sure you want to delete the current playlist and exit?</string>
+    <string name="confirm">Confirm</string>
+
+    <!-- Settings Sections -->
+    <string name="settings_player">Player</string>
+    <string name="settings_audio_subtitle">Audio &amp; Subtitles</string>
+    <string name="settings_video_quality">Video Quality</string>
+    <string name="settings_live_tv">Live TV</string>
+
+    <!-- Settings Toggles -->
+    <string name="settings_auto_resume">Resume Playback</string>
+    <string name="settings_continue_watching">Continue Watching</string>
+    <string name="settings_auto_play_next">Auto-play Next Episode</string>
+    <string name="settings_auto_enable_subtitles">Auto-enable Subtitles</string>
+    <string name="settings_prefer_hw_decoding">Prefer Hardware Decoder</string>
+    <string name="settings_allow_quality_fallback">Allow Quality Fallback</string>
+    <string name="settings_live_latency">Live Stream Latency</string>
+    <string name="settings_live_reconnect">Auto-reconnect on Error</string>
+    <string name="settings_remember_channel">Remember Last Channel</string>
+    <string name="settings_start_fullscreen">Start Fullscreen</string>
 
     <string name="category_all">All</string>
     <string name="action_browse_all">Browse All</string>

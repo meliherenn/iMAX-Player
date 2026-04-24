@@ -1,18 +1,20 @@
 package com.imax.player.data.parser
 
-import android.util.Xml
 import com.imax.player.core.database.EpgProgramEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.xmlpull.v1.XmlPullParser
-import org.xmlpull.v1.XmlPullParserException
+import org.xml.sax.Attributes
+import org.xml.sax.helpers.DefaultHandler
 import timber.log.Timber
 import java.io.InputStream
-import java.time.ZonedDateTime
+import java.time.LocalDateTime
+import java.time.OffsetDateTime
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import javax.inject.Inject
 import javax.inject.Singleton
+import javax.xml.parsers.SAXParserFactory
 
 /**
  * XMLTV format parser using Android's XmlPullParser.
@@ -59,117 +61,83 @@ class XmltvParser @Inject constructor() {
         channelIdMap: Map<String, String>?
     ): List<EpgProgramEntity> {
         val programs = mutableListOf<EpgProgramEntity>()
-        val parser: XmlPullParser = Xml.newPullParser()
-        parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
-        parser.setInput(inputStream, null)
+        val factory = SAXParserFactory.newInstance().apply {
+            isNamespaceAware = false
+            disableFeature("http://xml.org/sax/features/external-general-entities")
+            disableFeature("http://xml.org/sax/features/external-parameter-entities")
+            disableFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd")
+        }
 
-        var eventType = parser.eventType
         var currentProgram: ProgramBuilder? = null
+        var currentTag: String? = null
+        var currentLang: String = ""
+        val textBuffer = StringBuilder()
 
-        while (eventType != XmlPullParser.END_DOCUMENT) {
-            when (eventType) {
-                XmlPullParser.START_TAG -> {
-                    when (parser.name) {
-                        "programme" -> {
-                            val channelXmlId = parser.getAttributeValue(null, "channel") ?: ""
-                            val startStr = parser.getAttributeValue(null, "start") ?: ""
-                            val stopStr = parser.getAttributeValue(null, "stop") ?: ""
+        factory.newSAXParser().parse(inputStream, object : DefaultHandler() {
+            override fun startElement(
+                uri: String?,
+                localName: String?,
+                qName: String,
+                attributes: Attributes
+            ) {
+                when (qName) {
+                    "programme" -> {
+                        val channelXmlId = attributes.getValue("channel").orEmpty()
+                        val startMs = parseXmltvTime(attributes.getValue("start").orEmpty())
+                        val stopMs = parseXmltvTime(attributes.getValue("stop").orEmpty())
+                        val resolvedChannelId = channelIdMap?.get(channelXmlId) ?: channelXmlId
 
-                            val resolvedChannelId = if (channelIdMap != null) {
-                                channelIdMap[channelXmlId] ?: channelXmlId
-                            } else {
-                                channelXmlId
-                            }
-
-                            val startMs = parseXmltvTime(startStr)
-                            val stopMs = parseXmltvTime(stopStr)
-
-                            if (resolvedChannelId.isNotBlank() && startMs > 0 && stopMs > 0) {
-                                currentProgram = ProgramBuilder(
-                                    channelId = resolvedChannelId,
-                                    startTime = startMs,
-                                    endTime = stopMs
-                                )
-                            }
-                        }
-                        "title" -> {
-                            currentProgram?.let {
-                                val lang = parser.getAttributeValue(null, "lang") ?: ""
-                                // Prefer title without lang or with tr/en lang
-                                if (it.title.isBlank() || lang.startsWith("tr") || lang.startsWith("en")) {
-                                    it.pendingTextTag = "title"
-                                    it.pendingTextLang = lang
-                                }
-                            }
-                        }
-                        "desc" -> {
-                            currentProgram?.let {
-                                val lang = parser.getAttributeValue(null, "lang") ?: ""
-                                if (it.description.isBlank() || lang.startsWith("tr") || lang.startsWith("en")) {
-                                    it.pendingTextTag = "desc"
-                                    it.pendingTextLang = lang
-                                }
-                            }
-                        }
-                        "category" -> {
-                            currentProgram?.let {
-                                it.pendingTextTag = "category"
-                            }
-                        }
-                        "icon" -> {
-                            currentProgram?.let {
-                                it.iconUrl = parser.getAttributeValue(null, "src") ?: ""
-                            }
-                        }
-                        "sub-title" -> {
-                            currentProgram?.let {
-                                it.pendingTextTag = "sub-title"
-                            }
+                        currentProgram = if (
+                            resolvedChannelId.isNotBlank() &&
+                            startMs > 0 &&
+                            stopMs > startMs
+                        ) {
+                            ProgramBuilder(
+                                channelId = resolvedChannelId,
+                                startTime = startMs,
+                                endTime = stopMs
+                            )
+                        } else {
+                            null
                         }
                     }
-                }
-                XmlPullParser.TEXT -> {
-                    val text = parser.text?.trim() ?: ""
-                    currentProgram?.let { prog ->
-                        when (prog.pendingTextTag) {
-                            "title" -> if (text.isNotBlank()) {
-                                // Only overwrite if blank or preferred lang
-                                if (prog.title.isBlank() || prog.pendingTextLang.startsWith("tr") || prog.pendingTextLang.startsWith("en")) {
-                                    prog.title = text
-                                }
-                            }
-                            "desc" -> if (text.isNotBlank() && prog.description.isBlank()) {
-                                prog.description = text
-                            }
-                            "category" -> if (text.isNotBlank() && prog.genre.isBlank()) {
-                                prog.genre = text
-                            }
-                            "sub-title" -> if (text.isNotBlank() && prog.subTitle.isBlank()) {
-                                prog.subTitle = text
-                            }
-                        }
-                        prog.pendingTextTag = null
-                        prog.pendingTextLang = ""
+
+                    "title", "desc", "category", "sub-title" -> {
+                        currentTag = qName
+                        currentLang = attributes.getValue("lang").orEmpty()
+                        textBuffer.setLength(0)
                     }
+
+                    "icon" -> currentProgram?.iconUrl = attributes.getValue("src").orEmpty()
                 }
-                XmlPullParser.END_TAG -> {
-                    if (parser.name == "programme") {
-                        currentProgram?.let { prog ->
-                            if (prog.isValid()) {
-                                programs.add(prog.build())
-                            }
-                        }
+            }
+
+            override fun characters(ch: CharArray, start: Int, length: Int) {
+                if (currentTag != null) {
+                    textBuffer.append(ch, start, length)
+                }
+            }
+
+            override fun endElement(uri: String?, localName: String?, qName: String) {
+                val text = textBuffer.toString().trim()
+                when (qName) {
+                    "title" -> currentProgram?.consumeTitle(text, currentLang)
+                    "desc" -> currentProgram?.consumeDescription(text, currentLang)
+                    "category" -> currentProgram?.consumeCategory(text)
+                    "sub-title" -> currentProgram?.consumeSubTitle(text)
+                    "programme" -> {
+                        currentProgram?.takeIf(ProgramBuilder::isValid)?.let { programs.add(it.build()) }
                         currentProgram = null
                     }
                 }
+
+                if (currentTag == qName) {
+                    currentTag = null
+                    currentLang = ""
+                    textBuffer.setLength(0)
+                }
             }
-            try {
-                eventType = parser.next()
-            } catch (e: XmlPullParserException) {
-                Timber.w(e, "XMLTV parse exception, skipping")
-                break
-            }
-        }
+        })
 
         Timber.d("XMLTV parsed ${programs.size} programs")
         return programs
@@ -184,33 +152,30 @@ class XmltvParser @Inject constructor() {
         if (cleaned.isBlank()) return -1L
 
         return try {
-            // Standard format with timezone: "20240419120000 +0300"
-            val zdt = ZonedDateTime.parse(cleaned, xmltvFormatter)
-            zdt.toInstant().toEpochMilli()
+            OffsetDateTime.parse(normalizeXmltvTime(cleaned), xmltvFormatter)
+                .toInstant()
+                .toEpochMilli()
         } catch (e: DateTimeParseException) {
             try {
-                // Try alternative format (inline timezone): "20240419120000+0300"
-                val alt = if (cleaned.length > 14) {
-                    val date = cleaned.substring(0, 14)
-                    val tz = cleaned.substring(14).trim()
-                    "$date $tz"
-                } else cleaned
-                val zdt = ZonedDateTime.parse(alt, xmltvFormatter)
-                zdt.toInstant().toEpochMilli()
+                LocalDateTime.parse(cleaned.take(14), xmltvFormatterNoTz)
+                    .toInstant(ZoneOffset.UTC)
+                    .toEpochMilli()
             } catch (e2: DateTimeParseException) {
-                try {
-                    // Fallback: assume UTC
-                    val localDt = java.time.LocalDateTime.parse(
-                        cleaned.take(14),
-                        DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
-                    )
-                    localDt.toInstant(java.time.ZoneOffset.UTC).toEpochMilli()
-                } catch (e3: Exception) {
-                    Timber.w("Cannot parse XMLTV time: $cleaned")
-                    -1L
-                }
+                Timber.w("Cannot parse XMLTV time: $cleaned")
+                -1L
             }
         }
+    }
+
+    private fun normalizeXmltvTime(timeStr: String): String {
+        if (timeStr.length <= 14) return timeStr
+        val date = timeStr.take(14)
+        val timezone = timeStr.drop(14).trim()
+        return "$date $timezone"
+    }
+
+    private fun SAXParserFactory.disableFeature(feature: String) {
+        runCatching { setFeature(feature, false) }
     }
 
     // ─── Builder helpers ────────────────────────────────────────────────────────
@@ -225,8 +190,32 @@ class XmltvParser @Inject constructor() {
         var genre: String = ""
         var iconUrl: String = ""
         var subTitle: String = ""
-        var pendingTextTag: String? = null
-        var pendingTextLang: String = ""
+
+        fun consumeTitle(text: String, lang: String) {
+            if (text.isBlank()) return
+            if (title.isBlank() || lang.startsWith("tr") || lang.startsWith("en")) {
+                title = text
+            }
+        }
+
+        fun consumeDescription(text: String, lang: String) {
+            if (text.isBlank()) return
+            if (description.isBlank() || lang.startsWith("tr") || lang.startsWith("en")) {
+                description = text
+            }
+        }
+
+        fun consumeCategory(text: String) {
+            if (text.isNotBlank() && genre.isBlank()) {
+                genre = text
+            }
+        }
+
+        fun consumeSubTitle(text: String) {
+            if (text.isNotBlank() && subTitle.isBlank()) {
+                subTitle = text
+            }
+        }
 
         fun isValid() = title.isNotBlank() && startTime > 0 && endTime > startTime
 

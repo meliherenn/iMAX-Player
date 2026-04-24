@@ -2,6 +2,11 @@ package com.imax.player.core.player
 
 import kotlinx.coroutines.flow.StateFlow
 
+enum class PlaybackProfile {
+    LIVE,
+    VOD
+}
+
 /**
  * Display / Aspect Ratio modes available to the user.
  */
@@ -90,19 +95,26 @@ data class PlayerState(
     val currentVideoBitrate: String = "",
     val currentVideoCodec: String = "",
     val currentVideoFps: String = "",
-    val isAdaptiveStream: Boolean = false
+    val isAdaptiveStream: Boolean = false,
+    val hasVideoTrack: Boolean = false,
+    val hasAudioTrack: Boolean = false,
+    val isSurfaceReady: Boolean = false,
+    val hasRenderedFirstFrame: Boolean = false,
+    val isPlaybackConfirmed: Boolean = false,
+    val audioSessionId: Int = 0
 )
 
 /**
- * Abstraction for video playback engines (ExoPlayer, VLC, etc.)
+ * Playback control contract shared by the app's runtime playback engines.
  */
 interface PlayerEngine {
     val state: StateFlow<PlayerState>
     val engineName: String
+    fun isAvailable(): Boolean = true
 
     fun initialize()
     fun release()
-    fun play(url: String, startPosition: Long = 0)
+    fun play(url: String, startPosition: Long = 0, profile: PlaybackProfile = PlaybackProfile.VOD)
     fun pause()
     fun resume()
     fun stop()
@@ -117,11 +129,4 @@ interface PlayerEngine {
     fun setVideoQualityMode(mode: VideoQualityMode) {}
     fun selectVideoTrack(index: Int) {}
     fun setPlaybackConfiguration(bufferDurationMs: Long, liveLatencyMode: String, preferHwDecoding: Boolean) {}
-    fun getView(): Any?
-
-    /**
-     * Whether this engine is available on the current device.
-     * Returns false if native libraries can't be loaded, etc.
-     */
-    fun isAvailable(): Boolean = true
 }

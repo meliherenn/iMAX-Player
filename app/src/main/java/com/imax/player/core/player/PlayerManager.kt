@@ -2,71 +2,64 @@ package com.imax.player.core.player
 
 import com.imax.player.core.datastore.SettingsDataStore
 import com.imax.player.core.model.PlayerEngineType
-import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.*
-import timber.log.Timber
-import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
+import javax.inject.Provider
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import timber.log.Timber
 
-enum class EngineSwitchState {
-    IDLE, SWITCHING, SUCCESS, FAILED
-}
-
-/**
- * Manages the active player engine and handles switching between ExoPlayer and VLC.
- *
- * KEY DESIGN for ANR prevention:
- * - switchEngine() is fully async — heavy native release runs on Dispatchers.Default
- * - AtomicBoolean guard prevents re-entrant/concurrent switch calls
- * - Old engine is stopped+released BEFORE new engine is initialized
- * - State flow collection is properly cancelled between switches
- */
 @Singleton
 class PlayerManager @Inject constructor(
-    private val exoPlayerEngine: ExoPlayerEngine,
-    private val mpvPlayerEngine: MpvPlayerEngine,
-    private val vlcPlayerEngine: VlcPlayerEngine,
+    private val exoPlayerProvider: Provider<ExoPlayerEngine>,
+    private val vlcPlayerProvider: Provider<VlcPlayerEngine>,
     private val settingsDataStore: SettingsDataStore
 ) {
-    private var currentEngine: PlayerEngine = exoPlayerEngine
-    private var currentUrl: String = ""
-    private var currentPosition: Long = 0
+    private data class PlaybackRequest(
+        val url: String,
+        val startPosition: Long,
+        val profile: PlaybackProfile
+    )
+
+    private val managerScope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
+    private val switchMutex = Mutex() // Prevents concurrent engine switching
+
+    private var currentEngine: PlayerEngine? = null
+    private var stateCollectionJob: Job? = null
+    private var lastPlaybackRequest: PlaybackRequest? = null
 
     private val _playerState = MutableStateFlow(PlayerState())
     val state: StateFlow<PlayerState> = _playerState.asStateFlow()
 
-    private val _activeEngineName = MutableStateFlow(currentEngine.engineName)
-    val activeEngineName: StateFlow<String> = _activeEngineName.asStateFlow()
+    private val _activeEngineName = MutableStateFlow<String?>(null)
+    val activeEngineName: StateFlow<String?> = _activeEngineName.asStateFlow()
 
     private val _switchState = MutableStateFlow(EngineSwitchState.IDLE)
     val switchState: StateFlow<EngineSwitchState> = _switchState.asStateFlow()
 
-    val engineName: String get() = currentEngine.engineName
-
-    private var stateCollectionJob: Job? = null
-    private val managerScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
-
-    // Atomic guard — prevents concurrent/re-entrant engine switches
-    private val isSwitching = AtomicBoolean(false)
-
-    // Cached settings for track preferences
     private var defaultAudioLang: String = "eng"
     private var defaultSubtitleLang: String = "eng"
     private var autoEnableSubtitles: Boolean = false
     private var preferredAspectRatio: AspectRatioMode = AspectRatioMode.FIT
     private var preferredVideoQualityMode: VideoQualityMode = VideoQualityMode.AUTO
+    private var defaultPlaybackSpeed: Float = 1f
 
-    fun getEngine(): PlayerEngine = currentEngine
+    private var cachedBufferMs: Long = 30000L
+    private var cachedLatencyMode: String = "BALANCED"
+    private var cachedPreferHw: Boolean = true
 
-    private fun startCollectingState() {
-        stateCollectionJob?.cancel()
-        stateCollectionJob = managerScope.launch {
-            currentEngine.state.collect { engineState ->
-                _playerState.value = engineState
-            }
-        }
-    }
+    fun getEngine(): PlayerEngine? = currentEngine
+    fun getActiveEngineType(): PlayerEngineType? = activeEngineTypeFor(currentEngine)
 
     suspend fun initializeWithSettings() {
         val settings = settingsDataStore.settings.first()
@@ -80,356 +73,310 @@ class PlayerManager @Inject constructor(
         preferredVideoQualityMode = VideoQualityMode.entries.firstOrNull {
             it.name.equals(settings.videoQualityMode, ignoreCase = true)
         } ?: VideoQualityMode.AUTO
+        defaultPlaybackSpeed = settings.defaultPlaybackSpeed
 
-        currentEngine = when (settings.playerEngine) {
-            PlayerEngineType.EXOPLAYER -> exoPlayerEngine
-            PlayerEngineType.MPV -> {
-                if (mpvPlayerEngine.isAvailable()) {
-                    mpvPlayerEngine
-                } else {
-                    Timber.w("MPV not available on this device, falling back to ExoPlayer")
-                    // Kalıcı olarak ExoPlayer'a dön — bir daha MPV seçilmesin
-                    managerScope.launch {
-                        settingsDataStore.updatePlayerEngine(PlayerEngineType.EXOPLAYER)
-                    }
-                    exoPlayerEngine
-                }
-            }
-            PlayerEngineType.VLC -> {
-                if (vlcPlayerEngine.isAvailable()) vlcPlayerEngine
-                else {
-                    Timber.w("VLC not available, falling back to ExoPlayer")
-                    exoPlayerEngine
-                }
-            }
-        }
-        _activeEngineName.value = currentEngine.engineName
-        
-        try {
-            currentEngine.setPlaybackConfiguration(
-                bufferDurationMs = settings.bufferDurationMs.toLong(),
-                liveLatencyMode = settings.liveLatencyMode,
-                preferHwDecoding = settings.preferHwDecoding
-            )
-            if (currentEngine is ExoPlayerEngine) {
-                currentEngine.initialize()
-            } else {
-                withContext(Dispatchers.IO) {
-                    currentEngine.initialize()
-                }
-            }
-        } catch (e: Throwable) {
-            Timber.e(e, "Fatal error initializing engine ${currentEngine.engineName}, falling back to safety engine")
-            currentEngine = if (vlcPlayerEngine.isAvailable() && currentEngine !is VlcPlayerEngine) vlcPlayerEngine else exoPlayerEngine
-            _activeEngineName.value = currentEngine.engineName
-            managerScope.launch {
-                val safeType = if (currentEngine is VlcPlayerEngine) PlayerEngineType.VLC else PlayerEngineType.EXOPLAYER
-                settingsDataStore.updatePlayerEngine(safeType)
-            }
-            
-            currentEngine.setPlaybackConfiguration(
-                bufferDurationMs = settings.bufferDurationMs.toLong(),
-                liveLatencyMode = settings.liveLatencyMode,
-                preferHwDecoding = settings.preferHwDecoding
-            )
-            if (currentEngine is ExoPlayerEngine) {
-                currentEngine.initialize()
-            } else {
-                withContext(Dispatchers.IO) {
-                    currentEngine.initialize()
-                }
-            }
-        }
-        currentEngine.setAspectRatio(preferredAspectRatio)
-        currentEngine.setVideoQualityMode(preferredVideoQualityMode)
-        startCollectingState()
+        cachedBufferMs = settings.bufferDurationMs.toLong()
+        cachedLatencyMode = settings.liveLatencyMode
+        cachedPreferHw = settings.preferHwDecoding
 
-        if (currentEngine is ExoPlayerEngine) {
-            val exo = currentEngine as ExoPlayerEngine
-            exo.setPreferredAudioLanguage(defaultAudioLang)
-            if (autoEnableSubtitles && defaultSubtitleLang.lowercase() !in listOf("off", "none")) {
-                exo.setPreferredSubtitleLanguage(defaultSubtitleLang)
-            } else if (defaultSubtitleLang.lowercase() in listOf("off", "none")) {
-                exo.disableSubtitles()
-            }
-        }
+        switchEngine(PlayerEngineType.fromStoredValue(settings.playerEngine))
     }
 
-    fun play(url: String, startPosition: Long = 0) {
-        currentUrl = url
-        currentPosition = startPosition
-        currentEngine.play(url, startPosition)
-
-        if (currentEngine is VlcPlayerEngine) {
-            managerScope.launch {
-                delay(2000)
-                applyVlcDefaultTracks()
-            }
-        }
-    }
-
-    private fun applyVlcDefaultTracks() {
-        val vlc = currentEngine as? VlcPlayerEngine ?: return
-        if (defaultAudioLang.isNotBlank() && defaultAudioLang.lowercase() !in listOf("none", "off")) {
-            vlc.selectAudioTrackByLanguage(defaultAudioLang)
-        }
-        val subLang = defaultSubtitleLang.lowercase()
-        if (subLang in listOf("off", "none")) {
-            vlc.disableSubtitles()
-        } else if (autoEnableSubtitles && defaultSubtitleLang.isNotBlank()) {
-            vlc.selectSubtitleTrackByLanguage(defaultSubtitleLang)
-        }
-    }
-
-    /**
-     * ASYNC engine switch — THE KEY ANR FIX.
-     *
-     * Flow:
-     * 1. AtomicBoolean guard prevents re-entrant calls
-     * 2. State → SWITCHING (UI shows overlay, disables buttons)
-     * 3. Save playback state from old engine (Main thread, fast)
-     * 4. Stop state collection
-     * 5. Stop + release old engine on Dispatchers.Default (OFF Main thread)
-     * 6. Initialize new engine on Main (required for ExoPlayer)
-     * 7. Start playback on new engine
-     * 8. State → SUCCESS
-     *
-     * If anything fails → rollback to old engine
-     */
-    fun switchEngine(persistent: Boolean = true, targetType: PlayerEngineType? = null) {
-        // Re-entrancy guard — if already switching, ignore
-        if (!isSwitching.compareAndSet(false, true)) {
-            Timber.w("Engine switch already in progress, ignoring duplicate call")
+    suspend fun updatePreferredEngine(targetType: PlayerEngineType) {
+        settingsDataStore.updatePlayerEngine(targetType.name)
+        if (activeEngineTypeFor(currentEngine) == targetType) {
+            _activeEngineName.value = currentEngine?.engineName
+            _switchState.value = EngineSwitchState.SUCCESS
             return
         }
 
-        _switchState.value = EngineSwitchState.SWITCHING
-
-        val oldEngine = currentEngine
-        // Capture state while engine is still alive (fast, Main-safe)
-        val savedPosition = try { oldEngine.state.value.currentPosition } catch (_: Exception) { 0L }
-        val savedSpeed = try { oldEngine.state.value.playbackSpeed } catch (_: Exception) { 1f }
-        val savedAspect = try { oldEngine.state.value.aspectRatioMode } catch (_: Exception) { AspectRatioMode.FIT }
-        val savedQualityMode = preferredVideoQualityMode
-
-        managerScope.launch {
-            try {
-                // Step 1: Stop collecting state from old engine
-                stateCollectionJob?.cancel()
-                stateCollectionJob = null
-
-                // Step 2: Release old engine SAFELY
-                // - ExoPlayer MUST run on Main (prevent codec leak / IllegalStateException)
-                // - VLC MUST run on IO (its native JNI calls block for 300+ms)
-                if (oldEngine is ExoPlayerEngine) {
-                    try {
-                        Timber.d("Releasing old ExoPlayer on Main thread")
-                        oldEngine.stop()
-                        oldEngine.release()
-                    } catch (e: Exception) {
-                        Timber.w(e, "Error releasing old ExoPlayer")
-                    }
-                } else {
-                    withContext(Dispatchers.IO) {
-                        try {
-                            Timber.d("Releasing old VLC on IO thread")
-                            oldEngine.stop()
-                            oldEngine.release()
-                        } catch (e: Exception) {
-                            Timber.w(e, "Error releasing old VLC")
-                        }
-                    }
-                }
-
-                // Step 3: Determine new engine
-                val newEngine = if (targetType != null) {
-                    when (targetType) {
-                        PlayerEngineType.EXOPLAYER -> exoPlayerEngine
-                        PlayerEngineType.MPV -> {
-                            if (mpvPlayerEngine.isAvailable()) mpvPlayerEngine
-                            else {
-                                Timber.w("Requested MPV but not available, using ExoPlayer")
-                                exoPlayerEngine
-                            }
-                        }
-                        PlayerEngineType.VLC -> {
-                            if (vlcPlayerEngine.isAvailable()) vlcPlayerEngine
-                            else {
-                                Timber.w("Requested VLC but not available, using ExoPlayer")
-                                exoPlayerEngine
-                            }
-                        }
-                    }
-                } else {
-                    // Manual cycle: ExoPlayer -> MPV (varsa) -> VLC (varsa) -> ExoPlayer
-                    when (oldEngine) {
-                        is ExoPlayerEngine -> {
-                            if (mpvPlayerEngine.isAvailable()) mpvPlayerEngine
-                            else if (vlcPlayerEngine.isAvailable()) vlcPlayerEngine
-                            else exoPlayerEngine
-                        }
-                        is MpvPlayerEngine -> {
-                            if (vlcPlayerEngine.isAvailable()) vlcPlayerEngine
-                            else exoPlayerEngine
-                        }
-                        else -> exoPlayerEngine
-                    }
-                }
-
-                Timber.d("Switching to ${newEngine.engineName}")
-
-                // Step 4: Initialize new engine (VLC on IO, Exo on Main)
-                currentEngine = newEngine
-                _activeEngineName.value = currentEngine.engineName
-                if (newEngine is ExoPlayerEngine) {
-                    newEngine.initialize()
-                } else {
-                    withContext(Dispatchers.IO) {
-                        newEngine.initialize()
-                    }
-                }
-                startCollectingState()
-
-                // Step 5: Apply language preferences
-                if (newEngine is ExoPlayerEngine) {
-                    newEngine.setPreferredAudioLanguage(defaultAudioLang)
-                    if (autoEnableSubtitles && defaultSubtitleLang.lowercase() !in listOf("off", "none")) {
-                        newEngine.setPreferredSubtitleLanguage(defaultSubtitleLang)
-                    }
-                }
-
-                // Step 6: Start playback with saved state
-                if (currentUrl.isNotEmpty()) {
-                    newEngine.play(currentUrl, savedPosition)
-                    if (savedSpeed != 1f) newEngine.setPlaybackSpeed(savedSpeed)
-                    newEngine.setAspectRatio(savedAspect)
-                    newEngine.setVideoQualityMode(savedQualityMode)
-
-                    if (newEngine is VlcPlayerEngine) {
-                        launch {
-                            delay(2000)
-                            applyVlcDefaultTracks()
-                        }
-                    }
-                }
-
-                // Step 7: Persist selection
-                if (persistent) {
-                    launch {
-                        val engineType = when (newEngine) {
-                            is ExoPlayerEngine -> PlayerEngineType.EXOPLAYER
-                            is MpvPlayerEngine -> PlayerEngineType.MPV
-                            else -> PlayerEngineType.VLC
-                        }
-                        settingsDataStore.updatePlayerEngine(engineType)
-                    }
-                }
-
-                _switchState.value = EngineSwitchState.SUCCESS
-                delay(1500)
-                _switchState.value = EngineSwitchState.IDLE
-
-            } catch (e: Exception) {
-                Timber.e(e, "Engine switch failed, attempting rollback")
-                try {
-                    currentEngine = oldEngine
-                    _activeEngineName.value = currentEngine.engineName
-                    oldEngine.initialize()
-                    oldEngine.setAspectRatio(savedAspect)
-                    oldEngine.setVideoQualityMode(savedQualityMode)
-                    startCollectingState()
-                    if (currentUrl.isNotEmpty()) {
-                        oldEngine.play(currentUrl, savedPosition)
-                        if (savedSpeed != 1f) oldEngine.setPlaybackSpeed(savedSpeed)
-                    }
-                } catch (rollbackError: Exception) {
-                    Timber.e(rollbackError, "Rollback also failed")
-                }
-                _switchState.value = EngineSwitchState.FAILED
-                delay(3000)
-                _switchState.value = EngineSwitchState.IDLE
-            } finally {
-                // Always release the guard
-                isSwitching.set(false)
-            }
+        if (currentEngine != null) {
+            switchEngine(targetType)
         }
     }
 
-    fun setAspectRatio(mode: AspectRatioMode) {
-        preferredAspectRatio = mode
-        currentEngine.setAspectRatio(mode)
-        managerScope.launch { settingsDataStore.updateAspectRatio(mode.name.lowercase()) }
-    }
-
-    fun setVideoQualityMode(mode: VideoQualityMode) {
-        preferredVideoQualityMode = mode
-        currentEngine.setVideoQualityMode(mode)
-        managerScope.launch { settingsDataStore.updateVideoQualityMode(mode.name) }
-    }
-
-    fun selectVideoTrack(index: Int) {
-        currentEngine.selectVideoTrack(index)
-    }
-
-    fun tryFallback(persistent: Boolean = true): Boolean {
-        return when {
-            currentEngine is ExoPlayerEngine -> {
-                // ExoPlayer başarısız → MPV dene (sadece isAvailable ise)
-                if (mpvPlayerEngine.isAvailable()) {
-                    Timber.d("Fallback: ExoPlayer -> MPV")
-                    switchEngine(persistent, targetType = PlayerEngineType.MPV)
-                    true
-                } else if (vlcPlayerEngine.isAvailable()) {
-                    // MPV yoksa direkt VLC
-                    Timber.d("Fallback: ExoPlayer -> VLC (MPV unavailable)")
-                    switchEngine(persistent, targetType = PlayerEngineType.VLC)
-                    true
-                } else {
-                    Timber.w("No fallback engine available")
-                    false
-                }
+    private fun startCollectingState() {
+        stateCollectionJob?.cancel()
+        val engine = currentEngine ?: return
+        stateCollectionJob = managerScope.launch {
+            engine.state.collect { engineState ->
+                _playerState.value = engineState
             }
-            currentEngine is MpvPlayerEngine -> {
-                if (vlcPlayerEngine.isAvailable()) {
-                    Timber.d("Fallback: MPV -> VLC")
-                    switchEngine(persistent, targetType = PlayerEngineType.VLC)
-                    true
-                } else {
-                    Timber.d("Fallback: MPV -> ExoPlayer (VLC unavailable)")
-                    switchEngine(persistent, targetType = PlayerEngineType.EXOPLAYER)
-                    true
-                }
-            }
-            currentEngine is VlcPlayerEngine -> {
-                // VLC başarısız → ExoPlayer'a dön
-                Timber.d("Fallback: VLC -> ExoPlayer")
-                switchEngine(persistent, targetType = PlayerEngineType.EXOPLAYER)
-                true
-            }
-            else -> false
         }
     }
 
     /**
-     * Release player — runs heavy work off Main thread.
+     * Safely switches the playback engine.
+     * Guarantees old engine is released before the new one is instantiated.
      */
+    suspend fun switchEngine(targetType: PlayerEngineType) {
+        switchMutex.withLock {
+            _switchState.value = EngineSwitchState.SWITCHING
+
+            try {
+                val previousState = _playerState.value
+                val pendingPlaybackRequest = lastPlaybackRequest?.takeIf {
+                    previousState.playbackState !in listOf(
+                        PlaybackState.IDLE,
+                        PlaybackState.STOPPED,
+                        PlaybackState.ENDED,
+                        PlaybackState.ERROR
+                    ) && previousState.isPlaybackConfirmed
+                }?.let { request ->
+                    request.copy(
+                        startPosition = if (request.profile == PlaybackProfile.LIVE) {
+                            0L
+                        } else {
+                            previousState.currentPosition.coerceAtLeast(0L)
+                        }
+                    )
+                }
+
+                // 1. Stop collecting state
+                stateCollectionJob?.cancel()
+                stateCollectionJob = null
+
+                // 2. Safely release current engine completely
+                currentEngine?.let { oldEngine ->
+                    withContext(Dispatchers.Main.immediate) {
+                        try {
+                            oldEngine.stop()
+                        } catch (e: Exception) {
+                            Timber.w(e, "Error stopping old engine")
+                        }
+                    }
+                    // VLC native release blocks thread, dispatch it safely if needed.
+                    withContext(if (oldEngine is VlcPlayerEngine) Dispatchers.IO else Dispatchers.Main.immediate) {
+                        try {
+                            oldEngine.release()
+                        } catch (e: Exception) {
+                            Timber.w(e, "Error releasing old engine")
+                        }
+                    }
+                }
+                currentEngine = null
+                _activeEngineName.value = null
+                _playerState.value = PlayerState(
+                    aspectRatioMode = preferredAspectRatio,
+                    videoQualityMode = preferredVideoQualityMode,
+                    playbackSpeed = defaultPlaybackSpeed
+                )
+
+                // 3. Create new engine via Provider (Lazy Init)
+                val newEngine = when (targetType) {
+                    PlayerEngineType.EXOPLAYER -> exoPlayerProvider.get()
+                    PlayerEngineType.VLC -> vlcPlayerProvider.get()
+                }
+
+                // Verify availability, fallback if needed
+                val finalEngine = if (!newEngine.isAvailable() && targetType == PlayerEngineType.EXOPLAYER) {
+                    Timber.w("Requested EXOPLAYER but it's unavailable. Falling back to VLC.")
+                    vlcPlayerProvider.get()
+                } else {
+                    newEngine
+                }
+
+                // 4. Initialize new engine
+                withContext(Dispatchers.Main.immediate) {
+                    finalEngine.setPlaybackConfiguration(cachedBufferMs, cachedLatencyMode, cachedPreferHw)
+                    finalEngine.initialize()
+                    finalEngine.setAspectRatio(preferredAspectRatio)
+                    finalEngine.setVideoQualityMode(preferredVideoQualityMode)
+                    finalEngine.setPlaybackSpeed(defaultPlaybackSpeed)
+
+                    // Subtitle/Audio logic
+                    if (finalEngine is ExoPlayerEngine) {
+                        finalEngine.setPreferredAudioLanguage(defaultAudioLang)
+                        if (autoEnableSubtitles && defaultSubtitleLang.lowercase() !in listOf("off", "none")) {
+                            finalEngine.setPreferredSubtitleLanguage(defaultSubtitleLang)
+                        } else if (defaultSubtitleLang.lowercase() in listOf("off", "none")) {
+                            finalEngine.disableSubtitles()
+                        }
+                    } else if (finalEngine is VlcPlayerEngine) {
+                        finalEngine.setPreferredAudioLanguage(defaultAudioLang)
+                        if (autoEnableSubtitles && defaultSubtitleLang.lowercase() !in listOf("off", "none")) {
+                            finalEngine.setPreferredSubtitleLanguage(defaultSubtitleLang)
+                        } else if (defaultSubtitleLang.lowercase() in listOf("off", "none")) {
+                            finalEngine.disableSubtitles()
+                        }
+                    }
+                }
+
+                currentEngine = finalEngine
+                _activeEngineName.value = finalEngine.engineName
+                startCollectingState()
+
+                pendingPlaybackRequest?.let { request ->
+                    finalEngine.play(
+                        url = request.url,
+                        startPosition = request.startPosition,
+                        profile = request.profile
+                    )
+                }
+
+                _switchState.value = EngineSwitchState.SUCCESS
+                Timber.d("Successfully switched to engine: ${finalEngine.engineName}")
+
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to switch engine")
+                currentEngine = null
+                _activeEngineName.value = null
+                _switchState.value = EngineSwitchState.ERROR
+            }
+        }
+    }
+
+    suspend fun play(
+        url: String,
+        startPosition: Long = 0L,
+        profile: PlaybackProfile = PlaybackProfile.VOD
+    ) {
+        lastPlaybackRequest = PlaybackRequest(
+            url = url,
+            startPosition = startPosition,
+            profile = profile
+        )
+        withContext(Dispatchers.Main.immediate) {
+            currentEngine?.play(url, startPosition, profile)
+            if (defaultPlaybackSpeed != 1f) {
+                currentEngine?.setPlaybackSpeed(defaultPlaybackSpeed)
+            }
+        }
+    }
+
+    suspend fun pause() {
+        withContext(Dispatchers.Main.immediate) {
+            currentEngine?.pause()
+        }
+    }
+
+    suspend fun resume() {
+        withContext(Dispatchers.Main.immediate) {
+            currentEngine?.resume()
+        }
+    }
+
+    suspend fun stop() {
+        lastPlaybackRequest = null
+        withContext(Dispatchers.Main.immediate) {
+            currentEngine?.stop()
+        }
+    }
+
+    suspend fun seekTo(position: Long) {
+        withContext(Dispatchers.Main.immediate) {
+            currentEngine?.seekTo(position)
+        }
+    }
+
+    suspend fun seekForward(ms: Long) {
+        withContext(Dispatchers.Main.immediate) {
+            currentEngine?.seekForward(ms)
+        }
+    }
+
+    suspend fun seekBackward(ms: Long) {
+        withContext(Dispatchers.Main.immediate) {
+            currentEngine?.seekBackward(ms)
+        }
+    }
+
+    suspend fun setPlaybackSpeed(speed: Float) {
+        defaultPlaybackSpeed = speed
+        withContext(Dispatchers.Main.immediate) {
+            currentEngine?.setPlaybackSpeed(speed)
+        }
+    }
+
+    suspend fun selectAudioTrack(index: Int) {
+        withContext(Dispatchers.Main.immediate) {
+            currentEngine?.selectAudioTrack(index)
+        }
+    }
+
+    suspend fun selectSubtitleTrack(index: Int) {
+        withContext(Dispatchers.Main.immediate) {
+            currentEngine?.selectSubtitleTrack(index)
+        }
+    }
+
+    suspend fun disableSubtitles() {
+        withContext(Dispatchers.Main.immediate) {
+            currentEngine?.disableSubtitles()
+        }
+    }
+
+    suspend fun setAspectRatio(mode: AspectRatioMode) {
+        preferredAspectRatio = mode
+        withContext(Dispatchers.Main.immediate) {
+            currentEngine?.setAspectRatio(mode)
+        }
+        settingsDataStore.updateAspectRatio(mode.name.lowercase())
+    }
+
+    suspend fun setVideoQualityMode(mode: VideoQualityMode) {
+        preferredVideoQualityMode = mode
+        withContext(Dispatchers.Main.immediate) {
+            currentEngine?.setVideoQualityMode(mode)
+        }
+        settingsDataStore.updateVideoQualityMode(mode.name)
+    }
+
+    suspend fun selectVideoTrack(index: Int) {
+        withContext(Dispatchers.Main.immediate) {
+            if (index < 0) {
+                currentEngine?.setVideoQualityMode(VideoQualityMode.AUTO)
+                return@withContext
+            }
+            currentEngine?.selectVideoTrack(index)
+        }
+    }
+
     fun release() {
-        stateCollectionJob?.cancel()
-        val engineToRelease = currentEngine
-        if (engineToRelease is ExoPlayerEngine) {
-            managerScope.launch(Dispatchers.Main) {
-                try {
-                    engineToRelease.stop()
-                    engineToRelease.release()
-                } catch (e: Exception) { Timber.w(e, "Error releasing ExoPlayer") }
+        managerScope.launch(Dispatchers.Main.immediate) {
+            try {
+                switchMutex.withLock {
+                    stateCollectionJob?.cancel()
+                    stateCollectionJob = null
+                    lastPlaybackRequest = null
+
+                    val engineToRelease = currentEngine
+                    if (engineToRelease != null) {
+                        try {
+                            engineToRelease.stop()
+                        } catch (exception: Exception) {
+                            Timber.w(exception, "Error stopping playback engine")
+                        }
+
+                        withContext(if (engineToRelease is VlcPlayerEngine) Dispatchers.IO else Dispatchers.Main.immediate) {
+                            try {
+                                engineToRelease.release()
+                            } catch (exception: Exception) {
+                                Timber.w(exception, "Error releasing playback engine")
+                            }
+                        }
+                    }
+
+                    currentEngine = null
+                    _activeEngineName.value = null
+                    _switchState.value = EngineSwitchState.IDLE
+                    _playerState.value = PlayerState(
+                        aspectRatioMode = preferredAspectRatio,
+                        videoQualityMode = preferredVideoQualityMode,
+                        playbackSpeed = defaultPlaybackSpeed
+                    )
+                }
+            } catch (exception: Exception) {
+                Timber.w(exception, "Error releasing playback pipeline")
             }
-        } else {
-            managerScope.launch(Dispatchers.IO) {
-                try {
-                    engineToRelease.stop()
-                    engineToRelease.release()
-                } catch (e: Exception) { Timber.w(e, "Error releasing VLC") }
-            }
+        }
+    }
+
+    private fun activeEngineTypeFor(engine: PlayerEngine?): PlayerEngineType? {
+        return when (engine) {
+            is ExoPlayerEngine -> PlayerEngineType.EXOPLAYER
+            is VlcPlayerEngine -> PlayerEngineType.VLC
+            else -> null
         }
     }
 }

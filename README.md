@@ -23,9 +23,11 @@ Premium IPTV Player for Android TV & Android Mobile with production-grade archit
 - **Search** - Global debounced search with content type filters
 
 ### 🎮 Player Engine
-- **ExoPlayer (Media3)** as primary player — HLS, DASH, Progressive support
-- **VLC fallback** engine (modular stub — add libVLC dependency to enable)
-- **Engine switching** on-the-fly with position preservation
+- **Media3 / ExoPlayer primary engine** for modern Android playback, HLS, DASH, progressive streams, and track controls
+- **LibVLC fallback engine** for legacy IPTV streams and codec edge cases
+- **Runtime engine switching** from Settings without restarting the app
+- **Confirmed playback readiness** before live candidates are accepted
+- **Surface-first playback lifecycle** hardened for Android TV and phones/tablets
 - **Audio/subtitle track** selection
 - **Playback speed** control (0.5x - 2x)
 - **TV remote control** — Play/Pause, Seek, Back button
@@ -45,7 +47,7 @@ Premium IPTV Player for Android TV & Android Mobile with production-grade archit
 - **Fuzzy title matching** with Jaro-Winkler similarity
 
 ### ⚙️ Settings
-- Player engine selection, seek intervals, aspect ratio
+- Seek intervals, aspect ratio
 - Default audio/subtitle language
 - Auto-play next episode
 - Open last playlist on start
@@ -64,7 +66,7 @@ Clean Architecture + MVVM
 │   ├── designsystem/        # Theme, colors, typography
 │   ├── model/               # Domain data classes
 │   ├── network/             # Retrofit APIs, DTOs
-│   └── player/              # PlayerEngine, ExoPlayer, VLC, PlayerManager
+│   └── player/              # Media3 + VLC playback engines, PlayerManager
 ├── data/                    # Repositories, parsers, clients
 │   ├── parser/              # M3U parser, Xtream client
 │   └── repository/          # Playlist, Content repositories
@@ -99,7 +101,7 @@ Clean Architecture + MVVM
 | Networking | Retrofit + OkHttp |
 | Serialization | Kotlinx Serialization |
 | Image Loading | Coil |
-| Video | Media3 ExoPlayer |
+| Video | Media3 / ExoPlayer + LibVLC fallback |
 | Async | Coroutines + Flow |
 | Logging | Timber |
 

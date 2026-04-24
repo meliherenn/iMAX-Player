@@ -1,6 +1,5 @@
 package com.imax.player.ui.onboarding
 
-import android.util.Log
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -96,6 +95,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import javax.inject.Inject
 
 private const val TV_ONBOARDING_LOG_TAG = "TvOnboarding"
@@ -118,13 +118,14 @@ class OnboardingViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             try {
-                android.util.Log.e("IMAX_DEBUG", "Starting playlist collection...")
+                Timber.d("Starting playlist collection")
                 playlistRepository.getAllPlaylists().collect { playlists ->
-                    android.util.Log.e("IMAX_DEBUG", "Collected playlists: count=${playlists.size}")
+                    Timber.d("Collected playlists: count=%d", playlists.size)
                     _state.update { it.copy(playlists = playlists, isLoading = false) }
                 }
             } catch(e: Exception) {
-                android.util.Log.e("IMAX_DEBUG", "Error collecting playlists", e)
+                Timber.e(e, "Error collecting playlists")
+                _state.update { it.copy(isLoading = false) }
             }
         }
     }
@@ -141,10 +142,9 @@ class OnboardingViewModel @Inject constructor(
         password: String,
         onSuccess: () -> Unit
     ) {
-        android.util.Log.e("IMAX_DEBUG", "addPlaylist called with name=$name")
+        Timber.d("Adding playlist")
         viewModelScope.launch {
             try {
-                android.util.Log.e("IMAX_DEBUG", "Starting playlist creation...")
                 val playlist = Playlist(
                     name = name,
                     type = type,
@@ -154,15 +154,12 @@ class OnboardingViewModel @Inject constructor(
                     username = username,
                     password = password
                 )
-                android.util.Log.e("IMAX_DEBUG", "Saving to repository...")
                 val id = playlistRepository.savePlaylist(playlist)
                 val savedPlaylist = playlist.copy(id = id)
-                android.util.Log.e("IMAX_DEBUG", "Saved with ID: $id. Updating UI state...")
                 _state.update { it.copy(showAddDialog = false) }
-                android.util.Log.e("IMAX_DEBUG", "UI state updated successfully.")
                 selectPlaylist(savedPlaylist, onSuccess)
             } catch (e: Exception) {
-                android.util.Log.e("IMAX_DEBUG", "Failed to add playlist", e)
+                Timber.e(e, "Failed to add playlist")
             }
         }
     }
@@ -170,10 +167,15 @@ class OnboardingViewModel @Inject constructor(
     fun selectPlaylist(playlist: Playlist, onSelected: () -> Unit) {
         viewModelScope.launch {
             _state.update { it.copy(isSyncing = true, syncMessage = "Syncing playlist...") }
-            playlistRepository.activatePlaylist(playlist.id)
-            playlistRepository.syncPlaylist(playlist)
-            _state.update { it.copy(isSyncing = false, syncMessage = "") }
-            onSelected()
+            try {
+                playlistRepository.activatePlaylist(playlist.id)
+                playlistRepository.syncPlaylist(playlist)
+                _state.update { it.copy(isSyncing = false, syncMessage = "") }
+                onSelected()
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to sync selected playlist")
+                _state.update { it.copy(isSyncing = false, syncMessage = "") }
+            }
         }
     }
 
@@ -1673,6 +1675,6 @@ private fun isPositiveTestMessage(message: String?): Boolean {
 private fun FocusRequester.requestFocusSafely(reason: String) {
     runCatching { requestFocus() }
         .onFailure { error ->
-            Log.w(TV_ONBOARDING_LOG_TAG, "Unable to request focus for $reason", error)
+            Timber.tag(TV_ONBOARDING_LOG_TAG).w(error, "Unable to request focus for %s", reason)
         }
 }

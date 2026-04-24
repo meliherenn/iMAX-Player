@@ -9,6 +9,7 @@
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"
         tools:targetApi="33" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- WorkManager boot receiver -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -85,13 +86,14 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
-        <!-- Media3 MediaSessionService — enables lock-screen / notification controls -->
         <service
             android:name=".core.service.ImaxPlaybackService"
+            android:enabled="true"
             android:exported="true"
             android:foregroundServiceType="mediaPlayback">
             <intent-filter>
                 <action android:name="androidx.media3.session.MediaSessionService" />
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
             </intent-filter>
         </service>
 

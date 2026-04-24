@@ -86,6 +86,10 @@ class EpgRepository @Inject constructor(
         EpgSyncWorker.enqueue(context, epgUrl)
     }
 
+    fun cancelScheduledSync(epgUrl: String) {
+        EpgSyncWorker.cancel(context, epgUrl)
+    }
+
     /**
      * Trigger an immediate EPG refresh.
      */

@@ -34,11 +34,13 @@ import com.imax.player.core.datastore.SettingsDataStore
 import com.imax.player.core.designsystem.theme.ImaxColors
 import com.imax.player.core.designsystem.theme.LocalImaxDimens
 import com.imax.player.core.model.PlayerEngineType
+
 import com.imax.player.core.player.AspectRatioMode
 import com.imax.player.core.player.LiveLatencyMode
+import com.imax.player.core.player.PlayerManager
 import com.imax.player.core.player.VideoQualityMode
-import com.imax.player.data.repository.PlaylistRepository
 import com.imax.player.data.repository.EpgRepository
+import com.imax.player.data.repository.PlaylistRepository
 import com.imax.player.ui.components.*
 import com.imax.player.ui.navigation.Routes
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -55,25 +57,25 @@ class SettingsViewModel @Inject constructor(
     private val settingsDataStore: SettingsDataStore,
     private val playlistRepository: PlaylistRepository,
     private val epgRepository: EpgRepository,
-    private val mpvPlayerEngine: com.imax.player.core.player.MpvPlayerEngine,
-    private val vlcPlayerEngine: com.imax.player.core.player.VlcPlayerEngine,
+    private val playerManager: PlayerManager,
     val parentalControlManager: com.imax.player.core.security.ParentalControlManager
 ) : ViewModel() {
     val settings: StateFlow<AppSettings> = settingsDataStore.settings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppSettings())
 
-    // Engine availability durumları — başlangıçta kontrol edilir
-    val isMpvAvailable: Boolean by lazy { mpvPlayerEngine.isAvailable() }
-    val isVlcAvailable: Boolean by lazy { vlcPlayerEngine.isAvailable() }
 
     val activePlaylist = playlistRepository.getActivePlaylist()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+
 
     // ━━━ App General ━━━
     fun updateAppLanguage(lang: String) = viewModelScope.launch { settingsDataStore.updateAppLanguage(lang) }
 
     // ━━━ Player ━━━
-    fun updatePlayerEngine(engine: PlayerEngineType) = viewModelScope.launch { settingsDataStore.updatePlayerEngine(engine) }
+    fun updatePlayerEngine(engine: String) = viewModelScope.launch {
+        playerManager.updatePreferredEngine(PlayerEngineType.fromStoredValue(engine))
+    }
     fun updateDisplayMode(mode: String) = viewModelScope.launch { settingsDataStore.updateDefaultDisplayMode(mode) }
     fun updateDefaultSpeed(speed: Float) = viewModelScope.launch { settingsDataStore.updateDefaultPlaybackSpeed(speed) }
     fun updateSeekForward(ms: Long) = viewModelScope.launch { settingsDataStore.updateSeekForward(ms) }
@@ -99,6 +101,7 @@ class SettingsViewModel @Inject constructor(
     fun updateLiveReconnect(v: Boolean) = viewModelScope.launch { settingsDataStore.updateLiveReconnect(v) }
     fun updateRememberChannel(v: Boolean) = viewModelScope.launch { settingsDataStore.updateRememberLastChannel(v) }
     fun updateStartFullscreen(v: Boolean) = viewModelScope.launch { settingsDataStore.updateStartFullscreenLive(v) }
+    fun updateOpenLastPlaylist(v: Boolean) = viewModelScope.launch { settingsDataStore.updateOpenLastPlaylist(v) }
 
     // ━━━ Playlist / Account ━━━
     fun exitPlaylist() = viewModelScope.launch {
@@ -113,11 +116,38 @@ class SettingsViewModel @Inject constructor(
 
     // ━━━ EPG ━━━
     fun updateEpgUrl(url: String) {
-        viewModelScope.launch { settingsDataStore.updateEpgUrl(url) }
+        viewModelScope.launch {
+            val previousSettings = settingsDataStore.settings.first()
+            val previousUrl = previousSettings.epgUrl.trim()
+            val normalizedUrl = url.trim()
+
+            settingsDataStore.updateEpgUrl(normalizedUrl)
+
+            if (previousUrl.isNotBlank() && previousUrl != normalizedUrl) {
+                epgRepository.cancelScheduledSync(previousUrl)
+            }
+            if (previousSettings.epgAutoSync && normalizedUrl.isNotBlank()) {
+                epgRepository.scheduleDailySync(normalizedUrl)
+            }
+        }
     }
+
     fun updateEpgAutoSync(enabled: Boolean) {
-        viewModelScope.launch { settingsDataStore.updateEpgAutoSync(enabled) }
+        viewModelScope.launch {
+            val currentSettings = settingsDataStore.settings.first()
+            settingsDataStore.updateEpgAutoSync(enabled)
+
+            val epgUrl = currentSettings.epgUrl.trim()
+            if (epgUrl.isBlank()) return@launch
+
+            if (enabled) {
+                epgRepository.scheduleDailySync(epgUrl)
+            } else {
+                epgRepository.cancelScheduledSync(epgUrl)
+            }
+        }
     }
+
     fun syncEpgNow() {
         viewModelScope.launch {
             val url = settingsDataStore.settings.first().epgUrl
@@ -138,6 +168,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+
     var isDrawerExpanded by remember { mutableStateOf(false) }
 
     if (isTv) {
@@ -151,10 +182,20 @@ fun SettingsScreen(
                 else onNavigate(route)
             }
         ) {
-            SettingsContent(settings, viewModel, isTv = true, onBackToOnboarding)
+            SettingsContent(
+                settings = settings,
+                viewModel = viewModel,
+                isTv = true,
+                onBackToOnboarding = onBackToOnboarding
+            )
         }
     } else {
-        SettingsContent(settings, viewModel, isTv = false, onBackToOnboarding)
+        SettingsContent(
+            settings = settings,
+            viewModel = viewModel,
+            isTv = false,
+            onBackToOnboarding = onBackToOnboarding
+        )
     }
 }
 
@@ -213,35 +254,15 @@ private fun SettingsContent(
             title = stringResource(R.string.settings_player),
             isTv = isTv
         ) {
-            // Engine selection — with availability checks
-            val engineEntries = PlayerEngineType.entries.map { engineType ->
-                val isAvailable = when (engineType) {
-                    PlayerEngineType.EXOPLAYER -> true
-                    PlayerEngineType.MPV -> viewModel.isMpvAvailable
-                    PlayerEngineType.VLC -> viewModel.isVlcAvailable
-                }
-                val suffix = if (!isAvailable) " (desteklenmiyor)" else ""
-                engineType to (engineType.name + suffix)
-            }
-            val availableEngineOptions = engineEntries.map { it.second }
-            val currentEngineLabel = engineEntries.find { it.first == settings.playerEngine }?.second
-                ?: settings.playerEngine.name
+            // Player Engine
             SettingsDropdown(
                 label = stringResource(R.string.setting_player_engine),
-                value = currentEngineLabel,
-                options = availableEngineOptions,
+                value = if (settings.playerEngine.uppercase() == "EXOPLAYER") "Media3 (ExoPlayer)" else "VLC Player",
+                options = listOf("Media3 (ExoPlayer)", "VLC Player"),
                 isTv = isTv,
-                onSelect = { name ->
-                    val selectedEntry = engineEntries.find { it.second == name }
-                    val type = selectedEntry?.first ?: PlayerEngineType.EXOPLAYER
-                    val isAvailable = when (type) {
-                        PlayerEngineType.EXOPLAYER -> true
-                        PlayerEngineType.MPV -> viewModel.isMpvAvailable
-                        PlayerEngineType.VLC -> viewModel.isVlcAvailable
-                    }
-                    if (isAvailable) {
-                        viewModel.updatePlayerEngine(type)
-                    }
+                onSelect = { label ->
+                    val engine = if (label.contains("ExoPlayer")) "EXOPLAYER" else "VLC"
+                    viewModel.updatePlayerEngine(engine)
                 }
             )
 
@@ -462,7 +483,7 @@ private fun SettingsContent(
         // ══════════════════════════════════════════════
         SettingsSection(
             icon = Icons.Filled.FamilyRestroom,
-            title = "Ebeveyn Denetimi",
+            title = stringResource(R.string.settings_parental_control),
             isTv = isTv
         ) {
             ParentalControlSection(
@@ -525,6 +546,13 @@ private fun SettingsContent(
                 onClick = onBackToOnboarding
             )
 
+            SettingsSwitch(
+                label = stringResource(R.string.open_last_playlist),
+                checked = settings.openLastPlaylist,
+                isTv = isTv,
+                onCheckedChange = { viewModel.updateOpenLastPlaylist(it) }
+            )
+
             Spacer(modifier = Modifier.height(8.dp))
 
             SettingsActionButton(
@@ -566,7 +594,7 @@ private fun SettingsContent(
             )
             Spacer(modifier = Modifier.height(8.dp))
             SettingsInfoRow(stringResource(R.string.app_version), "iMAX Player v1.0.0")
-            SettingsInfoRow("Player Engine", settings.playerEngine.name)
+
             Spacer(modifier = Modifier.height(8.dp))
             Text(stringResource(R.string.disclaimer), style = MaterialTheme.typography.labelSmall, color = ImaxColors.TextTertiary)
             Text(stringResource(R.string.disclaimer_text),
@@ -586,7 +614,7 @@ private fun SettingsContent(
             title = { Text(stringResource(R.string.nav_exit_playlist)) },
             text = {
                 Text(
-                    "Mevcut listeyi silmek ve çıkış yapmak istediğinize emin misiniz?",
+                    stringResource(R.string.settings_exit_playlist_confirm_message),
                     style = MaterialTheme.typography.bodyMedium, color = ImaxColors.TextSecondary
                 )
             },
@@ -598,10 +626,10 @@ private fun SettingsContent(
                         onBackToOnboarding()
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = ImaxColors.Error)
-                ) { Text("Onayla") }
+                ) { Text(stringResource(R.string.confirm)) }
             },
             dismissButton = {
-                TextButton(onClick = { showExitDialog = false }) { Text("İptal") }
+                TextButton(onClick = { showExitDialog = false }) { Text(stringResource(R.string.cancel)) }
             },
             containerColor = ImaxColors.Surface,
             titleContentColor = ImaxColors.TextPrimary,

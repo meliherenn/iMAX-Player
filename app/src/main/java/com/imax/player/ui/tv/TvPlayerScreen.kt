@@ -1,11 +1,7 @@
 package com.imax.player.ui.tv
 
-import android.util.Log
 import android.app.Activity
-import android.view.SurfaceView
-import android.view.ViewGroup
 import android.view.WindowManager
-import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -66,7 +62,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key as composeKey
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -95,7 +90,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -104,8 +98,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.media3.common.util.UnstableApi
-import androidx.media3.ui.PlayerView
 import com.imax.player.R
 import com.imax.player.core.common.StringUtils
 import com.imax.player.core.designsystem.theme.ImaxColors
@@ -113,13 +105,15 @@ import com.imax.player.core.model.Channel
 import com.imax.player.core.model.ContentType
 import com.imax.player.core.model.Episode
 import com.imax.player.core.player.AspectRatioMode
-import com.imax.player.core.player.EngineSwitchState
-import com.imax.player.core.player.ExoPlayerEngine
 import com.imax.player.core.player.PlaybackState
 import com.imax.player.core.player.PlayerState
-import com.imax.player.core.player.VlcPlayerEngine
+
 import com.imax.player.ui.components.rememberTvFocusVisualState
+import com.imax.player.ui.player.PlayerShellMode
+import com.imax.player.ui.player.PlayerSurfaceHost
+import com.imax.player.ui.player.PlayerSurfaceHostState
 import com.imax.player.ui.player.PlayerViewModel
+import timber.log.Timber
 
 private enum class TvPlayerPanel {
     NONE,
@@ -156,7 +150,6 @@ private data class TvPanelOption(
     val onClick: () -> Unit
 )
 
-@androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 fun TvPlayerScreen(
     url: String,
@@ -169,9 +162,8 @@ fun TvPlayerScreen(
     viewModel: PlayerViewModel = hiltViewModel()
 ) {
     val playerState by viewModel.state.collectAsStateWithLifecycle()
-    val switchState by viewModel.switchState.collectAsStateWithLifecycle()
-    val activeEngineName by viewModel.activeEngineName.collectAsStateWithLifecycle()
-    val engineReady by viewModel.engineReady.collectAsStateWithLifecycle()
+    val playerReady by viewModel.playerReady.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
     val session by viewModel.session.collectAsStateWithLifecycle()
     val liveChannelSwitch by viewModel.liveChannelSwitch.collectAsStateWithLifecycle()
 
@@ -187,10 +179,13 @@ fun TvPlayerScreen(
     val isLivePlayback = contentType == ContentType.LIVE.name || session.currentChannel != null
     val isSeriesPlayback = contentType == ContentType.SERIES.name || session.currentEpisode != null
     val isChannelSwitching = liveChannelSwitch.isSwitching
+    val showSwitchingOverlay = isChannelSwitching && !playerState.isPlaybackConfirmed
+    val showBlockingPlaybackOverlay = !playerReady ||
+        (playerState.playbackState == PlaybackState.BUFFERING && !playerState.isPlaybackConfirmed) ||
+        showSwitchingOverlay
     val displayTitle = session.title.ifBlank { title }
     val playbackActive = playerState.playbackState == PlaybackState.PLAYING ||
         playerState.playbackState == PlaybackState.BUFFERING ||
-        switchState == EngineSwitchState.SWITCHING ||
         isChannelSwitching
     val availableOverlayActions = remember(
         isLivePlayback,
@@ -231,18 +226,37 @@ fun TvPlayerScreen(
     var interactionVersion by remember { mutableIntStateOf(0) }
     var isExiting by rememberSaveable { mutableStateOf(false) }
     var channelNumberInput by remember { mutableStateOf("") }
+    var transientZapAction by rememberSaveable { mutableStateOf<TvOverlayAction?>(null) }
+    var transientZapTitle by rememberSaveable { mutableStateOf("") }
+    var transientZapVersion by remember { mutableIntStateOf(0) }
 
     fun registerInteraction() {
         interactionVersion += 1
     }
 
+    LaunchedEffect(url, contentId, isLivePlayback, settings.startFullscreenLive) {
+        overlayVisible = !(isLivePlayback && settings.startFullscreenLive)
+        if (!overlayVisible) {
+            activePanel = TvPlayerPanel.NONE
+        }
+        transientZapAction = null
+        transientZapTitle = ""
+    }
+
     fun showOverlay(action: TvOverlayAction = lastOverlayAction) {
+        Timber.tag(TV_PLAYER_LOG_TAG).d(
+            "showOverlay action=%s panel=%s visible=%s",
+            action,
+            activePanel,
+            overlayVisible
+        )
         requestedOverlayAction = action
         overlayVisible = true
         registerInteraction()
     }
 
     fun hideOverlay() {
+        Timber.tag(TV_PLAYER_LOG_TAG).d("hideOverlay panel=%s", activePanel)
         overlayVisible = false
         activePanel = TvPlayerPanel.NONE
         registerInteraction()
@@ -251,6 +265,22 @@ fun TvPlayerScreen(
     fun closePanel() {
         activePanel = TvPlayerPanel.NONE
         showOverlay(lastOverlayAction)
+    }
+
+    fun showTransientZapFeedback(action: TvOverlayAction, title: String) {
+        transientZapAction = action
+        transientZapTitle = title
+        transientZapVersion += 1
+        Timber.tag(TV_PLAYER_LOG_TAG).d(
+            "showTransientZapFeedback action=%s title=%s",
+            action,
+            title
+        )
+    }
+
+    fun clearTransientZapFeedback() {
+        transientZapAction = null
+        transientZapTitle = ""
     }
 
     fun resolvedOverlayAction(action: TvOverlayAction): TvOverlayAction {
@@ -358,9 +388,16 @@ fun TvPlayerScreen(
 
         when {
             activePanel != TvPlayerPanel.NONE -> Unit
-            overlayVisible -> overlayActionRequesters
-                .getValue(targetAction)
-                .requestFocusSafely("player overlay action $targetAction")
+            overlayVisible -> {
+                Timber.tag(TV_PLAYER_LOG_TAG).d(
+                    "requestOverlayFocus action=%s panel=%s",
+                    targetAction,
+                    activePanel
+                )
+                overlayActionRequesters
+                    .getValue(targetAction)
+                    .requestFocusSafely("player overlay action $targetAction")
+            }
             else -> rootFocusRequester.requestFocusSafely("player root surface")
         }
     }
@@ -375,10 +412,9 @@ fun TvPlayerScreen(
         }
     }
 
-    LaunchedEffect(playerState.playbackState, switchState, isChannelSwitching) {
+    LaunchedEffect(playerState.playbackState, isChannelSwitching) {
         if (
             playerState.playbackState == PlaybackState.ERROR &&
-            switchState != EngineSwitchState.SWITCHING &&
             !isChannelSwitching
         ) {
             showOverlay(TvOverlayAction.PLAY_PAUSE)
@@ -388,6 +424,15 @@ fun TvPlayerScreen(
     LaunchedEffect(liveChannelSwitch.errorMessage) {
         if (!liveChannelSwitch.errorMessage.isNullOrBlank()) {
             showOverlay(TvOverlayAction.CHANNELS)
+        }
+    }
+
+    LaunchedEffect(transientZapVersion) {
+        if (transientZapAction == null) return@LaunchedEffect
+        val version = transientZapVersion
+        kotlinx.coroutines.delay(900)
+        if (transientZapVersion == version) {
+            clearTransientZapFeedback()
         }
     }
 
@@ -430,6 +475,7 @@ fun TvPlayerScreen(
                     Key.MediaPlayPause,
                     Key.Spacebar -> {
                         registerInteraction()
+                        clearTransientZapFeedback()
                         showOverlay(TvOverlayAction.PLAY_PAUSE)
                         viewModel.togglePlayPause()
                         true
@@ -438,6 +484,8 @@ fun TvPlayerScreen(
                     Key.DirectionCenter,
                     Key.Enter -> {
                         if (!overlayVisible && activePanel == TvPlayerPanel.NONE) {
+                            clearTransientZapFeedback()
+                            Timber.tag(TV_PLAYER_LOG_TAG).d("remote center opens overlay")
                             showOverlay(TvOverlayAction.PLAY_PAUSE)
                             true
                         } else {
@@ -448,6 +496,8 @@ fun TvPlayerScreen(
                     Key.DirectionUp,
                     Key.DirectionDown -> {
                         if (!overlayVisible && activePanel == TvPlayerPanel.NONE) {
+                            clearTransientZapFeedback()
+                            Timber.tag(TV_PLAYER_LOG_TAG).d("remote %s opens overlay", event.key)
                             showOverlay(TvOverlayAction.PLAY_PAUSE)
                             true
                         } else {
@@ -459,9 +509,19 @@ fun TvPlayerScreen(
                         if (!overlayVisible && activePanel == TvPlayerPanel.NONE) {
                             registerInteraction()
                             if (isLivePlayback) {
+                                val targetChannel = session.previousChannel
+                                Timber.tag(TV_PLAYER_LOG_TAG).d(
+                                    "remote left live zap previous current=%s target=%s switching=%s",
+                                    session.currentChannel?.name,
+                                    targetChannel?.name,
+                                    isChannelSwitching
+                                )
+                                if (targetChannel != null) {
+                                    showTransientZapFeedback(TvOverlayAction.MAIN_PREVIOUS, targetChannel.name)
+                                }
                                 viewModel.playPreviousChannel()
-                                showOverlay(TvOverlayAction.MAIN_PREVIOUS)
                             } else {
+                                clearTransientZapFeedback()
                                 viewModel.seekBackward()
                                 showOverlay(TvOverlayAction.MAIN_PREVIOUS)
                             }
@@ -475,9 +535,19 @@ fun TvPlayerScreen(
                         if (!overlayVisible && activePanel == TvPlayerPanel.NONE) {
                             registerInteraction()
                             if (isLivePlayback) {
+                                val targetChannel = session.nextChannel
+                                Timber.tag(TV_PLAYER_LOG_TAG).d(
+                                    "remote right live zap next current=%s target=%s switching=%s",
+                                    session.currentChannel?.name,
+                                    targetChannel?.name,
+                                    isChannelSwitching
+                                )
+                                if (targetChannel != null) {
+                                    showTransientZapFeedback(TvOverlayAction.MAIN_NEXT, targetChannel.name)
+                                }
                                 viewModel.playNextChannel()
-                                showOverlay(TvOverlayAction.MAIN_NEXT)
                             } else {
+                                clearTransientZapFeedback()
                                 viewModel.seekForward()
                                 showOverlay(TvOverlayAction.MAIN_NEXT)
                             }
@@ -504,6 +574,7 @@ fun TvPlayerScreen(
                                 else -> null
                             }
                             if (digit != null && channelNumberInput.length < 4) {
+                                clearTransientZapFeedback()
                                 channelNumberInput += digit
                                 registerInteraction()
                                 true
@@ -517,22 +588,23 @@ fun TvPlayerScreen(
                 }
             }
     ) {
-        TvPlayerVideoSurface(
+        PlayerSurfaceHost(
             modifier = Modifier.fillMaxSize(),
-            engineReady = engineReady,
-            viewModel = viewModel,
+            playerEngine = viewModel.playerManager.getEngine(),
             playerState = playerState,
-            activeEngineName = activeEngineName,
-            playbackActive = playbackActive,
-            switchState = switchState
+            surfaceState = PlayerSurfaceHostState(
+                playerReady = playerReady,
+                playbackActive = playbackActive,
+                shellMode = PlayerShellMode.TV
+            )
         )
 
-        if (!engineReady || playerState.playbackState == PlaybackState.BUFFERING || isChannelSwitching) {
+        if (showBlockingPlaybackOverlay) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(
-                        if (playerState.playbackState == PlaybackState.BUFFERING || isChannelSwitching) {
+                        if (showSwitchingOverlay || playerState.playbackState == PlaybackState.BUFFERING) {
                             Color.Black.copy(alpha = 0.18f)
                         } else {
                             Color.Transparent
@@ -548,11 +620,11 @@ fun TvPlayerScreen(
                     Spacer(modifier = Modifier.height(18.dp))
                     Text(
                         text = when {
-                            isChannelSwitching -> liveChannelSwitch.targetTitle.ifBlank {
+                            showSwitchingOverlay -> liveChannelSwitch.targetTitle.ifBlank {
                                 stringResource(R.string.channel_list)
                             }
 
-                            !engineReady -> stringResource(R.string.loading)
+                            !playerReady -> stringResource(R.string.loading)
                             else -> stringResource(R.string.buffering)
                         },
                         style = MaterialTheme.typography.titleMedium,
@@ -562,49 +634,18 @@ fun TvPlayerScreen(
             }
         }
 
-        AnimatedVisibility(
-            visible = switchState == EngineSwitchState.SWITCHING,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.78f)),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    CircularProgressIndicator(color = ImaxColors.Primary)
-                    Spacer(modifier = Modifier.height(18.dp))
-                    Text(
-                        text = stringResource(R.string.switching_engine),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = Color.White
-                    )
-                }
-            }
-        }
-
         if (
             (playerState.playbackState == PlaybackState.ERROR || !liveChannelSwitch.errorMessage.isNullOrBlank()) &&
-            switchState != EngineSwitchState.SWITCHING &&
             !isChannelSwitching
         ) {
             TvErrorState(
                 message = liveChannelSwitch.errorMessage
                     ?: playerState.errorMessage
                     ?: stringResource(R.string.playback_error),
-                engineName = activeEngineName,
                 onRetry = {
                     showOverlay(TvOverlayAction.PLAY_PAUSE)
                     viewModel.clearLiveChannelSwitchError()
                     viewModel.retryCurrent()
-                },
-                onSwitchEngine = {
-                    showOverlay(TvOverlayAction.PLAY_PAUSE)
-                    viewModel.clearLiveChannelSwitchError()
-                    viewModel.switchEngine()
                 },
                 onExit = ::exitPlayer
             )
@@ -625,7 +666,6 @@ fun TvPlayerScreen(
                     currentChannel = session.currentChannel,
                     liveGroup = session.liveGroup
                 ),
-                engineName = activeEngineName,
                 playerState = playerState,
                 isLivePlayback = isLivePlayback,
                 isSeriesPlayback = isSeriesPlayback,
@@ -702,7 +742,6 @@ fun TvPlayerScreen(
                 modifier = Modifier.fillMaxSize(),
                 activePanel = activePanel,
                 playerState = playerState,
-                activeEngineName = activeEngineName,
                 channels = session.availableChannels,
                 currentChannelId = liveChannelSwitch.targetChannelId ?: session.currentChannel?.id ?: contentId,
                 isChannelSwitching = isChannelSwitching,
@@ -738,10 +777,6 @@ fun TvPlayerScreen(
                 onRetry = {
                     viewModel.retryCurrent()
                     closePanel()
-                },
-                onSwitchEngine = {
-                    viewModel.switchEngine()
-                    closePanel()
                 }
             )
         }
@@ -767,135 +802,52 @@ fun TvPlayerScreen(
                 )
             }
         }
-    }
-}
 
-@androidx.annotation.OptIn(UnstableApi::class)
-@Composable
-private fun TvPlayerVideoSurface(
-    modifier: Modifier,
-    engineReady: Boolean,
-    viewModel: PlayerViewModel,
-    playerState: PlayerState,
-    activeEngineName: String,
-    playbackActive: Boolean,
-    switchState: EngineSwitchState
-) {
-    val engine = remember(activeEngineName, engineReady) {
-        if (engineReady) viewModel.playerManager.getEngine() else null
-    }
-
-    if (!engineReady || engine == null) {
-        return
-    }
-
-    if (switchState == EngineSwitchState.SWITCHING) {
-        Spacer(modifier = modifier)
-        return
-    }
-
-    composeKey(engine.engineName) {
-        when (engine) {
-            is ExoPlayerEngine -> {
-                val exoPlayer = engine.getExoPlayer()
-
-                if (exoPlayer != null) {
-                    BoxWithConstraints(
-                        modifier = modifier,
-                        contentAlignment = Alignment.Center
-                    ) {
-                        val viewportAspectRatio = if (maxHeight > 0.dp) {
-                            maxWidth.value / maxHeight.value
-                        } else {
-                            null
-                        }
-
-                        AndroidView(
-                            factory = { ctx ->
-                                PlayerView(ctx).apply {
-                                    player = exoPlayer
-                                    useController = false
-                                    controllerHideOnTouch = false
-                                    controllerAutoShow = false
-                                    setKeepContentOnPlayerReset(true)
-                                    keepScreenOn = playbackActive
-                                    isFocusable = false
-                                    isFocusableInTouchMode = false
-                                    descendantFocusability = ViewGroup.FOCUS_BLOCK_DESCENDANTS
-                                    layoutParams = FrameLayout.LayoutParams(
-                                        ViewGroup.LayoutParams.MATCH_PARENT,
-                                        ViewGroup.LayoutParams.MATCH_PARENT
-                                    )
-                                    engine.setPlayerView(this)
-                                }
-                            },
-                            update = { playerView ->
-                                playerView.player = exoPlayer
-                                playerView.keepScreenOn = playbackActive
-                                playerView.resizeMode = engine.getResizeModeFor(playerState.aspectRatioMode)
-                                (playerView.videoSurfaceView as? SurfaceView)?.apply {
-                                    keepScreenOn = playbackActive
-                                    isFocusable = false
-                                    isFocusableInTouchMode = false
-                                    setZOrderMediaOverlay(true)
-                                }
-                            },
-                            modifier = playerViewportModifier(
-                                targetAspectRatio = engine.getViewportAspectRatio(playerState.aspectRatioMode),
-                                viewportAspectRatio = viewportAspectRatio
-                            )
-                        )
-                    }
-
-                    DisposableEffect(engine.engineName) {
-                        onDispose { engine.clearPlayerView() }
-                    }
-                }
-            }
-
-            is VlcPlayerEngine -> {
-                BoxWithConstraints(
-                    modifier = modifier,
-                    contentAlignment = Alignment.Center
+        AnimatedVisibility(
+            visible = transientZapAction != null && !overlayVisible && activePanel == TvPlayerPanel.NONE,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 72.dp)
+        ) {
+            Surface(
+                color = Color.Black.copy(alpha = 0.82f),
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(1.dp, ImaxColors.Primary.copy(alpha = 0.45f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 22.dp, vertical = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    val viewportAspectRatio = if (maxHeight > 0.dp) {
-                        maxWidth.value / maxHeight.value
-                    } else {
-                        null
-                    }
-
-                    AndroidView(
-                        factory = { ctx ->
-                            SurfaceView(ctx).apply {
-                                keepScreenOn = playbackActive
-                                isFocusable = false
-                                isFocusableInTouchMode = false
-                                setZOrderMediaOverlay(false)
-                                layoutParams = FrameLayout.LayoutParams(
-                                    ViewGroup.LayoutParams.MATCH_PARENT,
-                                    ViewGroup.LayoutParams.MATCH_PARENT
-                                )
-                            }.also(engine::setSurface)
+                    Icon(
+                        imageVector = if (transientZapAction == TvOverlayAction.MAIN_PREVIOUS) {
+                            Icons.Filled.SkipPrevious
+                        } else {
+                            Icons.Filled.SkipNext
                         },
-                        update = { surfaceView ->
-                            surfaceView.keepScreenOn = playbackActive
-                            if (surfaceView.width > 0 && surfaceView.height > 0) {
-                                engine.updateSurfaceSize(surfaceView.width, surfaceView.height)
-                            }
-                        },
-                        modifier = playerViewportModifier(
-                            targetAspectRatio = forcedViewportAspectRatio(
-                                mode = playerState.aspectRatioMode,
-                                videoWidth = playerState.videoWidth,
-                                videoHeight = playerState.videoHeight
-                            ),
-                            viewportAspectRatio = viewportAspectRatio
-                        )
+                        contentDescription = null,
+                        tint = ImaxColors.Primary
                     )
-                }
-
-                DisposableEffect(engine.engineName) {
-                    onDispose { engine.detachSurface() }
+                    Column {
+                        Text(
+                            text = if (transientZapAction == TvOverlayAction.MAIN_PREVIOUS) {
+                                stringResource(R.string.previous_channel)
+                            } else {
+                                stringResource(R.string.next_channel)
+                            },
+                            style = MaterialTheme.typography.labelLarge,
+                            color = ImaxColors.TextSecondary
+                        )
+                        Text(
+                            text = transientZapTitle.ifBlank { displayTitle },
+                            style = MaterialTheme.typography.titleMedium,
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
         }
@@ -907,7 +859,6 @@ private fun TvPlayerVideoSurface(
 private fun TvPlaybackOverlay(
     title: String,
     subtitle: String,
-    engineName: String,
     playerState: PlayerState,
     isLivePlayback: Boolean,
     isSeriesPlayback: Boolean,
@@ -1046,7 +997,6 @@ private fun TvPlaybackOverlay(
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    TvStatusBadge(label = engineName)
                     if (playerState.currentVideoResolution.isNotBlank()) {
                         TvStatusBadge(label = playerState.currentVideoResolution)
                     }
@@ -1242,7 +1192,6 @@ private fun TvPlayerPanelHost(
     modifier: Modifier,
     activePanel: TvPlayerPanel,
     playerState: PlayerState,
-    activeEngineName: String,
     channels: List<Channel>,
     currentChannelId: Long,
     isChannelSwitching: Boolean,
@@ -1255,8 +1204,7 @@ private fun TvPlayerPanelHost(
     onSelectSpeed: (Float) -> Unit,
     onOpenSpeedPanel: () -> Unit,
     onOpenStreamInfoPanel: () -> Unit,
-    onRetry: () -> Unit,
-    onSwitchEngine: () -> Unit
+    onRetry: () -> Unit
 ) {
     Box(
         modifier = modifier
@@ -1378,17 +1326,12 @@ private fun TvPlayerPanelHost(
                         ),
                         TvPanelOption(
                             title = stringResource(R.string.setting_stream_info),
-                            subtitle = playerState.currentVideoResolution.ifBlank { activeEngineName },
+                            subtitle = playerState.currentVideoResolution.ifBlank { "—" },
                             onClick = onOpenStreamInfoPanel
                         ),
                         TvPanelOption(
                             title = stringResource(R.string.retry),
                             onClick = onRetry
-                        ),
-                        TvPanelOption(
-                            title = stringResource(R.string.setting_player_engine),
-                            subtitle = activeEngineName,
-                            onClick = onSwitchEngine
                         )
                     )
                 )
@@ -1398,7 +1341,6 @@ private fun TvPlayerPanelHost(
                 TvInfoPanel(
                     title = stringResource(R.string.setting_stream_info),
                     rows = listOf(
-                        stringResource(R.string.setting_player_engine) to activeEngineName,
                         "Resolution" to playerState.currentVideoResolution.ifBlank { "—" },
                         "Bitrate" to playerState.currentVideoBitrate.ifBlank { "—" },
                         "Codec" to playerState.currentVideoCodec.ifBlank { "—" },
@@ -1563,9 +1505,7 @@ private fun TvInfoPanel(
 @Composable
 private fun TvErrorState(
     message: String,
-    engineName: String = "",
     onRetry: () -> Unit,
-    onSwitchEngine: () -> Unit,
     onExit: () -> Unit
 ) {
     val retryRequester = remember { FocusRequester() }
@@ -1602,13 +1542,6 @@ private fun TvErrorState(
                     maxLines = 3,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (engineName.isNotBlank()) {
-                    Text(
-                        text = "Motor: $engineName",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Color.White.copy(alpha = 0.5f)
-                    )
-                }
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -1619,12 +1552,6 @@ private fun TvErrorState(
                         focusRequester = retryRequester,
                         onFocused = {},
                         onClick = onRetry
-                    )
-                    TvActionChip(
-                        icon = Icons.Filled.Settings,
-                        label = stringResource(R.string.setting_player_engine),
-                        onFocused = {},
-                        onClick = onSwitchEngine
                     )
                     TvActionChip(
                         icon = Icons.AutoMirrored.Filled.ArrowBack,
@@ -1812,7 +1739,7 @@ private fun TvActionChip(
 private fun FocusRequester.requestFocusSafely(reason: String) {
     runCatching { requestFocus() }
         .onFailure { error ->
-            Log.w(TV_PLAYER_LOG_TAG, "Unable to request focus for $reason", error)
+            Timber.tag(TV_PLAYER_LOG_TAG).w(error, "Unable to request focus for %s", reason)
         }
 }
 
@@ -1954,49 +1881,6 @@ private fun tvPlaybackSubtitle(
     }
 }
 
-private fun forcedViewportAspectRatio(
-    mode: AspectRatioMode,
-    videoWidth: Int,
-    videoHeight: Int
-): Float? {
-    return when (mode) {
-        AspectRatioMode.FORCE_16_9 -> 16f / 9f
-        AspectRatioMode.FORCE_4_3 -> 4f / 3f
-        AspectRatioMode.ORIGINAL -> {
-            if (videoWidth > 0 && videoHeight > 0) {
-                videoWidth.toFloat() / videoHeight.toFloat()
-            } else {
-                null
-            }
-        }
-
-        else -> null
-    }
-}
-
-private fun playerViewportModifier(
-    targetAspectRatio: Float?,
-    viewportAspectRatio: Float?
-): Modifier {
-    if (
-        targetAspectRatio == null ||
-        viewportAspectRatio == null ||
-        targetAspectRatio <= 0f ||
-        viewportAspectRatio <= 0f
-    ) {
-        return Modifier.fillMaxSize()
-    }
-
-    return if (viewportAspectRatio > targetAspectRatio) {
-        Modifier
-            .fillMaxHeight()
-            .aspectRatio(targetAspectRatio, matchHeightConstraintsFirst = true)
-    } else {
-        Modifier
-            .fillMaxWidth()
-            .aspectRatio(targetAspectRatio)
-    }
-}
 
 // ─── TV D-pad Seek Bar ─────────────────────────────────────────────────────────
 // Intercepts Left / Right D-pad key presses to seek ±10s.

@@ -2,7 +2,6 @@ package com.imax.player
 
 import android.app.PictureInPictureParams
 import android.content.res.Configuration
-import android.os.Build
 import android.os.Bundle
 import android.util.Rational
 import androidx.activity.compose.setContent
@@ -69,18 +68,16 @@ class MainActivity : AppCompatActivity() {
      */
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (isPlayerScreenActive) {
+        if (isPlayerScreenActive && !DeviceUtils.resolveUiMode(this).isTv) {
             enterPipMode()
         }
     }
 
     fun enterPipMode() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val params = PictureInPictureParams.Builder()
-                .setAspectRatio(Rational(16, 9))
-                .build()
-            enterPictureInPictureMode(params)
-        }
+        val params = PictureInPictureParams.Builder()
+            .setAspectRatio(Rational(16, 9))
+            .build()
+        enterPictureInPictureMode(params)
     }
 
     override fun onPictureInPictureModeChanged(

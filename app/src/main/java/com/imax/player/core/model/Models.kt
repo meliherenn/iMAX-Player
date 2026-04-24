@@ -14,11 +14,7 @@ enum class ContentType {
     SERIES
 }
 
-enum class PlayerEngineType {
-    EXOPLAYER,
-    MPV,
-    VLC
-}
+
 
 @Serializable
 data class Playlist(

@@ -49,6 +49,7 @@ import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import androidx.compose.ui.res.stringResource
 import com.imax.player.R
+import com.imax.player.core.datastore.SettingsDataStore
 
 data class LiveTvState(
     val channels: List<Channel> = emptyList(),
@@ -65,7 +66,8 @@ data class LiveTvState(
 class LiveTvViewModel @Inject constructor(
     private val playlistRepository: PlaylistRepository,
     private val contentRepository: ContentRepository,
-    private val epgRepository: com.imax.player.data.repository.EpgRepository
+    private val epgRepository: com.imax.player.data.repository.EpgRepository,
+    private val settingsDataStore: SettingsDataStore
 ) : ViewModel() {
     private val _state = MutableStateFlow(LiveTvState())
     val state: StateFlow<LiveTvState> = _state.asStateFlow()
@@ -89,11 +91,21 @@ class LiveTvViewModel @Inject constructor(
                     }
 
                     contentRepository.getChannels(playlist.id).collectLatest { channels ->
+                        val settings = settingsDataStore.settings.first()
+                        val orderedChannels = if (settings.rememberLastChannel) {
+                            channels.sortedWith(
+                                compareByDescending<Channel> { it.lastWatched }
+                                    .thenBy { it.sortOrder }
+                                    .thenBy { it.name.lowercase() }
+                            )
+                        } else {
+                            channels
+                        }
                         val processed = withContext(Dispatchers.Default) {
-                            val groups = channels.distinctGroupsInOrder()
+                            val groups = orderedChannels.distinctGroupsInOrder()
                             val mobileGroups = prioritizeGroupsForMobile(groups)
-                            val mobileChannels = rankChannelsForMobile(channels)
-                            val groupCounts = channels
+                            val mobileChannels = rankChannelsForMobile(orderedChannels)
+                            val groupCounts = orderedChannels
                                 .groupBy { it.groupTitle }
                                 .mapValues { it.value.size }
 
@@ -110,7 +122,7 @@ class LiveTvViewModel @Inject constructor(
                                 ?.takeIf { it in processed.groups }
 
                             currentState.copy(
-                                channels = channels,
+                                channels = orderedChannels,
                                 mobileChannels = processed.mobileChannels,
                                 groups = processed.groups,
                                 mobileGroups = processed.mobileGroups,

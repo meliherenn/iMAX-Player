@@ -19,7 +19,7 @@ data class SleepTimerState(
         val totalSecs = (remainingMs / 1000).toInt()
         val m = totalSecs / 60
         val s = totalSecs % 60
-        return if (m > 0) "${m}d ${s}s" else "${s}s"
+        return if (m > 0) "${m}m ${s}s" else "${s}s"
     }
 }
 
@@ -30,11 +30,16 @@ data class SleepTimerState(
  * Last minute: [SleepTimerState.isLastMinute] = true so UI can show fade-out.
  */
 @Singleton
-class SleepTimerManager @Inject constructor() {
+class SleepTimerManager internal constructor(
+    private val dispatcher: CoroutineDispatcher
+) {
     private val _state = MutableStateFlow(SleepTimerState())
     val state: StateFlow<SleepTimerState> = _state.asStateFlow()
 
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    @Inject
+    constructor() : this(Dispatchers.Main.immediate)
+
+    private val scope = CoroutineScope(dispatcher + SupervisorJob())
     private var timerJob: Job? = null
 
     val availableOptions = listOf(15, 30, 45, 60, 90) // minutes
@@ -57,7 +62,7 @@ class SleepTimerManager @Inject constructor() {
 
         timerJob = scope.launch {
             var remaining = durationMs
-            while (remaining > 0 && isActive) {
+            while (remaining > 0 && coroutineContext.isActive && _state.value.isActive) {
                 delay(1_000L)
                 remaining -= 1_000L
                 val isLastMin = remaining <= 60_000L
@@ -66,7 +71,7 @@ class SleepTimerManager @Inject constructor() {
                     isLastMinute = isLastMin
                 )
             }
-            if (isActive) {
+            if (coroutineContext.isActive && _state.value.isActive) {
                 Timber.d("SleepTimer: expired")
                 _state.value = SleepTimerState()
                 onTimerExpired()

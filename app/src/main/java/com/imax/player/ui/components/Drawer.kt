@@ -1,6 +1,5 @@
 package com.imax.player.ui.components
 
-import android.util.Log
 import androidx.compose.animation.*
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
@@ -49,6 +48,7 @@ import androidx.compose.ui.zIndex
 import com.imax.player.core.designsystem.theme.ImaxColors
 import com.imax.player.core.designsystem.theme.LocalImaxDimens
 import com.imax.player.ui.navigation.Routes
+import timber.log.Timber
 import kotlinx.coroutines.delay
 
 private const val TV_DRAWER_LOG_TAG = "TvDrawer"
@@ -300,7 +300,7 @@ private fun TvDrawerBrand(
 private fun FocusRequester.requestFocusSafely(reason: String) {
     runCatching { requestFocus() }
         .onFailure { error ->
-            Log.w(TV_DRAWER_LOG_TAG, "Unable to request focus for $reason", error)
+            Timber.tag(TV_DRAWER_LOG_TAG).w(error, "Unable to request focus for %s", reason)
         }
 }
 

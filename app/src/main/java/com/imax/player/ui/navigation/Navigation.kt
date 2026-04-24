@@ -19,7 +19,7 @@ object Routes {
     const val FAVORITES = "favorites"
     const val SETTINGS = "settings"
     const val EXIT = "exit"
-    const val PLAYER = "player/{url}?title={title}&contentId={contentId}&contentType={contentType}&startPos={startPos}&group={group}"
+    const val PLAYER = "player?url={url}&title={title}&contentId={contentId}&contentType={contentType}&startPos={startPos}&group={group}"
     const val DETAIL = "detail/{contentId}/{contentType}"
 
     fun player(
@@ -33,7 +33,7 @@ object Routes {
         val encodedUrl = java.net.URLEncoder.encode(url, "UTF-8")
         val encodedTitle = java.net.URLEncoder.encode(title, "UTF-8")
         val encodedGroup = java.net.URLEncoder.encode(group, "UTF-8")
-        return "player/$encodedUrl?title=$encodedTitle&contentId=$contentId&contentType=$contentType&startPos=$startPos&group=$encodedGroup"
+        return "player?url=$encodedUrl&title=$encodedTitle&contentId=$contentId&contentType=$contentType&startPos=$startPos&group=$encodedGroup"
     }
 
     fun detail(contentId: Long, contentType: String): String = "detail/$contentId/$contentType"

@@ -20,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -358,7 +359,7 @@ private fun TvDetailContent(
                         }
                     }
                     Spacer(modifier = Modifier.height(16.dp))
-                    DetailActionButtons(state, viewModel, onPlay)
+                    DetailActionButtons(state, viewModel, onPlay, isTv = true)
                     if (cast.isNotBlank()) { Spacer(modifier = Modifier.height(12.dp)); DetailInfoSection(stringResource(R.string.cast), cast) }
                     if (director.isNotBlank()) { Spacer(modifier = Modifier.height(8.dp)); DetailInfoSection(stringResource(R.string.director), director) }
                 }
@@ -806,7 +807,8 @@ private fun DetailActionButtons(
     state: DetailState,
     viewModel: DetailViewModel,
     onPlay: (String, String, Long, String, Long) -> Unit,
-    trailerUrl: String = ""
+    trailerUrl: String = "",
+    isTv: Boolean = false
 ) {
     val movie = state.movie
     val series = state.series
@@ -814,6 +816,13 @@ private fun DetailActionButtons(
     val resumeEpisode = state.resumeEpisode ?: state.episodes.firstOrNull()
     val hasMoviePlayback = movie?.streamUrl?.isNotBlank() == true
     val hasSeriesPlayback = resumeEpisode?.streamUrl?.isNotBlank() == true
+    val primaryActionFocusRequester = remember(isTv, movie?.id, series?.id) { FocusRequester() }
+
+    LaunchedEffect(isTv, movie?.id, series?.id) {
+        if (isTv) {
+            primaryActionFocusRequester.requestFocus()
+        }
+    }
 
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         if (movie != null) {
@@ -821,6 +830,8 @@ private fun DetailActionButtons(
                 text = if (movie.lastPosition > 0) stringResource(R.string.action_resume) else stringResource(R.string.action_play),
                 icon = Icons.Filled.PlayArrow,
                 enabled = hasMoviePlayback,
+                isTv = isTv,
+                focusRequester = if (isTv) primaryActionFocusRequester else null,
                 onClick = { onPlay(movie.streamUrl, movie.name, movie.id, "MOVIE", movie.lastPosition) }
             )
         } else if (series != null) {
@@ -841,6 +852,8 @@ private fun DetailActionButtons(
                 },
                 icon = Icons.Filled.PlayArrow,
                 enabled = hasSeriesPlayback,
+                isTv = isTv,
+                focusRequester = if (isTv) primaryActionFocusRequester else null,
                 onClick = {
                     val playableEpisode = resumeEpisode ?: return@GradientButton
                     onPlay(
@@ -866,7 +879,8 @@ private fun DetailActionButtons(
                         )
                     },
                     text = stringResource(R.string.next_episode),
-                    icon = Icons.Filled.SkipNext
+                    icon = Icons.Filled.SkipNext,
+                    isTv = isTv
                 )
             }
         }

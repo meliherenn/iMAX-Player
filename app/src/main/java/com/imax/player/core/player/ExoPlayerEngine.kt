@@ -1,28 +1,46 @@
 package com.imax.player.core.player
 
 import android.content.Context
+import android.graphics.Color
+import android.net.Uri
+import android.os.Looper
+import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
 import androidx.annotation.OptIn
-import androidx.media3.common.*
+import androidx.media3.common.AudioAttributes
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.common.Tracks
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.ui.AspectRatioFrameLayout
-import androidx.media3.ui.PlayerView
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.ui.AspectRatioFrameLayout
+import androidx.media3.ui.PlayerView
 import com.imax.player.core.common.Constants
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import timber.log.Timber
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -33,241 +51,371 @@ class ExoPlayerEngine @Inject constructor(
     private val okHttpClient: OkHttpClient
 ) : PlayerEngine {
 
-    private var player: ExoPlayer? = null
-    private var trackSelector: DefaultTrackSelector? = null
-    private val _state = MutableStateFlow(PlayerState())
-    override val state: StateFlow<PlayerState> = _state.asStateFlow()
-    override val engineName: String = "ExoPlayer"
+    override val engineName: String = "EXOPLAYER"
+    override fun isAvailable(): Boolean = true
 
-    private var scope: CoroutineScope? = null
-    private var progressJob: Job? = null
+    companion object {
+        private const val PLAYBACK_CONFIRMATION_PROGRESS_MS = 750L
+        private const val PLAYBACK_PROGRESS_POLL_INTERVAL_MS = 250L
+    }
 
-    // PlayerView reference for applying resizeMode
-    private var playerView: PlayerView? = null
+    private data class PendingPlaybackRequest(
+        val profile: PlaybackProfile,
+        val startPosition: Long
+    )
+
+    private interface SurfaceBinding {
+        fun isReady(): Boolean
+        fun dispose()
+    }
+
+    private val mainScope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
     private val userAgent = "iMAX Player/Android"
 
-    // Configuration
+    private var player: ExoPlayer? = null
+    private var playerListener: Player.Listener? = null
+    private var trackSelector: DefaultTrackSelector? = null
+    private var progressJob: Job? = null
+
+    private var playerView: PlayerView? = null
+    private var surfaceBinding: SurfaceBinding? = null
+    private var pendingPlaybackRequest: PendingPlaybackRequest? = null
+    private var currentProfile: PlaybackProfile? = null
+
     private var configuredBufferMs: Long = Constants.DEFAULT_BUFFER_MS.toLong()
-    private var configuredLatencyMode: String = "BALANCED"
+    private var configuredLatencyMode: String = LiveLatencyMode.BALANCED.name
     private var configuredPreferHw: Boolean = true
 
-    override fun setPlaybackConfiguration(bufferDurationMs: Long, liveLatencyMode: String, preferHwDecoding: Boolean) {
-        this.configuredBufferMs = bufferDurationMs
-        this.configuredLatencyMode = liveLatencyMode
-        this.configuredPreferHw = preferHwDecoding
+    private var preferredAudioLanguage: String? = null
+    private var preferredSubtitleLanguage: String? = null
+    private var subtitlesDisabled = false
+    private var preferredVideoQualityMode: VideoQualityMode = VideoQualityMode.AUTO
+    private var currentPlaybackSpeed = 1f
+
+    private var surfaceReady = false
+    private var hasVideoTrack = false
+    private var hasAudioTrack = false
+    private var firstFrameRendered = false
+    private var playbackConfirmationBaselinePositionMs = C.TIME_UNSET
+    private var playbackProgressConfirmed = false
+
+    private val _state = MutableStateFlow(PlayerState())
+    override val state: StateFlow<PlayerState> = _state.asStateFlow()
+
+    private val _playerInstance = MutableStateFlow<ExoPlayer?>(null)
+    val playerInstance: StateFlow<ExoPlayer?> = _playerInstance.asStateFlow()
+
+    private inline fun runOnMain(crossinline block: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            block()
+        } else {
+            mainScope.launch { block() }
+        }
+    }
+
+    override fun setPlaybackConfiguration(
+        bufferDurationMs: Long,
+        liveLatencyMode: String,
+        preferHwDecoding: Boolean
+    ) {
+        configuredBufferMs = bufferDurationMs
+        configuredLatencyMode = liveLatencyMode
+        configuredPreferHw = preferHwDecoding
+
+        runOnMain {
+            val profile = currentProfile ?: return@runOnMain
+            rebuildPlayer(profile)
+        }
     }
 
     override fun initialize() {
-        if (player != null) return
-
-        scope?.cancel()
-        scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
-
-        trackSelector = DefaultTrackSelector(context).apply {
-            setParameters(
-                buildUponParameters()
-                    .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
-                    .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
-            )
+        runOnMain {
+            ensurePlayer(currentProfile ?: PlaybackProfile.VOD)
         }
-
-        val minBuffer = minOf(configuredBufferMs.toInt(), 50_000)
-        val maxBuffer = configuredBufferMs.toInt()
-
-        val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(
-                minBuffer,
-                maxBuffer,
-                DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
-                DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS
-            )
-            .build()
-
-        val dataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
-            .setUserAgent(userAgent)
-
-        val renderersFactory = androidx.media3.exoplayer.DefaultRenderersFactory(context)
-            .setEnableDecoderFallback(true)
-
-        // Hardware Preference Hinting
-        if (configuredPreferHw) {
-            renderersFactory.setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
-        } else {
-            renderersFactory.setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
-        }
-
-        player = ExoPlayer.Builder(context)
-            .setRenderersFactory(renderersFactory)
-            .setTrackSelector(trackSelector!!)
-            .setLoadControl(loadControl)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
-            .setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setUsage(C.USAGE_MEDIA)
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-                    .build(),
-                true
-            )
-            .setHandleAudioBecomingNoisy(true)
-            .setWakeMode(C.WAKE_MODE_NETWORK)
-            .build()
-            .apply {
-                volume = 1f
-            }
-
-        player?.addListener(object : Player.Listener {
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                updateState()
-            }
-
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                updateState()
-                if (isPlaying) startProgressTracking() else stopProgressTracking()
-            }
-
-            override fun onPlayerError(error: PlaybackException) {
-                Timber.e(error, "ExoPlayer error: ${error.errorCodeName}")
-                _state.value = _state.value.copy(
-                    playbackState = PlaybackState.ERROR,
-                    errorMessage = error.localizedMessage ?: "Playback error"
-                )
-            }
-
-            override fun onTracksChanged(tracks: Tracks) {
-                ensureDefaultAudioTrackSelected(tracks)
-                updateTrackInfo(tracks)
-                updateQualityInfo(tracks)
-            }
-
-            override fun onVideoSizeChanged(videoSize: VideoSize) {
-                _state.value = _state.value.copy(
-                    videoWidth = videoSize.width,
-                    videoHeight = videoSize.height,
-                    currentVideoResolution = "${videoSize.width}x${videoSize.height}"
-                )
-            }
-        })
     }
 
     override fun release() {
-        stopProgressTracking()
-        scope?.cancel()
-        scope = null
-        player?.release()
-        player = null
-        trackSelector = null
-        _state.value = PlayerState()
-    }
-
-    override fun play(url: String, startPosition: Long) {
-        initialize()
-        player?.let { p ->
-            val normalizedUrl = normalizePlaybackUrl(url)
-            val mediaItem = buildMediaItem(normalizedUrl)
-            p.setMediaSource(buildMediaSource(mediaItem))
-            p.prepare()
-            if (startPosition > 0) p.seekTo(startPosition)
-            p.volume = 1f
-            p.playWhenReady = true
+        runOnMain {
+            releasePlayer()
         }
     }
 
-    override fun pause() { player?.pause() }
-    override fun resume() { player?.play() }
-    override fun stop() {
-        player?.stop()
-        player?.clearMediaItems()
-        _state.value = PlayerState()
+    override fun play(url: String, startPosition: Long, profile: PlaybackProfile) {
+        runOnMain {
+            ensurePlayer(profile)
+
+            val exoPlayer = player ?: return@runOnMain
+            val normalizedUrl = normalizePlaybackUrl(url)
+            val mediaItem = buildMediaItem(normalizedUrl, profile)
+
+            resetPlaybackAttemptState()
+            pendingPlaybackRequest = PendingPlaybackRequest(
+                profile = profile,
+                startPosition = startPosition
+            )
+
+            exoPlayer.setMediaSource(buildMediaSource(mediaItem))
+            exoPlayer.volume = 1f
+            exoPlayer.playWhenReady = false
+            exoPlayer.prepare()
+
+            if (startPosition > 0L) {
+                exoPlayer.seekTo(startPosition)
+            }
+
+            updatePlaybackGate()
+            publishPlayerState()
+        }
     }
 
-    override fun seekTo(position: Long) { player?.seekTo(position) }
-    override fun seekForward(ms: Long) {
-        player?.let { it.seekTo(minOf(it.currentPosition + ms, it.duration)) }
+    override fun pause() {
+        runOnMain {
+            player?.pause()
+            pendingPlaybackRequest = null
+            publishPlayerState()
+        }
     }
+
+    override fun resume() {
+        runOnMain {
+            val exoPlayer = player ?: return@runOnMain
+            if (hasVideoTrack && !surfaceReady) {
+                pendingPlaybackRequest = PendingPlaybackRequest(
+                    profile = currentProfile ?: PlaybackProfile.VOD,
+                    startPosition = exoPlayer.currentPosition
+                )
+                exoPlayer.playWhenReady = false
+                publishPlayerState()
+                return@runOnMain
+            }
+
+            exoPlayer.play()
+            publishPlayerState()
+        }
+    }
+
+    override fun stop() {
+        runOnMain {
+            stopInternal(clearMediaItems = true)
+        }
+    }
+
+    override fun seekTo(position: Long) {
+        runOnMain {
+            player?.seekTo(position)
+        }
+    }
+
+    override fun seekForward(ms: Long) {
+        runOnMain {
+            player?.let { exoPlayer ->
+                val duration = exoPlayer.duration.takeIf { it > 0L } ?: Long.MAX_VALUE
+                exoPlayer.seekTo((exoPlayer.currentPosition + ms).coerceAtMost(duration))
+            }
+        }
+    }
+
     override fun seekBackward(ms: Long) {
-        player?.let { it.seekTo(maxOf(it.currentPosition - ms, 0)) }
+        runOnMain {
+            val exoPlayer = player ?: return@runOnMain
+            exoPlayer.seekTo((exoPlayer.currentPosition - ms).coerceAtLeast(0L))
+        }
     }
 
     override fun setPlaybackSpeed(speed: Float) {
-        player?.setPlaybackSpeed(speed)
-        _state.value = _state.value.copy(playbackSpeed = speed)
+        currentPlaybackSpeed = speed
+        runOnMain {
+            player?.setPlaybackSpeed(speed)
+            publishPlayerState()
+        }
     }
 
     override fun selectAudioTrack(index: Int) {
-        val ts = trackSelector ?: return
-        val p = player ?: return
-        val tracks = p.currentTracks
-        var audioIndex = 0
-        for (group in tracks.groups) {
-            if (group.type == C.TRACK_TYPE_AUDIO) {
-                if (audioIndex == index) {
-                    ts.setParameters(
-                        ts.buildUponParameters()
-                            .setOverrideForType(
-                                TrackSelectionOverride(group.mediaTrackGroup, 0)
-                            )
+        runOnMain {
+            val selection = findTrackSelection(C.TRACK_TYPE_AUDIO, index) ?: return@runOnMain
+            subtitlesDisabled = false
+            trackSelector?.setParameters(
+                trackSelector!!.buildUponParameters()
+                    .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                    .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                    .setOverrideForType(
+                        TrackSelectionOverride(
+                            selection.group.mediaTrackGroup,
+                            selection.trackIndexInGroup
+                        )
                     )
-                    _state.value = _state.value.copy(selectedAudioTrack = index)
-                    return
-                }
-                audioIndex++
-            }
+            )
+            _state.value = _state.value.copy(selectedAudioTrack = index)
+            publishPlayerState()
         }
     }
 
     override fun selectSubtitleTrack(index: Int) {
-        val ts = trackSelector ?: return
-        val p = player ?: return
-        val tracks = p.currentTracks
-        var subIndex = 0
-        for (group in tracks.groups) {
-            if (group.type == C.TRACK_TYPE_TEXT) {
-                if (subIndex == index) {
-                    ts.setParameters(
-                        ts.buildUponParameters()
-                            .setRendererDisabled(C.TRACK_TYPE_TEXT, false)
-                            .setOverrideForType(
-                                TrackSelectionOverride(group.mediaTrackGroup, 0)
-                            )
+        runOnMain {
+            val selection = findTrackSelection(C.TRACK_TYPE_TEXT, index) ?: return@runOnMain
+            subtitlesDisabled = false
+            trackSelector?.setParameters(
+                trackSelector!!.buildUponParameters()
+                    .setRendererDisabled(C.TRACK_TYPE_TEXT, false)
+                    .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                    .setOverrideForType(
+                        TrackSelectionOverride(
+                            selection.group.mediaTrackGroup,
+                            selection.trackIndexInGroup
+                        )
                     )
-                    _state.value = _state.value.copy(selectedSubtitleTrack = index)
-                    return
-                }
-                subIndex++
-            }
+            )
+            _state.value = _state.value.copy(selectedSubtitleTrack = index)
+            publishPlayerState()
         }
     }
 
     override fun disableSubtitles() {
-        trackSelector?.setParameters(
-            trackSelector!!.buildUponParameters()
-                .setRendererDisabled(C.TRACK_TYPE_TEXT, true)
-        )
-        _state.value = _state.value.copy(selectedSubtitleTrack = -1)
+        subtitlesDisabled = true
+        runOnMain {
+            trackSelector?.setParameters(
+                trackSelector!!.buildUponParameters()
+                    .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                    .setRendererDisabled(C.TRACK_TYPE_TEXT, true)
+            )
+            _state.value = _state.value.copy(selectedSubtitleTrack = -1)
+            publishPlayerState()
+        }
     }
 
     override fun setAspectRatio(mode: AspectRatioMode) {
         _state.value = _state.value.copy(aspectRatioMode = mode)
-        applyResizeModeToView(mode)
+        runOnMain {
+            applyResizeModeToView(mode)
+        }
     }
 
-    /**
-     * Store a reference to the PlayerView so we can apply resizeMode.
-     * Called from PlayerScreen when the AndroidView is created.
-     */
-    fun setPlayerView(view: PlayerView) {
-        playerView = view
-        // Apply current mode immediately
-        applyResizeModeToView(_state.value.aspectRatioMode)
+    override fun setVideoQualityMode(mode: VideoQualityMode) {
+        preferredVideoQualityMode = mode
+        runOnMain {
+            val selector = trackSelector
+            if (selector == null) {
+                _state.value = _state.value.copy(videoQualityMode = mode)
+                return@runOnMain
+            }
+
+            when (mode) {
+                VideoQualityMode.AUTO -> {
+                    selector.setParameters(
+                        selector.buildUponParameters()
+                            .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                            .clearVideoSizeConstraints()
+                            .setForceHighestSupportedBitrate(false)
+                            .setMaxVideoBitrate(Int.MAX_VALUE)
+                    )
+                }
+
+                VideoQualityMode.BEST -> {
+                    selector.setParameters(
+                        selector.buildUponParameters()
+                            .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                            .clearVideoSizeConstraints()
+                            .setForceHighestSupportedBitrate(true)
+                            .setMaxVideoBitrate(Int.MAX_VALUE)
+                    )
+                }
+
+                VideoQualityMode.BALANCED -> {
+                    selector.setParameters(
+                        selector.buildUponParameters()
+                            .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                            .setForceHighestSupportedBitrate(false)
+                            .setMaxVideoSize(1920, 1080)
+                            .setMaxVideoBitrate(8_000_000)
+                    )
+                }
+
+                VideoQualityMode.DATA_SAVER -> {
+                    selector.setParameters(
+                        selector.buildUponParameters()
+                            .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                            .setForceHighestSupportedBitrate(false)
+                            .setMaxVideoSize(1280, 720)
+                            .setMaxVideoBitrate(3_000_000)
+                    )
+                }
+            }
+
+            _state.value = _state.value.copy(videoQualityMode = mode)
+        }
+    }
+
+    override fun selectVideoTrack(index: Int) {
+        runOnMain {
+            val selection = findTrackSelection(C.TRACK_TYPE_VIDEO, index) ?: return@runOnMain
+            trackSelector?.setParameters(
+                trackSelector!!.buildUponParameters()
+                    .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
+                    .setOverrideForType(
+                        TrackSelectionOverride(
+                            selection.group.mediaTrackGroup,
+                            selection.trackIndexInGroup
+                        )
+                    )
+            )
+            publishPlayerState()
+        }
+    }
+
+    fun setPreferredAudioLanguage(langCode: String) {
+        preferredAudioLanguage = normalizeLanguageCode(langCode).takeIf { it.isNotBlank() }
+        runOnMain {
+            applyPreferredAudioLanguage()
+        }
+    }
+
+    fun setPreferredSubtitleLanguage(langCode: String) {
+        val lower = langCode.lowercase(Locale.getDefault()).trim()
+        if (lower == "off" || lower == "none") {
+            preferredSubtitleLanguage = null
+            disableSubtitles()
+            return
+        }
+
+        subtitlesDisabled = false
+        preferredSubtitleLanguage = normalizeLanguageCode(langCode).takeIf { it.isNotBlank() }
+        runOnMain {
+            applyPreferredSubtitleLanguage()
+        }
+    }
+
+    fun attachPlayerView(view: PlayerView) {
+        runOnMain {
+            if (playerView === view) {
+                view.player = player
+                if (surfaceBinding == null) {
+                    monitorVideoSurface(view.videoSurfaceView)
+                }
+                applyResizeModeToView(_state.value.aspectRatioMode)
+                publishPlayerState()
+                updatePlaybackGate()
+                return@runOnMain
+            }
+
+            clearPlayerViewInternal()
+            playerView = view
+            configurePlayerView(view)
+            view.player = player
+            monitorVideoSurface(view.videoSurfaceView)
+            applyResizeModeToView(_state.value.aspectRatioMode)
+            publishPlayerState()
+            updatePlaybackGate()
+        }
     }
 
     fun clearPlayerView() {
-        playerView = null
+        runOnMain {
+            clearPlayerViewInternal()
+        }
     }
 
-    /**
-     * Map AspectRatioMode to ExoPlayer's PlayerView.resizeMode.
-     */
+    fun getExoPlayer(): ExoPlayer? = player
+
     fun getResizeModeFor(mode: AspectRatioMode = _state.value.aspectRatioMode): Int {
         return when (mode) {
             AspectRatioMode.AUTO -> AspectRatioFrameLayout.RESIZE_MODE_FIT
@@ -281,10 +429,6 @@ class ExoPlayerEngine @Inject constructor(
         }
     }
 
-    /**
-     * Some screen modes need the viewport itself constrained, not just resizeMode.
-     * PlayerScreen uses this to size the AndroidView for force-ratio modes.
-     */
     fun getViewportAspectRatio(mode: AspectRatioMode = _state.value.aspectRatioMode): Float? {
         return when (mode) {
             AspectRatioMode.FORCE_16_9 -> 16f / 9f
@@ -294,153 +438,252 @@ class ExoPlayerEngine @Inject constructor(
                 val height = _state.value.videoHeight
                 if (width > 0 && height > 0) width.toFloat() / height.toFloat() else null
             }
+
             else -> null
         }
     }
 
-    private fun applyResizeModeToView(mode: AspectRatioMode) {
-        val pv = playerView ?: return
-        val resizeMode = getResizeModeFor(mode)
-        pv.resizeMode = resizeMode
-        Timber.d("ExoPlayer resizeMode set to $resizeMode for mode $mode")
-    }
-
-    /**
-     * Apply video quality mode via TrackSelector constraints.
-     */
-    override fun setVideoQualityMode(mode: VideoQualityMode) {
-        val ts = trackSelector ?: return
-        when (mode) {
-            VideoQualityMode.AUTO -> {
-                ts.setParameters(
-                    ts.buildUponParameters()
-                        .clearVideoSizeConstraints()
-                        .setMaxVideoBitrate(Int.MAX_VALUE)
-                )
-            }
-            VideoQualityMode.BEST -> {
-                ts.setParameters(
-                    ts.buildUponParameters()
-                        .clearVideoSizeConstraints()
-                        .setMaxVideoBitrate(Int.MAX_VALUE)
-                        .setForceHighestSupportedBitrate(true)
-                )
-            }
-            VideoQualityMode.BALANCED -> {
-                ts.setParameters(
-                    ts.buildUponParameters()
-                        .setMaxVideoSize(1920, 1080)
-                        .setMaxVideoBitrate(8_000_000)
-                )
-            }
-            VideoQualityMode.DATA_SAVER -> {
-                ts.setParameters(
-                    ts.buildUponParameters()
-                        .setMaxVideoSize(1280, 720)
-                        .setMaxVideoBitrate(3_000_000)
-                )
-            }
-        }
-        _state.value = _state.value.copy(videoQualityMode = mode)
-    }
-
-    /**
-     * Select a specific video quality track by index.
-     */
-    override fun selectVideoTrack(index: Int) {
-        val ts = trackSelector ?: return
-        val p = player ?: return
-        val tracks = p.currentTracks
-        var videoIdx = 0
-        for (group in tracks.groups) {
-            if (group.type == C.TRACK_TYPE_VIDEO) {
-                for (i in 0 until group.length) {
-                    if (videoIdx == index) {
-                        ts.setParameters(
-                            ts.buildUponParameters()
-                                .setOverrideForType(
-                                    TrackSelectionOverride(group.mediaTrackGroup, i)
-                                )
-                        )
-                        return
-                    }
-                    videoIdx++
-                }
-            }
-        }
-    }
-
-    /**
-     * Set preferred audio language for ExoPlayer's track selector.
-     * Uses ExoPlayer's built-in language matching.
-     */
-    fun setPreferredAudioLanguage(langCode: String) {
-        val ts = trackSelector ?: return
-        val normalizedLang = normalizeLanguageCode(langCode)
-        if (normalizedLang.isNotEmpty()) {
-            ts.setParameters(
-                ts.buildUponParameters()
-                    .setPreferredAudioLanguage(normalizedLang)
-            )
-            Timber.d("ExoPlayer preferred audio language set: $normalizedLang")
-        }
-    }
-
-    /**
-     * Set preferred subtitle language for ExoPlayer's track selector.
-     * 'off' / 'none' disables subtitles, otherwise sets preferred language.
-     */
-    fun setPreferredSubtitleLanguage(langCode: String) {
-        val ts = trackSelector ?: return
-        val lower = langCode.lowercase()
-        if (lower == "off" || lower == "none") {
-            disableSubtitles()
+    private fun ensurePlayer(profile: PlaybackProfile) {
+        if (player == null) {
+            buildPlayer(profile)
             return
         }
-        val normalizedLang = normalizeLanguageCode(langCode)
-        if (normalizedLang.isNotEmpty()) {
-            ts.setParameters(
-                ts.buildUponParameters()
-                    .setRendererDisabled(C.TRACK_TYPE_TEXT, false)
-                    .setPreferredTextLanguage(normalizedLang)
+
+        if (currentProfile != profile) {
+            rebuildPlayer(profile)
+        }
+    }
+
+    private fun rebuildPlayer(profile: PlaybackProfile) {
+        releasePlayer(retainUiState = true)
+        buildPlayer(profile)
+    }
+
+    private fun buildPlayer(profile: PlaybackProfile) {
+        trackSelector = DefaultTrackSelector(context).apply {
+            setParameters(
+                buildUponParameters()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
+                    .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
             )
-            Timber.d("ExoPlayer preferred subtitle language set: $normalizedLang")
+        }
+
+        val dataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
+            .setUserAgent(userAgent)
+        val renderersFactory = ImaxRenderersFactory(
+            context = context,
+            preferHardwareVideoDecoding = configuredPreferHw
+        )
+
+        val exoPlayer = ExoPlayer.Builder(context)
+            .setRenderersFactory(renderersFactory)
+            .setTrackSelector(trackSelector!!)
+            .setLoadControl(buildLoadControl(profile))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(C.USAGE_MEDIA)
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
+                    .build(),
+                true
+            )
+            .setHandleAudioBecomingNoisy(true)
+            .setWakeMode(C.WAKE_MODE_NETWORK)
+            .build()
+            .apply {
+                volume = 1f
+                setPlaybackSpeed(currentPlaybackSpeed)
+            }
+
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                publishPlayerState()
+            }
+
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (isPlaying) {
+                    startProgressTracking()
+                } else {
+                    stopProgressTracking()
+                }
+                publishPlayerState()
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                Timber.e(error, "ExoPlayer error: ${error.errorCodeName}")
+                pendingPlaybackRequest = null
+                stopProgressTracking()
+                _state.value = _state.value.copy(
+                    playbackState = PlaybackState.ERROR,
+                    isPlaying = false,
+                    errorMessage = buildPlaybackErrorMessage(error),
+                    hasRenderedFirstFrame = false,
+                    isPlaybackConfirmed = false
+                )
+            }
+
+            override fun onTracksChanged(tracks: Tracks) {
+                ensureDefaultAudioTrackSelected(tracks)
+                refreshTrackFlags(tracks)
+                updateTrackInfo(tracks)
+                updateQualityInfo(tracks)
+                publishPlayerState()
+                updatePlaybackGate()
+            }
+
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                _state.value = _state.value.copy(
+                    videoWidth = videoSize.width,
+                    videoHeight = videoSize.height,
+                    currentVideoResolution = if (videoSize.width > 0 && videoSize.height > 0) {
+                        "${videoSize.width}x${videoSize.height}"
+                    } else {
+                        ""
+                    }
+                )
+                publishPlayerState()
+            }
+
+            override fun onRenderedFirstFrame() {
+                firstFrameRendered = true
+                publishPlayerState()
+            }
+        }
+
+        player = exoPlayer
+        playerListener = listener
+        currentProfile = profile
+        exoPlayer.addListener(listener)
+
+        applyPreferredAudioLanguage()
+        applyPreferredSubtitleLanguage()
+        setVideoQualityMode(preferredVideoQualityMode)
+
+        playerView?.let { view ->
+            configurePlayerView(view)
+            view.player = exoPlayer
+            monitorVideoSurface(view.videoSurfaceView)
+            applyResizeModeToView(_state.value.aspectRatioMode)
+        }
+
+        _playerInstance.value = exoPlayer
+        publishPlayerState()
+    }
+
+    private fun releasePlayer(retainUiState: Boolean = false) {
+        stopProgressTracking()
+        pendingPlaybackRequest = null
+
+        playerListener?.let { listener ->
+            player?.removeListener(listener)
+        }
+        playerListener = null
+
+        if (retainUiState) {
+            surfaceBinding?.dispose()
+            surfaceBinding = null
+            surfaceReady = false
+            if (hasVideoTrack) {
+                firstFrameRendered = false
+            }
+            playerView?.player = null
+        } else {
+            clearPlayerViewInternal()
+        }
+
+        player?.let { exoPlayer ->
+            exoPlayer.playWhenReady = false
+            exoPlayer.stop()
+            exoPlayer.clearMediaItems()
+            exoPlayer.release()
+        }
+
+        player = null
+        trackSelector = null
+        currentProfile = null
+        _playerInstance.value = null
+
+        if (retainUiState) {
+            resetPlaybackAttemptState()
+        } else {
+            surfaceReady = false
+            hasVideoTrack = false
+            hasAudioTrack = false
+            firstFrameRendered = false
+            _state.value = PlayerState(
+                aspectRatioMode = _state.value.aspectRatioMode,
+                videoQualityMode = preferredVideoQualityMode,
+                playbackSpeed = currentPlaybackSpeed
+            )
         }
     }
 
-    /**
-     * Normalize language codes: tr→tur, en→eng, ar→ara, etc.
-     */
-    private fun normalizeLanguageCode(code: String): String {
-        return when (code.lowercase().trim()) {
-            "tr", "tur", "turkish" -> "tur"
-            "en", "eng", "english" -> "eng"
-            "ar", "ara", "arabic" -> "ara"
-            "de", "deu", "ger", "german" -> "deu"
-            "fr", "fra", "fre", "french" -> "fra"
-            "es", "spa", "spanish" -> "spa"
-            "ru", "rus", "russian" -> "rus"
-            "it", "ita", "italian" -> "ita"
-            "pt", "por", "portuguese" -> "por"
-            "ja", "jpn", "japanese" -> "jpn"
-            "ko", "kor", "korean" -> "kor"
-            "zh", "zho", "chi", "chinese" -> "zho"
-            "system" -> java.util.Locale.getDefault().isO3Language
-            else -> code.lowercase().take(3)
+    private fun stopInternal(clearMediaItems: Boolean) {
+        pendingPlaybackRequest = null
+        stopProgressTracking()
+
+        player?.let { exoPlayer ->
+            exoPlayer.playWhenReady = false
+            exoPlayer.stop()
+            if (clearMediaItems) {
+                exoPlayer.clearMediaItems()
+            }
         }
+
+        resetPlaybackAttemptState()
+        publishPlayerState()
     }
 
-    override fun getView(): Any? = player
+    private fun buildLoadControl(profile: PlaybackProfile): DefaultLoadControl {
+        val requestedBufferMs = configuredBufferMs.toInt()
+            .coerceIn(Constants.MIN_BUFFER_MS, Constants.MAX_BUFFER_MS)
 
-    fun getExoPlayer(): ExoPlayer? = player
+        val (minBufferMs, maxBufferMs, bufferForPlaybackMs, bufferAfterRebufferMs) = when (profile) {
+            PlaybackProfile.LIVE -> {
+                val liveMin = (requestedBufferMs / 2).coerceIn(7_500, 18_000)
+                val liveMax = requestedBufferMs.coerceIn(liveMin + 4_000, 28_000)
+                listOf(liveMin, liveMax, 1_000, 2_000)
+            }
 
-    private fun buildMediaItem(url: String): MediaItem {
+            PlaybackProfile.VOD -> {
+                val vodMin = requestedBufferMs.coerceAtMost(50_000)
+                val vodMax = requestedBufferMs
+                listOf(
+                    vodMin,
+                    vodMax,
+                    DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_MS,
+                    DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS
+                )
+            }
+        }
+
+        return DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                minBufferMs,
+                maxBufferMs,
+                bufferForPlaybackMs,
+                bufferAfterRebufferMs
+            )
+            .build()
+    }
+
+    private fun buildMediaItem(url: String, profile: PlaybackProfile): MediaItem {
         val mimeType = inferMimeType(url)
+
         return MediaItem.Builder()
-            .setUri(android.net.Uri.parse(url))
+            .setUri(Uri.parse(url))
             .apply {
                 if (mimeType != null) {
                     setMimeType(mimeType)
+                }
+                if (profile == PlaybackProfile.LIVE) {
+                    setLiveConfiguration(
+                        MediaItem.LiveConfiguration.Builder()
+                            .setTargetOffsetMs(resolveLiveTargetOffsetMs())
+                            .setMinPlaybackSpeed(0.97f)
+                            .setMaxPlaybackSpeed(1.03f)
+                            .build()
+                    )
                 }
             }
             .build()
@@ -449,12 +692,11 @@ class ExoPlayerEngine @Inject constructor(
     private fun buildMediaSource(mediaItem: MediaItem): MediaSource {
         val dataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
             .setUserAgent(userAgent)
-
         return DefaultMediaSourceFactory(dataSourceFactory).createMediaSource(mediaItem)
     }
 
     private fun inferMimeType(url: String): String? {
-        val normalized = url.substringBefore("?").lowercase()
+        val normalized = url.substringBefore("?").lowercase(Locale.getDefault())
         return when {
             normalized.endsWith(".m3u8") -> MimeTypes.APPLICATION_M3U8
             normalized.endsWith(".mpd") -> MimeTypes.APPLICATION_MPD
@@ -467,147 +709,376 @@ class ExoPlayerEngine @Inject constructor(
         }
     }
 
+    private fun resolveLiveTargetOffsetMs(): Long {
+        return when (configuredLatencyMode.uppercase(Locale.getDefault())) {
+            LiveLatencyMode.LOW_LATENCY.name -> 2_500L
+            LiveLatencyMode.STABLE.name -> 8_000L
+            else -> 5_000L
+        }
+    }
+
     private fun normalizePlaybackUrl(url: String): String {
         return url.trim().removeSuffix(".")
     }
 
-    private fun updateState() {
-        val p = player ?: return
-        val pbState = when (p.playbackState) {
+    private fun configurePlayerView(view: PlayerView) {
+        view.setEnableComposeSurfaceSyncWorkaround(true)
+        view.setShutterBackgroundColor(Color.BLACK)
+        view.setKeepContentOnPlayerReset(false)
+    }
+
+    private fun monitorVideoSurface(videoSurfaceView: View?) {
+        surfaceBinding?.dispose()
+        surfaceBinding = null
+
+        val binding = when (videoSurfaceView) {
+            is SurfaceView -> createSurfaceViewBinding(videoSurfaceView)
+            is View -> createGenericViewBinding(videoSurfaceView)
+            else -> null
+        }
+
+        surfaceBinding = binding
+        surfaceReady = binding?.isReady() == true
+    }
+
+    private fun createSurfaceViewBinding(surfaceView: SurfaceView): SurfaceBinding {
+        lateinit var callback: SurfaceHolder.Callback
+        val layoutListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            onSurfaceReadyChanged(
+                surfaceView.holder.surface?.isValid == true &&
+                    surfaceView.width > 0 &&
+                    surfaceView.height > 0
+            )
+        }
+
+        callback = object : SurfaceHolder.Callback {
+            override fun surfaceCreated(holder: SurfaceHolder) {
+                onSurfaceReadyChanged(
+                    holder.surface?.isValid == true &&
+                        surfaceView.width > 0 &&
+                        surfaceView.height > 0
+                )
+            }
+
+            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                onSurfaceReadyChanged(
+                    holder.surface?.isValid == true &&
+                        width > 0 &&
+                        height > 0
+                )
+            }
+
+            override fun surfaceDestroyed(holder: SurfaceHolder) {
+                onSurfaceReadyChanged(false)
+            }
+        }
+
+        surfaceView.holder.addCallback(callback)
+        surfaceView.addOnLayoutChangeListener(layoutListener)
+
+        return object : SurfaceBinding {
+            override fun isReady(): Boolean {
+                return surfaceView.holder.surface?.isValid == true &&
+                    surfaceView.width > 0 &&
+                    surfaceView.height > 0
+            }
+
+            override fun dispose() {
+                surfaceView.holder.removeCallback(callback)
+                surfaceView.removeOnLayoutChangeListener(layoutListener)
+            }
+        }
+    }
+
+    private fun createGenericViewBinding(videoView: View): SurfaceBinding {
+        val layoutListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            onSurfaceReadyChanged(
+                videoView.isAttachedToWindow &&
+                    videoView.width > 0 &&
+                    videoView.height > 0
+            )
+        }
+        val attachStateChangeListener = object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(view: View) {
+                onSurfaceReadyChanged(view.width > 0 && view.height > 0)
+            }
+
+            override fun onViewDetachedFromWindow(view: View) {
+                onSurfaceReadyChanged(false)
+            }
+        }
+
+        videoView.addOnLayoutChangeListener(layoutListener)
+        videoView.addOnAttachStateChangeListener(attachStateChangeListener)
+
+        return object : SurfaceBinding {
+            override fun isReady(): Boolean {
+                return videoView.isAttachedToWindow &&
+                    videoView.width > 0 &&
+                    videoView.height > 0
+            }
+
+            override fun dispose() {
+                videoView.removeOnLayoutChangeListener(layoutListener)
+                videoView.removeOnAttachStateChangeListener(attachStateChangeListener)
+            }
+        }
+    }
+
+    private fun onSurfaceReadyChanged(isReady: Boolean) {
+        surfaceReady = isReady
+        if (!isReady && hasVideoTrack) {
+            firstFrameRendered = false
+        }
+        publishPlayerState()
+        updatePlaybackGate()
+    }
+
+    private fun clearPlayerViewInternal() {
+        surfaceBinding?.dispose()
+        surfaceBinding = null
+        surfaceReady = false
+        if (hasVideoTrack) {
+            firstFrameRendered = false
+        }
+
+        playerView?.player = null
+        playerView = null
+    }
+
+    private fun applyResizeModeToView(mode: AspectRatioMode) {
+        val view = playerView ?: return
+        view.resizeMode = getResizeModeFor(mode)
+    }
+
+    private fun updatePlaybackGate() {
+        val exoPlayer = player ?: return
+        val request = pendingPlaybackRequest ?: return
+
+        val canStartPlayback = when {
+            hasVideoTrack -> surfaceReady
+            hasAudioTrack -> true
+            else -> surfaceReady
+        }
+
+        if (!canStartPlayback) {
+            exoPlayer.playWhenReady = false
+            publishPlayerState()
+            return
+        }
+
+        exoPlayer.playWhenReady = true
+        pendingPlaybackRequest = null
+        if (request.startPosition > 0L && exoPlayer.currentPosition == 0L) {
+            exoPlayer.seekTo(request.startPosition)
+        }
+        publishPlayerState()
+    }
+
+    private fun publishPlayerState() {
+        val exoPlayer = player
+        if (exoPlayer == null) {
+            _state.value = _state.value.copy(
+                isSurfaceReady = surfaceReady,
+                hasVideoTrack = hasVideoTrack,
+                hasAudioTrack = hasAudioTrack,
+                hasRenderedFirstFrame = firstFrameRendered,
+                isPlaybackConfirmed = false,
+                audioSessionId = 0
+            )
+            return
+        }
+
+        val playbackState = when (exoPlayer.playbackState) {
             Player.STATE_IDLE -> PlaybackState.IDLE
             Player.STATE_BUFFERING -> PlaybackState.BUFFERING
-            Player.STATE_READY -> if (p.isPlaying) PlaybackState.PLAYING else PlaybackState.PAUSED
+            Player.STATE_READY -> if (exoPlayer.isPlaying) PlaybackState.PLAYING else PlaybackState.PAUSED
             Player.STATE_ENDED -> PlaybackState.ENDED
             else -> PlaybackState.IDLE
         }
-        _state.value = _state.value.copy(
-            playbackState = pbState,
-            isPlaying = p.isPlaying,
-            currentPosition = p.currentPosition,
-            duration = maxOf(p.duration, 0),
-            bufferedPosition = p.bufferedPosition
+
+        updatePlaybackProgressConfirmation(
+            exoPlayer = exoPlayer,
+            playbackState = playbackState
         )
+
+        val confirmed = when {
+            playbackState != PlaybackState.PLAYING -> false
+            hasVideoTrack -> {
+                surfaceReady &&
+                    (firstFrameRendered || playbackProgressConfirmed) &&
+                    _state.value.videoWidth > 0 &&
+                    _state.value.videoHeight > 0
+            }
+
+            hasAudioTrack -> exoPlayer.audioSessionId > 0 && playbackProgressConfirmed
+            else -> false
+        }
+
+        _state.value = _state.value.copy(
+            playbackState = playbackState,
+            isPlaying = exoPlayer.isPlaying,
+            currentPosition = exoPlayer.currentPosition.coerceAtLeast(0L),
+            duration = exoPlayer.duration.takeIf { it > 0L } ?: 0L,
+            bufferedPosition = exoPlayer.bufferedPosition.coerceAtLeast(0L),
+            playbackSpeed = exoPlayer.playbackParameters.speed,
+            hasVideoTrack = hasVideoTrack,
+            hasAudioTrack = hasAudioTrack,
+            isSurfaceReady = surfaceReady,
+            hasRenderedFirstFrame = firstFrameRendered,
+            isPlaybackConfirmed = confirmed,
+            audioSessionId = exoPlayer.audioSessionId
+        )
+    }
+
+    private fun refreshTrackFlags(tracks: Tracks) {
+        hasVideoTrack = tracks.groups.any { group ->
+            group.type == C.TRACK_TYPE_VIDEO && group.length > 0
+        }
+        hasAudioTrack = tracks.groups.any { group ->
+            group.type == C.TRACK_TYPE_AUDIO && group.length > 0
+        }
+        if (!hasVideoTrack) {
+            firstFrameRendered = false
+        }
     }
 
     private fun updateTrackInfo(tracks: Tracks) {
         val audioTracks = mutableListOf<TrackInfo>()
         val subtitleTracks = mutableListOf<TrackInfo>()
-        var audioIdx = 0
-        var subIdx = 0
+        var audioIndex = 0
+        var subtitleIndex = 0
+        var selectedAudioTrack = -1
+        var selectedSubtitleTrack = -1
 
         for (group in tracks.groups) {
             when (group.type) {
                 C.TRACK_TYPE_AUDIO -> {
-                    for (i in 0 until group.length) {
-                        val format = group.getTrackFormat(i)
-                        audioTracks.add(
-                            TrackInfo(
-                                index = audioIdx,
-                                name = format.label ?: "Audio ${audioIdx + 1}",
-                                language = format.language ?: "",
-                                isSelected = group.isTrackSelected(i)
-                            )
+                    for (trackIndex in 0 until group.length) {
+                        val format = group.getTrackFormat(trackIndex)
+                        audioTracks += TrackInfo(
+                            index = audioIndex,
+                            name = format.label ?: "Audio ${audioIndex + 1}",
+                            language = format.language ?: "",
+                            isSelected = group.isTrackSelected(trackIndex)
                         )
+                        if (group.isTrackSelected(trackIndex)) {
+                            selectedAudioTrack = audioIndex
+                        }
+                        audioIndex++
                     }
-                    audioIdx++
                 }
+
                 C.TRACK_TYPE_TEXT -> {
-                    for (i in 0 until group.length) {
-                        val format = group.getTrackFormat(i)
-                        subtitleTracks.add(
-                            TrackInfo(
-                                index = subIdx,
-                                name = format.label ?: format.language ?: "Subtitle ${subIdx + 1}",
-                                language = format.language ?: "",
-                                isSelected = group.isTrackSelected(i)
-                            )
+                    for (trackIndex in 0 until group.length) {
+                        val format = group.getTrackFormat(trackIndex)
+                        subtitleTracks += TrackInfo(
+                            index = subtitleIndex,
+                            name = format.label ?: format.language ?: "Subtitle ${subtitleIndex + 1}",
+                            language = format.language ?: "",
+                            isSelected = group.isTrackSelected(trackIndex)
                         )
+                        if (group.isTrackSelected(trackIndex)) {
+                            selectedSubtitleTrack = subtitleIndex
+                        }
+                        subtitleIndex++
                     }
-                    subIdx++
                 }
             }
         }
 
         _state.value = _state.value.copy(
             audioTracks = audioTracks,
-            subtitleTracks = subtitleTracks
+            subtitleTracks = subtitleTracks,
+            selectedAudioTrack = selectedAudioTrack,
+            selectedSubtitleTrack = selectedSubtitleTrack
         )
     }
 
     private fun ensureDefaultAudioTrackSelected(tracks: Tracks) {
-        val ts = trackSelector ?: return
+        val selector = trackSelector ?: return
         val hasSelectedAudio = tracks.groups.any { group ->
             group.type == C.TRACK_TYPE_AUDIO && (0 until group.length).any(group::isTrackSelected)
         }
-        if (hasSelectedAudio) return
+        if (hasSelectedAudio) {
+            return
+        }
 
-        val firstAudioGroup = tracks.groups.firstOrNull { it.type == C.TRACK_TYPE_AUDIO && it.length > 0 } ?: return
-        ts.setParameters(
-            ts.buildUponParameters()
+        val firstAudioGroup = tracks.groups.firstOrNull { group ->
+            group.type == C.TRACK_TYPE_AUDIO && group.length > 0
+        } ?: return
+
+        selector.setParameters(
+            selector.buildUponParameters()
                 .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
                 .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
                 .setOverrideForType(TrackSelectionOverride(firstAudioGroup.mediaTrackGroup, 0))
         )
         player?.volume = 1f
-        Timber.d("ExoPlayer applied default audio track fallback")
     }
 
-    /**
-     * Extract available video quality options from current tracks.
-     * Only produces quality options when the stream is adaptive (HLS/DASH).
-     */
     private fun updateQualityInfo(tracks: Tracks) {
         val qualities = mutableListOf<QualityOption>()
         var isAdaptive = false
-        var videoIdx = 0
+        var videoIndex = 0
         var currentCodec = ""
         var currentBitrate = ""
         var currentFps = ""
 
         for (group in tracks.groups) {
-            if (group.type == C.TRACK_TYPE_VIDEO) {
-                if (group.length > 1) isAdaptive = true
-                for (i in 0 until group.length) {
-                    val format = group.getTrackFormat(i)
-                    val w = format.width
-                    val h = format.height
-                    val br = format.bitrate
-                    val label = when {
-                        h >= 2160 -> "4K (${w}x${h})"
-                        h >= 1440 -> "1440p (${w}x${h})"
-                        h >= 1080 -> "1080p (${w}x${h})"
-                        h >= 720 -> "720p (${w}x${h})"
-                        h >= 480 -> "480p (${w}x${h})"
-                        h >= 360 -> "360p (${w}x${h})"
-                        h > 0 -> "${h}p (${w}x${h})"
-                        else -> "Quality ${videoIdx + 1}"
-                    }
+            if (group.type != C.TRACK_TYPE_VIDEO) {
+                continue
+            }
 
-                    if (group.isTrackSelected(i)) {
-                        currentCodec = format.codecs ?: format.sampleMimeType ?: ""
-                        currentBitrate = if (br > 0) "${br / 1000} kbps" else ""
-                        currentFps = if (format.frameRate > 0) "${format.frameRate.toInt()} fps" else ""
-                    }
+            if (group.length > 1) {
+                isAdaptive = true
+            }
 
-                    qualities.add(
-                        QualityOption(
-                            index = videoIdx,
-                            label = label,
-                            width = w,
-                            height = h,
-                            bitrate = br,
-                            isSelected = group.isTrackSelected(i),
-                            isAdaptive = group.length > 1
-                        )
-                    )
-                    videoIdx++
+            for (trackIndex in 0 until group.length) {
+                val format = group.getTrackFormat(trackIndex)
+                val width = format.width
+                val height = format.height
+                val bitrate = format.bitrate
+                val label = when {
+                    height >= 2160 -> "4K (${width}x${height})"
+                    height >= 1440 -> "1440p (${width}x${height})"
+                    height >= 1080 -> "1080p (${width}x${height})"
+                    height >= 720 -> "720p (${width}x${height})"
+                    height >= 480 -> "480p (${width}x${height})"
+                    height >= 360 -> "360p (${width}x${height})"
+                    height > 0 -> "${height}p (${width}x${height})"
+                    else -> "Quality ${videoIndex + 1}"
                 }
+
+                if (group.isTrackSelected(trackIndex)) {
+                    currentCodec = format.codecs ?: format.sampleMimeType ?: ""
+                    currentBitrate = if (bitrate > 0) "${bitrate / 1000} kbps" else ""
+                    currentFps = if (format.frameRate > 0) "${format.frameRate.toInt()} fps" else ""
+                }
+
+                qualities += QualityOption(
+                    index = videoIndex,
+                    label = label,
+                    width = width,
+                    height = height,
+                    bitrate = bitrate,
+                    isSelected = group.isTrackSelected(trackIndex),
+                    isAdaptive = group.length > 1
+                )
+                videoIndex++
             }
         }
 
-        // Add an "Auto" option at the beginning if adaptive
         if (isAdaptive) {
-            qualities.add(0, QualityOption(index = -1, label = "Auto", isAdaptive = true, isSelected = _state.value.videoQualityMode == VideoQualityMode.AUTO))
+            qualities.add(
+                0,
+                QualityOption(
+                    index = -1,
+                    label = "Auto",
+                    isAdaptive = true,
+                    isSelected = _state.value.videoQualityMode == VideoQualityMode.AUTO
+                )
+            )
         }
 
         _state.value = _state.value.copy(
@@ -619,19 +1090,106 @@ class ExoPlayerEngine @Inject constructor(
         )
     }
 
+    private fun applyPreferredAudioLanguage() {
+        val selector = trackSelector ?: return
+        val language = preferredAudioLanguage ?: return
+        selector.setParameters(
+            selector.buildUponParameters()
+                .setPreferredAudioLanguage(language)
+        )
+    }
+
+    private fun applyPreferredSubtitleLanguage() {
+        val selector = trackSelector ?: return
+        if (subtitlesDisabled) {
+            selector.setParameters(
+                selector.buildUponParameters()
+                    .clearOverridesOfType(C.TRACK_TYPE_TEXT)
+                    .setRendererDisabled(C.TRACK_TYPE_TEXT, true)
+            )
+            return
+        }
+
+        val language = preferredSubtitleLanguage ?: return
+        selector.setParameters(
+            selector.buildUponParameters()
+                .setRendererDisabled(C.TRACK_TYPE_TEXT, false)
+                .setPreferredTextLanguage(language)
+        )
+    }
+
+    private data class IndexedTrackSelection(
+        val group: Tracks.Group,
+        val trackIndexInGroup: Int
+    )
+
+    private fun findTrackSelection(trackType: Int, targetIndex: Int): IndexedTrackSelection? {
+        val tracks = player?.currentTracks ?: return null
+        var runningIndex = 0
+
+        for (group in tracks.groups) {
+            if (group.type != trackType) {
+                continue
+            }
+            for (trackIndex in 0 until group.length) {
+                if (runningIndex == targetIndex) {
+                    return IndexedTrackSelection(group = group, trackIndexInGroup = trackIndex)
+                }
+                runningIndex++
+            }
+        }
+
+        return null
+    }
+
+    private fun normalizeLanguageCode(code: String): String {
+        return when (code.lowercase(Locale.getDefault()).trim()) {
+            "tr", "tur", "turkish" -> "tur"
+            "en", "eng", "english" -> "eng"
+            "ar", "ara", "arabic" -> "ara"
+            "de", "deu", "ger", "german" -> "deu"
+            "fr", "fra", "fre", "french" -> "fra"
+            "es", "spa", "spanish" -> "spa"
+            "ru", "rus", "russian" -> "rus"
+            "it", "ita", "italian" -> "ita"
+            "pt", "por", "portuguese" -> "por"
+            "ja", "jpn", "japanese" -> "jpn"
+            "ko", "kor", "korean" -> "kor"
+            "zh", "zho", "chi", "chinese" -> "zho"
+            "system" -> Locale.getDefault().isO3Language
+            else -> code.lowercase(Locale.getDefault()).take(3)
+        }
+    }
+
+    private fun resetPlaybackAttemptState() {
+        hasVideoTrack = false
+        hasAudioTrack = false
+        firstFrameRendered = false
+        playbackConfirmationBaselinePositionMs = C.TIME_UNSET
+        playbackProgressConfirmed = false
+
+        _state.value = PlayerState(
+            playbackSpeed = currentPlaybackSpeed,
+            aspectRatioMode = _state.value.aspectRatioMode,
+            videoQualityMode = preferredVideoQualityMode,
+            isSurfaceReady = surfaceReady
+        )
+    }
+
     private fun startProgressTracking() {
         stopProgressTracking()
-        progressJob = scope?.launch {
+        progressJob = mainScope.launch {
             while (isActive) {
-                val p = player
-                if (p != null && p.isPlaying) {
+                val exoPlayer = player
+                if (exoPlayer != null && exoPlayer.isPlaying) {
                     _state.value = _state.value.copy(
-                        currentPosition = p.currentPosition,
-                        duration = maxOf(p.duration, 0),
-                        bufferedPosition = p.bufferedPosition
+                        currentPosition = exoPlayer.currentPosition.coerceAtLeast(0L),
+                        duration = exoPlayer.duration.takeIf { it > 0L } ?: 0L,
+                        bufferedPosition = exoPlayer.bufferedPosition.coerceAtLeast(0L)
                     )
+                    publishPlayerState()
                 }
-                delay(1000)
+                delay(PLAYBACK_PROGRESS_POLL_INTERVAL_MS)
             }
         }
     }
@@ -639,5 +1197,64 @@ class ExoPlayerEngine @Inject constructor(
     private fun stopProgressTracking() {
         progressJob?.cancel()
         progressJob = null
+    }
+
+    private fun buildPlaybackErrorMessage(error: PlaybackException): String {
+        val rawMessage = buildString {
+            append(error.errorCodeName)
+            error.localizedMessage?.takeIf { it.isNotBlank() }?.let {
+                append(": ")
+                append(it)
+            }
+            error.cause?.message?.takeIf { it.isNotBlank() }?.let {
+                append(" | cause=")
+                append(it)
+            }
+        }
+
+        val normalized = rawMessage.lowercase(Locale.getDefault())
+        return when {
+            normalized.contains("video/hevc") ||
+                normalized.contains("hvc1") ||
+                normalized.contains("hev1") ||
+                normalized.contains("no_exceeds_capabilities") ||
+                normalized.contains("10bit") ||
+                normalized.contains("decoder failed: c2.android.hevc.decoder") -> {
+                "This stream uses an HEVC/HDR video profile that is not supported on this device."
+            }
+
+            else -> rawMessage.ifBlank { "Playback error" }
+        }
+    }
+
+    private fun updatePlaybackProgressConfirmation(
+        exoPlayer: ExoPlayer,
+        playbackState: PlaybackState
+    ) {
+        if (playbackState != PlaybackState.PLAYING) {
+            playbackConfirmationBaselinePositionMs = C.TIME_UNSET
+            playbackProgressConfirmed = false
+            return
+        }
+
+        val currentPositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
+        val baselinePositionMs = playbackConfirmationBaselinePositionMs
+        if (baselinePositionMs == C.TIME_UNSET) {
+            playbackConfirmationBaselinePositionMs = currentPositionMs
+            return
+        }
+
+        if (!playbackProgressConfirmed &&
+            currentPositionMs >= baselinePositionMs + PLAYBACK_CONFIRMATION_PROGRESS_MS
+        ) {
+            playbackProgressConfirmed = true
+            Timber.d(
+                "Playback confirmation progress reached: baseline=%d current=%d video=%s firstFrame=%s",
+                baselinePositionMs,
+                currentPositionMs,
+                hasVideoTrack,
+                firstFrameRendered
+            )
+        }
     }
 }

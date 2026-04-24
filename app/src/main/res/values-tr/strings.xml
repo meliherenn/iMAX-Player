@@ -58,9 +58,6 @@
     <string name="subtitle_tracks">Altyazılar</string>
     <string name="playback_speed">Oynatma Hızı</string>
     <string name="aspect_ratio">Görüntü Oranı</string>
-    <string name="player_engine">Oynatıcı Motoru</string>
-    <string name="exoplayer">ExoPlayer</string>
-    <string name="vlc">VLC</string>
     <string name="seek_interval">Atlama Süresi</string>
     <string name="subtitle_language">Varsayılan Altyazı Dili</string>
     <string name="audio_language">Varsayılan Ses Dili</string>
@@ -85,7 +82,6 @@
     <string name="buffering">Önbelleğe alınıyor…</string>
     <string name="reconnecting">Yeniden bağlanılıyor…</string>
     <string name="playback_error">Oynatma hatası. Tekrar deneniyor…</string>
-    <string name="switching_engine">Oynatıcı motoru değiştiriliyor…</string>
 
     <string name="settings_app_language">Uygulama Dili</string>
     <string name="language_turkish">Türkçe</string>
@@ -106,12 +102,17 @@
     
     <string name="action_play">Oynat</string>
     <string name="action_play_episode">Oynat S%1$dE%2$d</string>
+    <string name="action_resume_episode">Devam Et S%1$dE%2$d</string>
     <string name="action_pause">Duraklat</string>
     <string name="action_details">Detaylar</string>
     <string name="action_resume">Devam Et</string>
     <string name="section_continue_watching">İzlemeye Devam Et</string>
     <string name="section_favorites">Favoriler</string>
     <string name="section_recent_channels">Son Kanallar</string>
+    <string name="previous_episode">Önceki Bölüm</string>
+    <string name="previous_channel">Önceki Kanal</string>
+    <string name="next_channel">Sonraki Kanal</string>
+    <string name="channel_list">Kanal Listesi</string>
     
     <string name="settings_app_general">Uygulama / Genel</string>
     <string name="settings_playlist_account">Liste / Hesap</string>
@@ -125,8 +126,29 @@
     <string name="setting_playback_speed">Oynatma Hızı</string>
     <string name="setting_audio_track">Ses Seçimi</string>
     <string name="setting_subtitles">Altyazılar</string>
-    <string name="setting_player_engine">Oynatıcı Motoru</string>
     <string name="setting_stream_info">Yayın Bilgisi</string>
+    <string name="setting_player_engine">Oynatıcı Motoru</string>
+    <string name="settings_parental_control">Ebeveyn Denetimi</string>
+    <string name="settings_exit_playlist_confirm_message">Mevcut listeyi silmek ve çıkış yapmak istediğinize emin misiniz?</string>
+    <string name="confirm">Onayla</string>
+
+    <!-- Settings Sections -->
+    <string name="settings_player">Oynatıcı</string>
+    <string name="settings_audio_subtitle">Ses &amp; Altyazı</string>
+    <string name="settings_video_quality">Video Kalitesi</string>
+    <string name="settings_live_tv">Canlı TV</string>
+
+    <!-- Settings Toggles -->
+    <string name="settings_auto_resume">Kaldığı Yerden Devam</string>
+    <string name="settings_continue_watching">İzlemeye Devam Et</string>
+    <string name="settings_auto_play_next">Sonraki Bölümü Otomatik Oynat</string>
+    <string name="settings_auto_enable_subtitles">Altyazıyı Otomatik Aç</string>
+    <string name="settings_prefer_hw_decoding">Donanım Çözücü Tercih Et</string>
+    <string name="settings_allow_quality_fallback">Kalite Düşüşüne İzin Ver</string>
+    <string name="settings_live_latency">Canlı Yayın Gecikmesi</string>
+    <string name="settings_live_reconnect">Hatada Otomatik Yeniden Bağlan</string>
+    <string name="settings_remember_channel">Son Kanalı Hatırla</string>
+    <string name="settings_start_fullscreen">Tam Ekranda Başla</string>
 
     <string name="category_all">Tümü</string>
     <string name="action_browse_all">Tümüne Göz At</string>

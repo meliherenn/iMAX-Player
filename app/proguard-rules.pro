@@ -38,19 +38,9 @@
 -keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
 -keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}
 
-# Media3 / ExoPlayer
--keep class androidx.media3.** { *; }
--dontwarn androidx.media3.**
-
-# VLC / libVLC
--keep class org.videolan.** { *; }
--dontwarn org.videolan.**
+# LibVLC
 -keep class org.videolan.libvlc.** { *; }
--keep class org.videolan.libvlc.util.** { *; }
-
-# MPV / libMPV
--keep class dev.jdtech.mpv.** { *; }
--dontwarn dev.jdtech.mpv.**
+-dontwarn org.videolan.libvlc.**
 
 # Hilt
 -dontwarn dagger.hilt.**

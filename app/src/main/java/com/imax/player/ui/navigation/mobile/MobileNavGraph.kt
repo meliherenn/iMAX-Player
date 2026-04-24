@@ -21,6 +21,9 @@ import com.imax.player.ui.mobile.MobileSearchScreen
 import com.imax.player.ui.mobile.MobileSeriesScreen
 import com.imax.player.ui.mobile.MobileSettingsScreen
 import com.imax.player.ui.navigation.Routes
+import com.imax.player.ui.navigation.startup.StartupRoute
+
+private const val MOBILE_STARTUP = "mobile_startup"
 
 @Composable
 fun MobileNavGraph(
@@ -28,7 +31,7 @@ fun MobileNavGraph(
     modifier: Modifier = Modifier
 ) {
     val currentBackStack by navController.currentBackStackEntryAsState()
-    val currentRoute = currentBackStack?.destination?.route ?: Routes.PLAYLISTS
+    val currentRoute = currentBackStack?.destination?.route ?: MOBILE_STARTUP
     val showBottomNav = Routes.MOBILE_MAIN_TABS.any { currentRoute.startsWith(it) }
 
     val navigateToTopLevel: (String) -> Unit = { route ->
@@ -73,9 +76,19 @@ private fun MobileNavHostContent(
 ) {
     NavHost(
         navController = navController,
-        startDestination = Routes.PLAYLISTS,
+        startDestination = MOBILE_STARTUP,
         modifier = modifier
     ) {
+        composable(MOBILE_STARTUP) {
+            StartupRoute(
+                onReady = { route ->
+                    navController.navigate(route) {
+                        popUpTo(MOBILE_STARTUP) { inclusive = true }
+                    }
+                }
+            )
+        }
+
         composable(Routes.PLAYLISTS) {
             MobilePlaylistScreen(
                 onPlaylistSelected = {
@@ -176,7 +189,7 @@ private fun MobileNavHostContent(
         composable(
             route = Routes.PLAYER,
             arguments = listOf(
-                navArgument("url") { type = NavType.StringType },
+                navArgument("url") { type = NavType.StringType; defaultValue = "" },
                 navArgument("title") { type = NavType.StringType; defaultValue = "" },
                 navArgument("contentId") { type = NavType.LongType; defaultValue = 0L },
                 navArgument("contentType") { type = NavType.StringType; defaultValue = "" },

@@ -5,7 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
 import com.imax.player.core.common.Constants
-import com.imax.player.core.model.PlayerEngineType
+
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -17,12 +17,12 @@ val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "im
 data class AppSettings(
     // App General
     val appLanguage: String = "tr",
+    val playerEngine: String = "EXOPLAYER",
 
-    // Player
-    val playerEngine: PlayerEngineType = PlayerEngineType.VLC,
+
     val seekForwardMs: Long = Constants.DEFAULT_SEEK_FORWARD_MS,
     val seekBackwardMs: Long = Constants.DEFAULT_SEEK_BACKWARD_MS,
-    val aspectRatio: String = "fit",
+    val aspectRatio: String = "FIT",
     val defaultPlaybackSpeed: Float = 1f,
     val autoResumePlayback: Boolean = true,
     val continueWatching: Boolean = true,
@@ -74,9 +74,9 @@ class SettingsDataStore @Inject constructor(
     private object Keys {
         // App General
         val APP_LANGUAGE = stringPreferencesKey("app_language")
-
-        // Player
         val PLAYER_ENGINE = stringPreferencesKey("player_engine")
+
+
         val SEEK_FORWARD = longPreferencesKey("seek_forward_ms")
         val SEEK_BACKWARD = longPreferencesKey("seek_backward_ms")
         val ASPECT_RATIO = stringPreferencesKey("aspect_ratio")
@@ -123,12 +123,11 @@ class SettingsDataStore @Inject constructor(
     val settings: Flow<AppSettings> = store.data.map { prefs ->
         AppSettings(
             appLanguage = prefs[Keys.APP_LANGUAGE] ?: "tr",
-            playerEngine = prefs[Keys.PLAYER_ENGINE]?.let {
-                try { PlayerEngineType.valueOf(it) } catch (_: Exception) { PlayerEngineType.VLC }
-            } ?: PlayerEngineType.VLC,
+            playerEngine = prefs[Keys.PLAYER_ENGINE] ?: "EXOPLAYER",
+
             seekForwardMs = prefs[Keys.SEEK_FORWARD] ?: Constants.DEFAULT_SEEK_FORWARD_MS,
             seekBackwardMs = prefs[Keys.SEEK_BACKWARD] ?: Constants.DEFAULT_SEEK_BACKWARD_MS,
-            aspectRatio = prefs[Keys.ASPECT_RATIO] ?: "fit",
+            aspectRatio = prefs[Keys.ASPECT_RATIO] ?: prefs[Keys.DEFAULT_DISPLAY_MODE] ?: "FIT",
             defaultPlaybackSpeed = prefs[Keys.DEFAULT_PLAYBACK_SPEED] ?: 1f,
             autoResumePlayback = prefs[Keys.AUTO_RESUME] ?: true,
             continueWatching = prefs[Keys.CONTINUE_WATCHING] ?: true,
@@ -144,7 +143,7 @@ class SettingsDataStore @Inject constructor(
             rememberTrackPerContent = prefs[Keys.REMEMBER_TRACK_PER_CONTENT] ?: false,
 
             videoQualityMode = prefs[Keys.VIDEO_QUALITY_MODE] ?: "AUTO",
-            defaultDisplayMode = prefs[Keys.DEFAULT_DISPLAY_MODE] ?: "FIT",
+            defaultDisplayMode = prefs[Keys.DEFAULT_DISPLAY_MODE] ?: prefs[Keys.ASPECT_RATIO] ?: "FIT",
             preferHwDecoding = prefs[Keys.PREFER_HW_DECODING] ?: true,
             allowQualityFallback = prefs[Keys.ALLOW_QUALITY_FALLBACK] ?: true,
             hardwareAcceleration = prefs[Keys.HW_ACCEL] ?: 1,
@@ -167,12 +166,17 @@ class SettingsDataStore @Inject constructor(
 
     // ━━━━━━ App General ━━━━━━
     suspend fun updateAppLanguage(language: String) { store.edit { it[Keys.APP_LANGUAGE] = language } }
+    suspend fun updatePlayerEngine(engine: String) { store.edit { it[Keys.PLAYER_ENGINE] = engine } }
 
-    // ━━━━━━ Player ━━━━━━
-    suspend fun updatePlayerEngine(engine: PlayerEngineType) { store.edit { it[Keys.PLAYER_ENGINE] = engine.name } }
+
     suspend fun updateSeekForward(ms: Long) { store.edit { it[Keys.SEEK_FORWARD] = ms } }
     suspend fun updateSeekBackward(ms: Long) { store.edit { it[Keys.SEEK_BACKWARD] = ms } }
-    suspend fun updateAspectRatio(ratio: String) { store.edit { it[Keys.ASPECT_RATIO] = ratio } }
+    suspend fun updateAspectRatio(ratio: String) {
+        store.edit {
+            it[Keys.ASPECT_RATIO] = ratio
+            it[Keys.DEFAULT_DISPLAY_MODE] = ratio.uppercase()
+        }
+    }
     suspend fun updateDefaultPlaybackSpeed(speed: Float) { store.edit { it[Keys.DEFAULT_PLAYBACK_SPEED] = speed } }
     suspend fun updateAutoResume(enabled: Boolean) { store.edit { it[Keys.AUTO_RESUME] = enabled } }
     suspend fun updateContinueWatching(enabled: Boolean) { store.edit { it[Keys.CONTINUE_WATCHING] = enabled } }
@@ -188,7 +192,12 @@ class SettingsDataStore @Inject constructor(
 
     // ━━━━━━ Video Quality ━━━━━━
     suspend fun updateVideoQualityMode(mode: String) { store.edit { it[Keys.VIDEO_QUALITY_MODE] = mode } }
-    suspend fun updateDefaultDisplayMode(mode: String) { store.edit { it[Keys.DEFAULT_DISPLAY_MODE] = mode } }
+    suspend fun updateDefaultDisplayMode(mode: String) {
+        store.edit {
+            it[Keys.DEFAULT_DISPLAY_MODE] = mode
+            it[Keys.ASPECT_RATIO] = mode
+        }
+    }
     suspend fun updatePreferHwDecoding(enabled: Boolean) { store.edit { it[Keys.PREFER_HW_DECODING] = enabled } }
     suspend fun updateAllowQualityFallback(enabled: Boolean) { store.edit { it[Keys.ALLOW_QUALITY_FALLBACK] = enabled } }
     suspend fun updateBufferDuration(ms: Int) { store.edit { it[Keys.BUFFER_DURATION] = ms } }
