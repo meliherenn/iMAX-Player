@@ -1,11 +1,14 @@
-# 🎬 iMAX Player
-
-Premium IPTV Player for Android TV & Android Mobile with production-grade architecture, beautiful dark theme UI, and comprehensive feature set.
+<div align="center">
+  <img src="iMAX%20logo.png" width="200" alt="iMAX Player Logo">
+  <h1>🎬 iMAX Player</h1>
+  <p><b>Premium IPTV Player for Android TV & Android Mobile</b></p>
+  <p><i>Production-grade architecture, beautiful dark theme UI, and comprehensive feature set.</i></p>
 
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0.21-7F52FF.svg?logo=kotlin)](https://kotlinlang.org)
 [![Jetpack Compose](https://img.shields.io/badge/Jetpack_Compose-2024.02.00-4285F4.svg?logo=android)](https://developer.android.com/jetpack/compose)
-[![API](https://img.shields.io/badge/API-24%2B-brightgreen.svg)](https://android-arsenal.com/api?level=24)
+[![API](https://img.shields.io/badge/API-26%2B-brightgreen.svg)](https://android-arsenal.com/api?level=26)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+</div>
 
 ---
 
@@ -118,8 +121,8 @@ Clean Architecture + MVVM
 
 1. **Clone the repository**
 ```bash
-git clone https://github.com/your-username/imax-player.git
-cd imax-player
+git clone https://github.com/meliherenn/iMAX-Player.git
+cd iMAX-Player
 ```
 
 2. **Configure local.properties**
@@ -172,6 +175,17 @@ TMDB_API_KEY=your_tmdb_api_key_here
 ## ⚖️ Legal Notice
 
 **iMAX Player does NOT provide any content.** It is a media player that plays user-provided streams. Users are responsible for ensuring they have the right to access the content they add to the app. The developers of iMAX Player are not responsible for any misuse.
+
+---
+
+## 🤝 Contributing
+
+We welcome contributions! Please feel free to submit a Pull Request.
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
 ---
 
