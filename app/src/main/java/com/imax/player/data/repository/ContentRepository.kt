@@ -1,5 +1,7 @@
 package com.imax.player.data.repository
 
+import com.imax.player.core.common.SearchMatcher
+import com.imax.player.core.common.orderCategoryNames
 import com.imax.player.core.database.*
 import com.imax.player.core.model.*
 import com.imax.player.data.parser.XtreamClient
@@ -32,7 +34,7 @@ class ContentRepository @Inject constructor(
         channelDao.getByGroup(playlistId, group).map { list -> list.map { it.toModel() } }
 
     fun getChannelGroups(playlistId: Long): Flow<List<String>> =
-        channelDao.getGroups(playlistId)
+        channelDao.getGroups(playlistId).map { orderCategoryNames(it) }
 
     fun getFavoriteChannels(playlistId: Long): Flow<List<Channel>> =
         channelDao.getFavorites(playlistId).map { list -> list.map { it.toModel() } }
@@ -53,7 +55,7 @@ class ContentRepository @Inject constructor(
         movieDao.getByCategory(playlistId, category).map { list -> list.map { it.toModel() } }
 
     fun getMovieCategories(playlistId: Long): Flow<List<String>> =
-        movieDao.getCategories(playlistId)
+        movieDao.getCategories(playlistId).map { orderCategoryNames(it) }
 
     fun getFavoriteMovies(playlistId: Long): Flow<List<Movie>> =
         movieDao.getFavorites(playlistId).map { list -> list.map { it.toModel() } }
@@ -86,7 +88,7 @@ class ContentRepository @Inject constructor(
         seriesDao.getByCategory(playlistId, category).map { list -> list.map { it.toModel() } }
 
     fun getSeriesCategories(playlistId: Long): Flow<List<String>> =
-        seriesDao.getCategories(playlistId)
+        seriesDao.getCategories(playlistId).map { orderCategoryNames(it) }
 
     fun getFavoriteSeries(playlistId: Long): Flow<List<Series>> =
         seriesDao.getFavorites(playlistId).map { list -> list.map { it.toModel() } }
@@ -295,13 +297,42 @@ class ContentRepository @Inject constructor(
 
     // Search
     fun searchChannels(playlistId: Long, query: String): Flow<List<Channel>> =
-        channelDao.search(playlistId, query).map { list -> list.map { it.toModel() } }
+        channelDao.getByPlaylist(playlistId)
+            .map { list ->
+                SearchMatcher.rank(
+                    query = query,
+                    items = list,
+                    primary = { it.name },
+                    secondary = { listOf(it.groupTitle, it.epgChannelId) }
+                ).map { it.toModel() }
+            }
+            .flowOn(Dispatchers.Default)
 
     fun searchMovies(playlistId: Long, query: String): Flow<List<Movie>> =
-        movieDao.search(playlistId, query).map { list -> list.map { it.toModel() } }
+        movieDao.getByPlaylist(playlistId)
+            .map { list ->
+                SearchMatcher.rank(
+                    query = query,
+                    items = list,
+                    primary = { it.name },
+                    secondary = { listOf(it.categoryName, it.genre, it.releaseDate) },
+                    year = { it.year }
+                ).map { it.toModel() }
+            }
+            .flowOn(Dispatchers.Default)
 
     fun searchSeries(playlistId: Long, query: String): Flow<List<Series>> =
-        seriesDao.search(playlistId, query).map { list -> list.map { it.toModel() } }
+        seriesDao.getByPlaylist(playlistId)
+            .map { list ->
+                SearchMatcher.rank(
+                    query = query,
+                    items = list,
+                    primary = { it.name },
+                    secondary = { listOf(it.categoryName, it.genre, it.releaseDate) },
+                    year = { it.year }
+                ).map { it.toModel() }
+            }
+            .flowOn(Dispatchers.Default)
 
     private fun dedupeContinueWatching(items: List<WatchHistoryItem>): List<WatchHistoryItem> {
         val seenKeys = LinkedHashSet<String>()

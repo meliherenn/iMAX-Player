@@ -10,6 +10,7 @@ class StringUtilsTest {
         assertThat(StringUtils.normalizeTitle("The Matrix (1999)")).isEqualTo("the matrix 1999")
         assertThat(StringUtils.normalizeTitle("  Hello  World  ")).isEqualTo("hello world")
         assertThat(StringUtils.normalizeTitle("Café")).isEqualTo("cafe")
+        assertThat(StringUtils.normalizeTitle("Işık İçerde Çağrı")).isEqualTo("isik icerde cagri")
     }
 
     @Test

@@ -1,15 +1,19 @@
 package com.imax.player.ui.live
 
 import com.imax.player.core.model.Channel
+import java.text.Normalizer
 import java.util.Locale
 
-private val trSignals = listOf(
-    "tr",
+private val turkishSignalPattern = Regex(
+    pattern = """(^|[^a-z0-9])(tr|trt|turkiye|turkish|turk|turkce)([^a-z0-9]|$)"""
+)
+
+private val turkishSignals = listOf(
+    "trt",
     "turkiye",
-    "türkiye",
     "turkish",
     "turk",
-    "türk"
+    "turkce"
 )
 
 fun rankChannelsForMobile(channels: List<Channel>): List<Channel> {
@@ -47,11 +51,11 @@ fun prioritizeGroupsForMobile(groups: List<String>): List<String> {
 }
 
 private fun isTurkishMatch(value: String): Boolean {
-    val normalized = value
-        .trim()
+    val normalized = Normalizer.normalize(value.trim(), Normalizer.Form.NFD)
+        .replace("\\p{Mn}+".toRegex(), "")
         .lowercase(Locale.ROOT)
         .replace('ı', 'i')
-        .replace('İ', 'i')
 
-    return trSignals.any { signal -> normalized.contains(signal) }
+    return turkishSignalPattern.containsMatchIn(normalized) ||
+        turkishSignals.any { signal -> normalized.contains(signal) }
 }

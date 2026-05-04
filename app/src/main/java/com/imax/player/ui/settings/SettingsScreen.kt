@@ -441,7 +441,7 @@ private fun SettingsContent(
                 value = settings.epgUrl,
                 onValueChange = { viewModel.updateEpgUrl(it) },
                 label = { Text(stringResource(R.string.epg_url_hint)) },
-                placeholder = { Text("http://provider.com/epg.xml") },
+                placeholder = { Text("https://provider.example.com/epg.xml") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(
@@ -503,7 +503,7 @@ private fun SettingsContent(
             isTv = isTv
         ) {
             // Current playlist info
-            if (activePlaylist != null) {
+            activePlaylist?.let { playlist ->
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
@@ -518,9 +518,9 @@ private fun SettingsContent(
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(activePlaylist!!.name, style = MaterialTheme.typography.bodyLarge, color = ImaxColors.TextPrimary)
+                        Text(playlist.name, style = MaterialTheme.typography.bodyLarge, color = ImaxColors.TextPrimary)
                         Text(
-                            when (activePlaylist!!.type) {
+                            when (playlist.type) {
                                 com.imax.player.core.model.PlaylistType.XTREAM_CODES -> "Xtream Codes"
                                 com.imax.player.core.model.PlaylistType.M3U_URL -> "M3U URL"
                                 com.imax.player.core.model.PlaylistType.M3U_FILE -> "M3U File"

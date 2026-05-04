@@ -3,6 +3,7 @@ package com.imax.player.core.worker
 import android.content.Context
 import androidx.hilt.work.HiltWorker
 import androidx.work.*
+import com.imax.player.core.common.SensitiveLog
 import com.imax.player.core.database.EpgDao
 import com.imax.player.core.database.PlaylistDao
 import com.imax.player.data.parser.XmltvParser
@@ -38,7 +39,7 @@ class EpgSyncWorker @AssistedInject constructor(
         }
 
         return try {
-            Timber.d("EpgSyncWorker: fetching EPG from $epgUrl")
+            Timber.d("EpgSyncWorker: fetching EPG from %s", SensitiveLog.redactUrl(epgUrl))
             val request = Request.Builder()
                 .url(epgUrl)
                 .header("User-Agent", "iMAX Player/Android")
@@ -107,7 +108,7 @@ class EpgSyncWorker @AssistedInject constructor(
                 ExistingPeriodicWorkPolicy.KEEP, // Don't reset existing schedule
                 request
             )
-            Timber.d("EpgSyncWorker: enqueued daily sync for $epgUrl")
+            Timber.d("EpgSyncWorker: enqueued daily sync for %s", SensitiveLog.redactUrl(epgUrl))
         }
 
         /**
@@ -124,7 +125,7 @@ class EpgSyncWorker @AssistedInject constructor(
                 .build()
 
             WorkManager.getInstance(context).enqueue(request)
-            Timber.d("EpgSyncWorker: one-time sync enqueued for $epgUrl")
+            Timber.d("EpgSyncWorker: one-time sync enqueued for %s", SensitiveLog.redactUrl(epgUrl))
         }
 
         fun cancel(context: Context, epgUrl: String) {

@@ -1,6 +1,5 @@
 package com.imax.player.ui.components
 
-import android.net.Uri
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -38,7 +37,7 @@ import coil.compose.AsyncImagePainter
 import coil.request.ImageRequest
 import com.imax.player.R
 import androidx.compose.ui.res.stringResource
-import com.imax.player.core.common.Constants
+import com.imax.player.core.common.orderCategoryNames
 import com.imax.player.core.designsystem.theme.ImaxColors
 import com.imax.player.core.designsystem.theme.LocalImaxDimens
 import java.util.Locale
@@ -263,15 +262,11 @@ fun PosterImage(
 ) {
     var isLoading by remember { mutableStateOf(true) }
     var hasImageError by remember(url) { mutableStateOf(false) }
-    var fallbackToHttp by remember(url) { mutableStateOf(false) }
-    val resolvedUrl = remember(url, fallbackToHttp) {
-        if (fallbackToHttp) downgradeArtworkUrlToHttp(url) else url
-    }
 
     Box(modifier = modifier) {
         AsyncImage(
             model = ImageRequest.Builder(LocalContext.current)
-                .data(resolvedUrl.ifBlank { null })
+                .data(url.ifBlank { null })
                 .crossfade(true)
                 .build(),
             contentDescription = contentDescription,
@@ -280,20 +275,12 @@ fun PosterImage(
             onState = { state ->
                 isLoading = state is AsyncImagePainter.State.Loading
                 hasImageError = state is AsyncImagePainter.State.Error
-                if (state is AsyncImagePainter.State.Error &&
-                    !fallbackToHttp &&
-                    shouldRetryArtworkOverHttp(url)
-                ) {
-                    fallbackToHttp = true
-                    hasImageError = false
-                    isLoading = true
-                }
             }
         )
 
         if (isLoading) {
             ShimmerBox(modifier = Modifier.fillMaxSize())
-        } else if (resolvedUrl.isBlank() || hasImageError) {
+        } else if (url.isBlank() || hasImageError) {
             PosterFallback(modifier = Modifier.fillMaxSize())
         }
     }
@@ -312,40 +299,6 @@ private fun PosterFallback(modifier: Modifier = Modifier) {
             modifier = Modifier.size(28.dp)
         )
     }
-}
-
-private fun shouldRetryArtworkOverHttp(url: String): Boolean {
-    val parsed = url.takeIf(String::isNotBlank)?.let(Uri::parse) ?: return false
-    val host = parsed.host?.lowercase().orEmpty()
-    if (parsed.scheme?.lowercase() != "https") {
-        return false
-    }
-    if (host.isBlank() || host.endsWith("tmdb.org") || host.endsWith("themoviedb.org")) {
-        return false
-    }
-
-    val path = parsed.encodedPath?.lowercase().orEmpty()
-    return path.contains("/logo/") ||
-        path.endsWith(".png") ||
-        path.endsWith(".jpg") ||
-        path.endsWith(".jpeg") ||
-        path.endsWith(".webp")
-}
-
-private fun downgradeArtworkUrlToHttp(url: String): String {
-    val parsed = url.takeIf(String::isNotBlank)?.let(Uri::parse) ?: return url
-    if (parsed.scheme?.lowercase() != "https") {
-        return url
-    }
-
-    if (url.startsWith(Constants.TMDB_IMAGE_BASE_URL, ignoreCase = true)) {
-        return url
-    }
-
-    return parsed.buildUpon()
-        .scheme("http")
-        .build()
-        .toString()
 }
 
 @Composable
@@ -768,8 +721,12 @@ fun CategoryBottomSheet(
     var searchQuery by remember { mutableStateOf("") }
 
     val filteredCategories = remember(categories, searchQuery) {
-        if (searchQuery.isBlank()) categories.sorted()
-        else categories.filter { it.contains(searchQuery, ignoreCase = true) }.sorted()
+        val orderedCategories = orderCategoryNames(categories)
+        if (searchQuery.isBlank()) {
+            orderedCategories
+        } else {
+            orderedCategories.filter { it.contains(searchQuery, ignoreCase = true) }
+        }
     }
 
     // Group: pinned first, then recent, then alphabetical

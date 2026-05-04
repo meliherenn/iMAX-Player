@@ -1,6 +1,7 @@
 package com.imax.player.ui.tv
 
 import android.app.Activity
+import android.view.KeyEvent as AndroidKeyEvent
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -81,6 +82,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -155,6 +157,89 @@ private fun nextAspectRatioMode(current: AspectRatioMode): AspectRatioMode {
     val modes = AspectRatioMode.entries
     val index = modes.indexOf(current).takeIf { it >= 0 } ?: 0
     return modes[(index + 1) % modes.size]
+}
+
+private fun KeyEvent.isTvBackKey(): Boolean {
+    return key == Key.Back ||
+        key == Key.Escape ||
+        nativeKeyEvent.keyCode == AndroidKeyEvent.KEYCODE_BACK
+}
+
+private fun KeyEvent.isTvPlayPauseToggleKey(): Boolean {
+    return key == Key.MediaPlayPause ||
+        key == Key.Spacebar ||
+        nativeKeyEvent.keyCode == AndroidKeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
+}
+
+private fun KeyEvent.isTvPlayKey(): Boolean {
+    return nativeKeyEvent.keyCode == AndroidKeyEvent.KEYCODE_MEDIA_PLAY
+}
+
+private fun KeyEvent.isTvPauseKey(): Boolean {
+    return nativeKeyEvent.keyCode == AndroidKeyEvent.KEYCODE_MEDIA_PAUSE ||
+        nativeKeyEvent.keyCode == AndroidKeyEvent.KEYCODE_MEDIA_STOP
+}
+
+private fun KeyEvent.isTvPreviousShortcutKey(): Boolean {
+    return when (nativeKeyEvent.keyCode) {
+        AndroidKeyEvent.KEYCODE_CHANNEL_DOWN,
+        AndroidKeyEvent.KEYCODE_PAGE_DOWN,
+        AndroidKeyEvent.KEYCODE_MEDIA_PREVIOUS,
+        AndroidKeyEvent.KEYCODE_MEDIA_REWIND -> true
+        else -> false
+    }
+}
+
+private fun KeyEvent.isTvNextShortcutKey(): Boolean {
+    return when (nativeKeyEvent.keyCode) {
+        AndroidKeyEvent.KEYCODE_CHANNEL_UP,
+        AndroidKeyEvent.KEYCODE_PAGE_UP,
+        AndroidKeyEvent.KEYCODE_MEDIA_NEXT,
+        AndroidKeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> true
+        else -> false
+    }
+}
+
+private fun KeyEvent.isTvMenuKey(): Boolean {
+    return nativeKeyEvent.keyCode == AndroidKeyEvent.KEYCODE_MENU
+}
+
+private fun KeyEvent.isTvInfoKey(): Boolean {
+    return nativeKeyEvent.keyCode == AndroidKeyEvent.KEYCODE_INFO
+}
+
+private fun KeyEvent.isTvCaptionsKey(): Boolean {
+    return nativeKeyEvent.keyCode == AndroidKeyEvent.KEYCODE_CAPTIONS
+}
+
+private fun KeyEvent.isTvAudioTrackKey(): Boolean {
+    return nativeKeyEvent.keyCode == AndroidKeyEvent.KEYCODE_MEDIA_AUDIO_TRACK
+}
+
+private fun KeyEvent.tvRemoteDigit(): String? {
+    return when (nativeKeyEvent.keyCode) {
+        AndroidKeyEvent.KEYCODE_0,
+        AndroidKeyEvent.KEYCODE_NUMPAD_0 -> "0"
+        AndroidKeyEvent.KEYCODE_1,
+        AndroidKeyEvent.KEYCODE_NUMPAD_1 -> "1"
+        AndroidKeyEvent.KEYCODE_2,
+        AndroidKeyEvent.KEYCODE_NUMPAD_2 -> "2"
+        AndroidKeyEvent.KEYCODE_3,
+        AndroidKeyEvent.KEYCODE_NUMPAD_3 -> "3"
+        AndroidKeyEvent.KEYCODE_4,
+        AndroidKeyEvent.KEYCODE_NUMPAD_4 -> "4"
+        AndroidKeyEvent.KEYCODE_5,
+        AndroidKeyEvent.KEYCODE_NUMPAD_5 -> "5"
+        AndroidKeyEvent.KEYCODE_6,
+        AndroidKeyEvent.KEYCODE_NUMPAD_6 -> "6"
+        AndroidKeyEvent.KEYCODE_7,
+        AndroidKeyEvent.KEYCODE_NUMPAD_7 -> "7"
+        AndroidKeyEvent.KEYCODE_8,
+        AndroidKeyEvent.KEYCODE_NUMPAD_8 -> "8"
+        AndroidKeyEvent.KEYCODE_9,
+        AndroidKeyEvent.KEYCODE_NUMPAD_9 -> "9"
+        else -> null
+    }
 }
 
 @Composable
@@ -466,6 +551,89 @@ fun TvPlayerScreen(
         }
     }
 
+    fun openRemotePanel(panel: TvPlayerPanel, action: TvOverlayAction = TvOverlayAction.SETTINGS): Boolean {
+        clearTransientZapFeedback()
+        requestedOverlayAction = action
+        overlayVisible = true
+        activePanel = panel
+        registerInteraction()
+        return true
+    }
+
+    fun handleRemotePlayPause(forcePlay: Boolean? = null): Boolean {
+        registerInteraction()
+        clearTransientZapFeedback()
+        showOverlay(TvOverlayAction.PLAY_PAUSE)
+
+        val shouldToggle = when (forcePlay) {
+            true -> !playerState.isPlaying
+            false -> playerState.isPlaying
+            null -> true
+        }
+        if (shouldToggle) {
+            viewModel.togglePlayPause()
+        }
+        return true
+    }
+
+    fun handleRemotePrevious(): Boolean {
+        if (activePanel != TvPlayerPanel.NONE) return false
+
+        registerInteraction()
+        if (isLivePlayback) {
+            if (isChannelSwitching) return true
+
+            val targetChannel = session.previousChannel
+            Timber.tag(TV_PLAYER_LOG_TAG).d(
+                "remote previous live current=%s target=%s switching=%s",
+                session.currentChannel?.name,
+                targetChannel?.name,
+                isChannelSwitching
+            )
+            if (targetChannel != null) {
+                showTransientZapFeedback(TvOverlayAction.MAIN_PREVIOUS, targetChannel.name)
+                viewModel.playPreviousChannel()
+            } else {
+                clearTransientZapFeedback()
+                showOverlay(TvOverlayAction.MAIN_PREVIOUS)
+            }
+        } else {
+            clearTransientZapFeedback()
+            viewModel.seekBackward()
+            showOverlay(TvOverlayAction.MAIN_PREVIOUS)
+        }
+        return true
+    }
+
+    fun handleRemoteNext(): Boolean {
+        if (activePanel != TvPlayerPanel.NONE) return false
+
+        registerInteraction()
+        if (isLivePlayback) {
+            if (isChannelSwitching) return true
+
+            val targetChannel = session.nextChannel
+            Timber.tag(TV_PLAYER_LOG_TAG).d(
+                "remote next live current=%s target=%s switching=%s",
+                session.currentChannel?.name,
+                targetChannel?.name,
+                isChannelSwitching
+            )
+            if (targetChannel != null) {
+                showTransientZapFeedback(TvOverlayAction.MAIN_NEXT, targetChannel.name)
+                viewModel.playNextChannel()
+            } else {
+                clearTransientZapFeedback()
+                showOverlay(TvOverlayAction.MAIN_NEXT)
+            }
+        } else {
+            clearTransientZapFeedback()
+            viewModel.seekForward()
+            showOverlay(TvOverlayAction.MAIN_NEXT)
+        }
+        return true
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -480,21 +648,36 @@ fun TvPlayerScreen(
                     return@onPreviewKeyEvent false
                 }
 
-                when (event.key) {
-                    Key.Back,
-                    Key.Escape -> handleBack()
+                when {
+                    event.isTvBackKey() -> handleBack()
 
-                    Key.MediaPlayPause,
-                    Key.Spacebar -> {
-                        registerInteraction()
-                        clearTransientZapFeedback()
-                        showOverlay(TvOverlayAction.PLAY_PAUSE)
-                        viewModel.togglePlayPause()
-                        true
+                    event.isTvPlayPauseToggleKey() -> handleRemotePlayPause()
+
+                    event.isTvPlayKey() -> handleRemotePlayPause(forcePlay = true)
+
+                    event.isTvPauseKey() -> handleRemotePlayPause(forcePlay = false)
+
+                    event.isTvPreviousShortcutKey() -> handleRemotePrevious()
+
+                    event.isTvNextShortcutKey() -> handleRemoteNext()
+
+                    event.isTvMenuKey() && activePanel == TvPlayerPanel.NONE -> {
+                        openRemotePanel(TvPlayerPanel.SETTINGS, TvOverlayAction.SETTINGS)
                     }
 
-                    Key.DirectionCenter,
-                    Key.Enter -> {
+                    event.isTvInfoKey() -> {
+                        openRemotePanel(TvPlayerPanel.STREAM_INFO, TvOverlayAction.SETTINGS)
+                    }
+
+                    event.isTvCaptionsKey() -> {
+                        openRemotePanel(TvPlayerPanel.SUBTITLE, TvOverlayAction.SUBTITLE)
+                    }
+
+                    event.isTvAudioTrackKey() -> {
+                        openRemotePanel(TvPlayerPanel.AUDIO, TvOverlayAction.AUDIO)
+                    }
+
+                    event.key == Key.DirectionCenter || event.key == Key.Enter -> {
                         if (!overlayVisible && activePanel == TvPlayerPanel.NONE) {
                             clearTransientZapFeedback()
                             Timber.tag(TV_PLAYER_LOG_TAG).d("remote center opens overlay")
@@ -505,8 +688,7 @@ fun TvPlayerScreen(
                         }
                     }
 
-                    Key.DirectionUp,
-                    Key.DirectionDown -> {
+                    event.key == Key.DirectionUp || event.key == Key.DirectionDown -> {
                         if (!overlayVisible && activePanel == TvPlayerPanel.NONE) {
                             clearTransientZapFeedback()
                             Timber.tag(TV_PLAYER_LOG_TAG).d("remote %s opens overlay", event.key)
@@ -517,59 +699,17 @@ fun TvPlayerScreen(
                         }
                     }
 
-                    Key.DirectionLeft -> {
+                    event.key == Key.DirectionLeft -> {
                         if (!overlayVisible && activePanel == TvPlayerPanel.NONE) {
-                            registerInteraction()
-                            if (isLivePlayback) {
-                                if (isChannelSwitching) {
-                                    return@onPreviewKeyEvent true
-                                }
-                                val targetChannel = session.previousChannel
-                                Timber.tag(TV_PLAYER_LOG_TAG).d(
-                                    "remote left live zap previous current=%s target=%s switching=%s",
-                                    session.currentChannel?.name,
-                                    targetChannel?.name,
-                                    isChannelSwitching
-                                )
-                                if (targetChannel != null) {
-                                    showTransientZapFeedback(TvOverlayAction.MAIN_PREVIOUS, targetChannel.name)
-                                    viewModel.playPreviousChannel()
-                                }
-                            } else {
-                                clearTransientZapFeedback()
-                                viewModel.seekBackward()
-                                showOverlay(TvOverlayAction.MAIN_PREVIOUS)
-                            }
-                            true
+                            handleRemotePrevious()
                         } else {
                             false
                         }
                     }
 
-                    Key.DirectionRight -> {
+                    event.key == Key.DirectionRight -> {
                         if (!overlayVisible && activePanel == TvPlayerPanel.NONE) {
-                            registerInteraction()
-                            if (isLivePlayback) {
-                                if (isChannelSwitching) {
-                                    return@onPreviewKeyEvent true
-                                }
-                                val targetChannel = session.nextChannel
-                                Timber.tag(TV_PLAYER_LOG_TAG).d(
-                                    "remote right live zap next current=%s target=%s switching=%s",
-                                    session.currentChannel?.name,
-                                    targetChannel?.name,
-                                    isChannelSwitching
-                                )
-                                if (targetChannel != null) {
-                                    showTransientZapFeedback(TvOverlayAction.MAIN_NEXT, targetChannel.name)
-                                    viewModel.playNextChannel()
-                                }
-                            } else {
-                                clearTransientZapFeedback()
-                                viewModel.seekForward()
-                                showOverlay(TvOverlayAction.MAIN_NEXT)
-                            }
-                            true
+                            handleRemoteNext()
                         } else {
                             false
                         }
@@ -577,20 +717,8 @@ fun TvPlayerScreen(
 
                     else -> {
                         // Digit keys for channel number input (TV remote)
-                        if (isLivePlayback && activePanel == TvPlayerPanel.NONE) {
-                            val digit = when (event.key) {
-                                Key.Zero, Key(7) -> "0"
-                                Key.One, Key(8) -> "1"
-                                Key.Two, Key(9) -> "2"
-                                Key.Three, Key(10) -> "3"
-                                Key.Four, Key(11) -> "4"
-                                Key.Five, Key(12) -> "5"
-                                Key.Six, Key(13) -> "6"
-                                Key.Seven, Key(14) -> "7"
-                                Key.Eight, Key(15) -> "8"
-                                Key.Nine, Key(16) -> "9"
-                                else -> null
-                            }
+                        if (isLivePlayback && activePanel == TvPlayerPanel.NONE && event.nativeKeyEvent.repeatCount == 0) {
+                            val digit = event.tvRemoteDigit()
                             if (digit != null && channelNumberInput.length < 4) {
                                 clearTransientZapFeedback()
                                 channelNumberInput += digit
@@ -772,14 +900,14 @@ fun TvPlayerScreen(
                 onSelectAudio = {
                     if (playerState.selectedAudioTrack != it) {
                         viewModel.selectAudio(it)
-                        closePanel()
                     }
+                    closePanel()
                 },
                 onSelectSubtitle = {
                     if (playerState.selectedSubtitleTrack != it) {
                         viewModel.selectSubtitle(it)
-                        closePanel()
                     }
+                    closePanel()
                 },
                 onDisableSubtitles = {
                     viewModel.disableSubtitles()
@@ -788,13 +916,15 @@ fun TvPlayerScreen(
                 onSelectAspectRatio = {
                     if (playerState.aspectRatioMode != it) {
                         viewModel.setAspectRatio(it)
-                        closePanel()
                     }
+                    closePanel()
                 },
                 onSelectSpeed = {
                     viewModel.setSpeed(it)
                     closePanel()
                 },
+                onOpenAudioPanel = { activePanel = TvPlayerPanel.AUDIO },
+                onOpenSubtitlePanel = { activePanel = TvPlayerPanel.SUBTITLE },
                 onOpenSpeedPanel = { activePanel = TvPlayerPanel.SPEED },
                 onOpenStreamInfoPanel = { activePanel = TvPlayerPanel.STREAM_INFO },
                 onRetry = {
@@ -1147,6 +1277,8 @@ private fun TvPlayerPanelHost(
     onDisableSubtitles: () -> Unit,
     onSelectAspectRatio: (AspectRatioMode) -> Unit,
     onSelectSpeed: (Float) -> Unit,
+    onOpenAudioPanel: () -> Unit,
+    onOpenSubtitlePanel: () -> Unit,
     onOpenSpeedPanel: () -> Unit,
     onOpenStreamInfoPanel: () -> Unit,
     onRetry: () -> Unit
@@ -1277,13 +1409,13 @@ private fun TvPlayerPanelHost(
                             title = stringResource(R.string.setting_audio_track),
                             subtitle = playerState.audioTracks.firstOrNull { it.isSelected }?.name ?: "—",
                             enabled = playerState.audioTracks.isNotEmpty(),
-                            onClick = { /* TODO if needed */ }
+                            onClick = onOpenAudioPanel
                         ),
                         TvPanelOption(
                             title = stringResource(R.string.setting_subtitles),
                             subtitle = playerState.subtitleTracks.firstOrNull { it.isSelected }?.name
                                 ?: stringResource(R.string.language_off),
-                            onClick = { /* TODO if needed */ }
+                            onClick = onOpenSubtitlePanel
                         ),
                         TvPanelOption(
                             title = stringResource(R.string.setting_stream_info),

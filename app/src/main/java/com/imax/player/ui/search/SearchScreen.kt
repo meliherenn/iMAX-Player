@@ -26,6 +26,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.imax.player.core.common.Constants
+import com.imax.player.core.common.SearchMatcher
 import com.imax.player.core.designsystem.theme.ImaxColors
 import com.imax.player.core.designsystem.theme.LocalImaxDimens
 import com.imax.player.core.model.*
@@ -37,9 +38,17 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import java.util.Locale
 import javax.inject.Inject
 import androidx.compose.ui.res.stringResource
 import com.imax.player.R
+
+private const val MIN_SEARCH_QUERY_LENGTH = 2
+
+private data class RankedSearchResult(
+    val result: SearchResult,
+    val score: Double
+)
 
 data class SearchState(
     val query: String = "",
@@ -58,45 +67,92 @@ class SearchViewModel @Inject constructor(
     val state: StateFlow<SearchState> = _state.asStateFlow()
 
     private val _queryFlow = MutableStateFlow("")
+    private val _filterFlow = MutableStateFlow<ContentType?>(null)
 
     init {
         viewModelScope.launch {
-            _queryFlow.debounce(Constants.SEARCH_DEBOUNCE_MS)
-                .distinctUntilChanged()
-                .collectLatest { query ->
-                    if (query.length >= 2) performSearch(query) else _state.update { it.copy(results = emptyList(), isSearching = false) }
+            combine(
+                _queryFlow
+                    .debounce(Constants.SEARCH_DEBOUNCE_MS)
+                    .map { it.trim() }
+                    .distinctUntilChanged(),
+                _filterFlow
+            ) { query, filter -> query to filter }
+                .collectLatest { (query, filter) ->
+                    if (query.length >= MIN_SEARCH_QUERY_LENGTH) {
+                        performSearch(query, filter)
+                    } else {
+                        _state.update { it.copy(results = emptyList(), isSearching = false) }
+                    }
                 }
         }
     }
 
     fun updateQuery(query: String) {
-        _state.update { it.copy(query = query, isSearching = true) }
+        val isSearchable = query.trim().length >= MIN_SEARCH_QUERY_LENGTH
+        _state.update {
+            it.copy(
+                query = query,
+                results = if (isSearchable) it.results else emptyList(),
+                isSearching = isSearchable
+            )
+        }
         _queryFlow.value = query
     }
 
-    fun setFilter(type: ContentType?) = _state.update { it.copy(contentTypeFilter = type) }
+    fun setFilter(type: ContentType?) {
+        if (_state.value.contentTypeFilter == type) return
+        _filterFlow.value = type
+        _state.update {
+            it.copy(
+                contentTypeFilter = type,
+                isSearching = it.query.trim().length >= MIN_SEARCH_QUERY_LENGTH
+            )
+        }
+    }
 
-    private suspend fun performSearch(query: String) {
-        val playlist = playlistRepository.getActivePlaylist().first() ?: return
-        val results = mutableListOf<SearchResult>()
-        val filter = _state.value.contentTypeFilter
+    private suspend fun performSearch(query: String, filter: ContentType?) {
+        val playlist = playlistRepository.getActivePlaylist().first()
+        if (playlist == null) {
+            _state.update { it.copy(results = emptyList(), isSearching = false) }
+            return
+        }
+
+        val results = mutableListOf<RankedSearchResult>()
 
         if (filter == null || filter == ContentType.LIVE) {
             contentRepository.searchChannels(playlist.id, query).first().mapTo(results) {
-                SearchResult(it.id, it.name, it.logoUrl, ContentType.LIVE, it.groupTitle, streamUrl = it.streamUrl)
+                RankedSearchResult(
+                    result = SearchResult(it.id, it.name, it.logoUrl, ContentType.LIVE, it.groupTitle, streamUrl = it.streamUrl),
+                    score = SearchMatcher.score(query, it.name, listOf(it.groupTitle, it.epgChannelId))
+                )
             }
         }
         if (filter == null || filter == ContentType.MOVIE) {
             contentRepository.searchMovies(playlist.id, query).first().mapTo(results) {
-                SearchResult(it.id, it.name, it.posterUrl, ContentType.MOVIE, it.genre, it.year, it.rating, it.streamUrl)
+                RankedSearchResult(
+                    result = SearchResult(it.id, it.name, it.posterUrl, ContentType.MOVIE, it.genre, it.year, it.rating, it.streamUrl),
+                    score = SearchMatcher.score(query, it.name, listOf(it.categoryName, it.genre, it.releaseDate), it.year)
+                )
             }
         }
         if (filter == null || filter == ContentType.SERIES) {
             contentRepository.searchSeries(playlist.id, query).first().mapTo(results) {
-                SearchResult(it.id, it.name, it.posterUrl, ContentType.SERIES, it.genre, it.year, it.rating)
+                RankedSearchResult(
+                    result = SearchResult(it.id, it.name, it.posterUrl, ContentType.SERIES, it.genre, it.year, it.rating),
+                    score = SearchMatcher.score(query, it.name, listOf(it.categoryName, it.genre, it.releaseDate), it.year)
+                )
             }
         }
-        _state.update { it.copy(results = results, isSearching = false) }
+
+        val sortedResults = results
+            .sortedWith(
+                compareByDescending<RankedSearchResult> { it.score }
+                    .thenBy { it.result.title.lowercase(Locale.ENGLISH) }
+            )
+            .map { it.result }
+
+        _state.update { it.copy(results = sortedResults, isSearching = false) }
     }
 }
 

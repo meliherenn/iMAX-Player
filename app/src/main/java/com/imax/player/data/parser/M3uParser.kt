@@ -40,7 +40,7 @@ class M3uParser @Inject constructor() {
                     line.startsWith("#EXTINF:") -> extinf = line
                     line.startsWith("#") -> continue
                     line.isNotEmpty() && extinf != null -> {
-                        val entry = parseEntry(extinf!!, line)
+                        val entry = parseEntry(extinf, line)
                         if (entry != null) entries.add(entry)
                         extinf = null
                     }

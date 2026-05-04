@@ -99,8 +99,9 @@ class VlcPlayerEngine @Inject constructor(
                 "--audio-time-stretch"
             )
 
-            libVlc = LibVLC(context, options)
-            mediaPlayer = MediaPlayer(libVlc!!).apply {
+            val vlc = LibVLC(context, options)
+            libVlc = vlc
+            mediaPlayer = MediaPlayer(vlc).apply {
                 setEventListener(::handleVlcEvent)
             }
             publishState()
@@ -623,13 +624,14 @@ class VlcPlayerEngine @Inject constructor(
 
     private fun applyPreferredTracks() {
         val audioLanguage = preferredAudioLanguage
+        val subtitleLanguage = preferredSubtitleLanguage
         if (!audioLanguage.isNullOrBlank()) {
             selectAudioTrackByLanguage(audioLanguage)
         }
 
         when {
             subtitlesDisabled -> disableSubtitles()
-            !preferredSubtitleLanguage.isNullOrBlank() -> selectSubtitleTrackByLanguage(preferredSubtitleLanguage!!)
+            !subtitleLanguage.isNullOrBlank() -> selectSubtitleTrackByLanguage(subtitleLanguage)
         }
     }
 

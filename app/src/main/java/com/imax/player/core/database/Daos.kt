@@ -47,7 +47,7 @@ interface ChannelDao {
     @Query("SELECT * FROM channels WHERE playlistId = :playlistId AND groupTitle = :group ORDER BY sortOrder, name")
     fun getByGroup(playlistId: Long, group: String): Flow<List<ChannelEntity>>
 
-    @Query("SELECT DISTINCT groupTitle FROM channels WHERE playlistId = :playlistId ORDER BY groupTitle")
+    @Query("SELECT DISTINCT groupTitle FROM channels WHERE playlistId = :playlistId AND TRIM(groupTitle) != '' ORDER BY groupTitle")
     fun getGroups(playlistId: Long): Flow<List<String>>
 
     @Query("SELECT * FROM channels WHERE playlistId = :playlistId AND isFavorite = 1 ORDER BY name")
@@ -89,7 +89,7 @@ interface MovieDao {
     @Query("SELECT * FROM movies WHERE playlistId = :playlistId AND categoryName = :category ORDER BY name")
     fun getByCategory(playlistId: Long, category: String): Flow<List<MovieEntity>>
 
-    @Query("SELECT DISTINCT categoryName FROM movies WHERE playlistId = :playlistId AND categoryName != '' ORDER BY categoryName")
+    @Query("SELECT DISTINCT categoryName FROM movies WHERE playlistId = :playlistId AND TRIM(categoryName) != '' ORDER BY categoryName")
     fun getCategories(playlistId: Long): Flow<List<String>>
 
     @Query("SELECT * FROM movies WHERE playlistId = :playlistId AND isFavorite = 1 ORDER BY name")
@@ -137,7 +137,7 @@ interface SeriesDao {
     @Query("SELECT * FROM series WHERE playlistId = :playlistId AND categoryName = :category ORDER BY name")
     fun getByCategory(playlistId: Long, category: String): Flow<List<SeriesEntity>>
 
-    @Query("SELECT DISTINCT categoryName FROM series WHERE playlistId = :playlistId AND categoryName != '' ORDER BY categoryName")
+    @Query("SELECT DISTINCT categoryName FROM series WHERE playlistId = :playlistId AND TRIM(categoryName) != '' ORDER BY categoryName")
     fun getCategories(playlistId: Long): Flow<List<String>>
 
     @Query("SELECT * FROM series WHERE playlistId = :playlistId AND isFavorite = 1 ORDER BY name")

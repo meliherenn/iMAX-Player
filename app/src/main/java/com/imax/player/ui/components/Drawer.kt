@@ -1,5 +1,6 @@
 package com.imax.player.ui.components
 
+import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.animation.*
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
@@ -39,6 +40,9 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -115,12 +119,49 @@ fun TvDrawerLayout(
         mutableStateOf(menuRoutes.indexOf(selectedMenuRoute).takeIf { it >= 0 } ?: 0)
     }
     var focusedDrawerTarget by rememberSaveable { mutableStateOf<String?>(null) }
+    var remoteMenuExpanded by rememberSaveable { mutableStateOf(false) }
+    var pendingDrawerFocusRoute by remember { mutableStateOf<String?>(null) }
     var drawerExpanded by rememberSaveable { mutableStateOf(isExpanded) }
+    val shouldExpandDrawer = isExpanded || remoteMenuExpanded || focusedDrawerTarget != null
     val drawerWidth by animateDpAsState(
         targetValue = if (drawerExpanded) dimens.drawerWidth else dimens.drawerCollapsedWidth,
         animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
         label = "tvDrawerWidth"
     )
+
+    fun requestDrawerFocus(route: String?) {
+        pendingDrawerFocusRoute = route
+            ?.takeIf { it in itemFocusRequesters }
+            ?: selectedMenuRoute
+            ?: firstMenuRoute
+    }
+
+    fun closeDrawerFromRemote(): Boolean {
+        var handled = false
+        if (remoteMenuExpanded) {
+            remoteMenuExpanded = false
+            handled = true
+        }
+        if (focusedDrawerTarget != null) {
+            focusedDrawerTarget = null
+            handled = true
+        }
+        if (isExpanded) {
+            onToggle()
+            handled = true
+        }
+        return handled
+    }
+
+    fun toggleDrawerFromRemote() {
+        if (shouldExpandDrawer || drawerExpanded) {
+            closeDrawerFromRemote()
+        } else {
+            remoteMenuExpanded = true
+            requestDrawerFocus(lastFocusedRoute.takeIf { it in itemFocusRequesters } ?: selectedMenuRoute)
+            onToggle()
+        }
+    }
 
     LaunchedEffect(menuRoutes, selectedRoute) {
         val fallbackRoute = selectedRoute.takeIf { it in itemFocusRequesters } ?: firstMenuRoute ?: ""
@@ -135,15 +176,31 @@ fun TvDrawerLayout(
         }
     }
 
-    LaunchedEffect(isExpanded) {
+    LaunchedEffect(isExpanded, selectedMenuRoute) {
         if (isExpanded) {
+            requestDrawerFocus(lastFocusedRoute.takeIf { it in itemFocusRequesters } ?: selectedMenuRoute)
+        }
+    }
+
+    LaunchedEffect(shouldExpandDrawer) {
+        if (shouldExpandDrawer) {
             drawerExpanded = true
         } else {
             delay(TV_DRAWER_COLLAPSE_DELAY_MS)
-            if (!isExpanded) {
+            if (!shouldExpandDrawer) {
                 drawerExpanded = false
             }
         }
+    }
+
+    LaunchedEffect(drawerExpanded, pendingDrawerFocusRoute, menuRoutes) {
+        val route = pendingDrawerFocusRoute ?: return@LaunchedEffect
+        if (!drawerExpanded) return@LaunchedEffect
+
+        delay(80)
+        itemFocusRequesters[route]
+            ?.requestFocusSafely("TV drawer remote focus $route")
+        pendingDrawerFocusRoute = null
     }
 
     LaunchedEffect(drawerExpanded, focusedIndex) {
@@ -159,7 +216,33 @@ fun TvDrawerLayout(
         }
     }
 
-    Row(modifier = modifier.fillMaxSize().background(ImaxColors.Background)) {
+    Row(
+        modifier = modifier
+            .fillMaxSize()
+            .background(ImaxColors.Background)
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) {
+                    return@onPreviewKeyEvent false
+                }
+
+                when (event.nativeKeyEvent.keyCode) {
+                    AndroidKeyEvent.KEYCODE_MENU -> {
+                        toggleDrawerFromRemote()
+                        true
+                    }
+
+                    AndroidKeyEvent.KEYCODE_BACK -> {
+                        if (shouldExpandDrawer || drawerExpanded) {
+                            closeDrawerFromRemote()
+                        } else {
+                            false
+                        }
+                    }
+
+                    else -> false
+                }
+            }
+    ) {
         Column(
             modifier = Modifier
                 .width(drawerWidth)
@@ -316,7 +399,7 @@ private fun CollapsedDrawerPlate(
             isFocused -> 1.12f
             else -> 1f
         },
-        animationSpec = tween(150),
+        animationSpec = tween(250, easing = FastOutSlowInEasing),
         label = "collapseScale"
     )
 
@@ -327,7 +410,7 @@ private fun CollapsedDrawerPlate(
             isSelected -> ImaxColors.Primary.copy(alpha = 0.20f)
             else -> Color.Transparent
         },
-        animationSpec = tween(150),
+        animationSpec = tween(250, easing = FastOutSlowInEasing),
         label = "collapseBg"
     )
 
@@ -338,11 +421,11 @@ private fun CollapsedDrawerPlate(
             isSelected -> ImaxColors.Primary
             else -> ImaxColors.TextSecondary
         },
-        animationSpec = tween(150),
+        animationSpec = tween(250, easing = FastOutSlowInEasing),
         label = "collapseContent"
     )
 
-    val itemShape = RoundedCornerShape(18.dp)
+    val itemShape = RoundedCornerShape(percent = 50)
 
     Box(
         modifier = Modifier
@@ -350,7 +433,9 @@ private fun CollapsedDrawerPlate(
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
-                shadowElevation = if (isFocused) 12.dp.toPx() else 0f
+                shadowElevation = if (isFocused) 16.dp.toPx() else 0f
+                spotShadowColor = ImaxColors.Primary
+                ambientShadowColor = ImaxColors.Primary
                 shape = itemShape
                 clip = false
             }
@@ -358,7 +443,7 @@ private fun CollapsedDrawerPlate(
             .background(bgColor)
             .border(
                 width = if (isFocused) 2.dp else 0.dp,
-                color = if (isFocused) Color.White.copy(alpha = 0.8f) else Color.Transparent,
+                color = if (isFocused) Color.White.copy(alpha = 0.9f) else Color.Transparent,
                 shape = itemShape
             ),
         contentAlignment = Alignment.Center
@@ -378,15 +463,15 @@ private fun ExpandedDrawerPlate(
     isSelected: Boolean,
     isFocused: Boolean
 ) {
-    val plateShape = RoundedCornerShape(12.dp)
+    val plateShape = RoundedCornerShape(percent = 50)
 
     val scale by animateFloatAsState(
         targetValue = when {
-            isFocused && isSelected -> 1.08f
-            isFocused -> 1.06f
+            isFocused && isSelected -> 1.06f
+            isFocused -> 1.04f
             else -> 1f
         },
-        animationSpec = tween(150),
+        animationSpec = tween(250, easing = FastOutSlowInEasing),
         label = "expandScale"
     )
 
@@ -397,7 +482,7 @@ private fun ExpandedDrawerPlate(
             isSelected -> ImaxColors.Primary.copy(alpha = 0.15f)
             else -> Color.Transparent
         },
-        animationSpec = tween(150),
+        animationSpec = tween(250, easing = FastOutSlowInEasing),
         label = "expandBg"
     )
 
@@ -408,20 +493,8 @@ private fun ExpandedDrawerPlate(
             isSelected -> ImaxColors.Primary
             else -> ImaxColors.TextSecondary
         },
-        animationSpec = tween(150),
+        animationSpec = tween(250, easing = FastOutSlowInEasing),
         label = "expandContent"
-    )
-
-    val accentWidth by animateDpAsState(
-        targetValue = if (isFocused || isSelected) 5.dp else 0.dp,
-        animationSpec = tween(150),
-        label = "expandAccentWidth"
-    )
-
-    val accentColor by animateColorAsState(
-        targetValue = if (isFocused) Color.White else ImaxColors.Primary,
-        animationSpec = tween(150),
-        label = "expandAccentColor"
     )
 
     Row(
@@ -431,30 +504,25 @@ private fun ExpandedDrawerPlate(
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
-                shadowElevation = if (isFocused) 12.dp.toPx() else 0f
+                shadowElevation = if (isFocused) 16.dp.toPx() else 0f
+                spotShadowColor = ImaxColors.Primary
+                ambientShadowColor = ImaxColors.Primary
                 shape = plateShape
                 clip = false
             }
             .clip(plateShape)
             .background(bgColor)
             .border(
-                width = if (isFocused) 1.5.dp else 0.dp,
-                color = if (isFocused) Color.White.copy(alpha = 0.3f) else Color.Transparent,
+                width = if (isFocused) 2.dp else 0.dp,
+                color = if (isFocused) Color.White.copy(alpha = 0.9f) else Color.Transparent,
                 shape = plateShape
             ),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
-                .width(accentWidth)
-                .fillMaxHeight()
-                .background(accentColor)
-        )
-
-        Box(
-            modifier = Modifier
                 .padding(vertical = 12.dp)
-                .padding(start = if (accentWidth > 0.dp) 14.dp else 19.dp, end = 12.dp),
+                .padding(start = 18.dp, end = 12.dp),
             contentAlignment = Alignment.Center
         ) {
             Icon(
@@ -504,6 +572,8 @@ private fun TvDrawerItemRow(
             }
             .focusProperties {
                 left = FocusRequester.Cancel
+                up = previousFocusRequester ?: FocusRequester.Cancel
+                down = nextFocusRequester ?: FocusRequester.Cancel
             }
             .focusRequester(focusRequester)
             .clickable(
@@ -553,38 +623,84 @@ fun MobileScaffoldLayout(
         modifier = modifier.fillMaxSize(),
         containerColor = ImaxColors.Background,
         bottomBar = {
-            NavigationBar(
-                containerColor = ImaxColors.Surface,
-                contentColor = ImaxColors.TextPrimary,
-                tonalElevation = 0.dp
-            ) {
-                bottomNavItems.forEach { item ->
-                    val isSelected = selectedRoute == item.route
-                    NavigationBarItem(
-                        selected = isSelected,
-                        onClick = { onNavigate(item.route) },
-                        icon = {
-                            Icon(
-                                imageVector = if (isSelected) item.selectedIcon else item.icon,
-                                contentDescription = item.label,
-                                modifier = Modifier.size(22.dp)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                ImaxColors.Background.copy(alpha = 0.8f),
+                                ImaxColors.Background
                             )
-                        },
-                        label = {
-                            Text(
-                                text = item.label,
-                                style = MaterialTheme.typography.labelSmall,
-                                maxLines = 1
-                            )
-                        },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = ImaxColors.Primary,
-                            selectedTextColor = ImaxColors.Primary,
-                            unselectedIconColor = ImaxColors.TextTertiary,
-                            unselectedTextColor = ImaxColors.TextTertiary,
-                            indicatorColor = ImaxColors.Primary.copy(alpha = 0.12f)
                         )
                     )
+                    .padding(horizontal = 16.dp, vertical = 20.dp),
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(percent = 50))
+                        .background(ImaxColors.Surface.copy(alpha = 0.95f))
+                        .border(
+                            width = 1.dp,
+                            color = ImaxColors.CardBorder.copy(alpha = 0.6f),
+                            shape = RoundedCornerShape(percent = 50)
+                        )
+                        .padding(horizontal = 8.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    bottomNavItems.forEach { item ->
+                        val isSelected = selectedRoute == item.route
+                        val iconColor by animateColorAsState(
+                            targetValue = if (isSelected) ImaxColors.Primary else ImaxColors.TextTertiary,
+                            animationSpec = tween(400, easing = FastOutSlowInEasing),
+                            label = "navIconColor"
+                        )
+                        val scale by animateFloatAsState(
+                            targetValue = if (isSelected) 1.25f else 1.0f,
+                            animationSpec = tween(400, easing = FastOutSlowInEasing),
+                            label = "navScale"
+                        )
+                        val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable(
+                                    interactionSource = interactionSource,
+                                    indication = null,
+                                    onClick = { onNavigate(item.route) }
+                                ),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .graphicsLayer {
+                                        scaleX = scale
+                                        scaleY = scale
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (isSelected) item.selectedIcon else item.icon,
+                                    contentDescription = item.label,
+                                    tint = iconColor,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(4.dp)
+                                    .clip(androidx.compose.foundation.shape.CircleShape)
+                                    .background(if (isSelected) ImaxColors.Primary else Color.Transparent)
+                            )
+                        }
+                    }
                 }
             }
         }

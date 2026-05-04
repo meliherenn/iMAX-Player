@@ -233,9 +233,9 @@ class ExoPlayerEngine @Inject constructor(
     override fun selectAudioTrack(index: Int) {
         runOnMain {
             val selection = findTrackSelection(C.TRACK_TYPE_AUDIO, index) ?: return@runOnMain
-            subtitlesDisabled = false
-            trackSelector?.setParameters(
-                trackSelector!!.buildUponParameters()
+            val selector = trackSelector ?: return@runOnMain
+            selector.setParameters(
+                selector.buildUponParameters()
                     .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
                     .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
                     .setOverrideForType(
@@ -253,10 +253,11 @@ class ExoPlayerEngine @Inject constructor(
     override fun selectSubtitleTrack(index: Int) {
         runOnMain {
             val selection = findTrackSelection(C.TRACK_TYPE_TEXT, index) ?: return@runOnMain
+            val selector = trackSelector ?: return@runOnMain
             subtitlesDisabled = false
-            trackSelector?.setParameters(
-                trackSelector!!.buildUponParameters()
-                    .setRendererDisabled(C.TRACK_TYPE_TEXT, false)
+            selector.setParameters(
+                selector.buildUponParameters()
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
                     .clearOverridesOfType(C.TRACK_TYPE_TEXT)
                     .setOverrideForType(
                         TrackSelectionOverride(
@@ -273,10 +274,11 @@ class ExoPlayerEngine @Inject constructor(
     override fun disableSubtitles() {
         subtitlesDisabled = true
         runOnMain {
-            trackSelector?.setParameters(
-                trackSelector!!.buildUponParameters()
+            val selector = trackSelector ?: return@runOnMain
+            selector.setParameters(
+                selector.buildUponParameters()
                     .clearOverridesOfType(C.TRACK_TYPE_TEXT)
-                    .setRendererDisabled(C.TRACK_TYPE_TEXT, true)
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
             )
             _state.value = _state.value.copy(selectedSubtitleTrack = -1)
             publishPlayerState()
@@ -348,8 +350,9 @@ class ExoPlayerEngine @Inject constructor(
     override fun selectVideoTrack(index: Int) {
         runOnMain {
             val selection = findTrackSelection(C.TRACK_TYPE_VIDEO, index) ?: return@runOnMain
-            trackSelector?.setParameters(
-                trackSelector!!.buildUponParameters()
+            val selector = trackSelector ?: return@runOnMain
+            selector.setParameters(
+                selector.buildUponParameters()
                     .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
                     .setOverrideForType(
                         TrackSelectionOverride(
@@ -460,13 +463,14 @@ class ExoPlayerEngine @Inject constructor(
     }
 
     private fun buildPlayer(profile: PlaybackProfile) {
-        trackSelector = DefaultTrackSelector(context).apply {
+        val selector = DefaultTrackSelector(context).apply {
             setParameters(
                 buildUponParameters()
                     .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
                     .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
             )
         }
+        trackSelector = selector
 
         val dataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
             .setUserAgent(userAgent)
@@ -477,7 +481,7 @@ class ExoPlayerEngine @Inject constructor(
 
         val exoPlayer = ExoPlayer.Builder(context)
             .setRenderersFactory(renderersFactory)
-            .setTrackSelector(trackSelector!!)
+            .setTrackSelector(selector)
             .setLoadControl(buildLoadControl(profile))
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
             .setAudioAttributes(
@@ -1105,7 +1109,7 @@ class ExoPlayerEngine @Inject constructor(
             selector.setParameters(
                 selector.buildUponParameters()
                     .clearOverridesOfType(C.TRACK_TYPE_TEXT)
-                    .setRendererDisabled(C.TRACK_TYPE_TEXT, true)
+                    .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
             )
             return
         }
@@ -1113,7 +1117,7 @@ class ExoPlayerEngine @Inject constructor(
         val language = preferredSubtitleLanguage ?: return
         selector.setParameters(
             selector.buildUponParameters()
-                .setRendererDisabled(C.TRACK_TYPE_TEXT, false)
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
                 .setPreferredTextLanguage(language)
         )
     }

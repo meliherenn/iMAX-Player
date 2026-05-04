@@ -1,6 +1,7 @@
 package com.imax.player.data.repository
 
 import android.content.Context
+import com.imax.player.core.common.SensitiveLog
 import com.imax.player.core.database.EpgDao
 import com.imax.player.core.database.EpgProgramEntity
 import com.imax.player.core.worker.EpgSyncWorker
@@ -56,7 +57,7 @@ class EpgRepository @Inject constructor(
     suspend fun fetchAndSave(url: String, channelIdMap: Map<String, String>? = null): Result<Int> =
         withContext(Dispatchers.IO) {
             try {
-                Timber.d("EpgRepository: fetching $url")
+                Timber.d("EpgRepository: fetching %s", SensitiveLog.redactUrl(url))
                 val request = Request.Builder()
                     .url(url)
                     .header("User-Agent", "iMAX Player/Android")

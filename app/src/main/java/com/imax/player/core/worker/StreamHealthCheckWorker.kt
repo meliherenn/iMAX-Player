@@ -3,6 +3,7 @@ package com.imax.player.core.worker
 import android.content.Context
 import androidx.hilt.work.HiltWorker
 import androidx.work.*
+import com.imax.player.core.common.SensitiveLog
 import com.imax.player.core.database.ChannelDao
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -102,7 +103,7 @@ class StreamHealthCheckWorker @AssistedInject constructor(
             // 2xx and 3xx are OK; 4xx auth errors we treat as alive (stream exists)
             code < 500
         } catch (e: Exception) {
-            Timber.v("pingStream dead: $url — ${e.message}")
+            Timber.v("pingStream dead: %s - %s", SensitiveLog.redactUrl(url), e.javaClass.simpleName)
             false
         }
     }

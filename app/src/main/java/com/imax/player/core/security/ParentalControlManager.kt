@@ -1,8 +1,7 @@
 package com.imax.player.core.security
 
 import android.content.Context
-import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyProperties
+import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -17,7 +16,7 @@ import javax.inject.Singleton
  * - PIN setup and verification (4-digit)
  * - Per-category whitelist (child-safe categories)
  * - Child lock mode toggle
- * - PIN stored encrypted via AndroidKeyStore / EncryptedSharedPreferences
+ * - PIN hash stored encrypted via AndroidKeyStore / EncryptedSharedPreferences
  */
 @Singleton
 class ParentalControlManager @Inject constructor(
@@ -29,9 +28,13 @@ class ParentalControlManager @Inject constructor(
         const val KEY_CHILD_LOCK = "child_lock_enabled"
         const val KEY_WHITELIST_PREFIX = "whitelist_"
         const val KEY_PIN_SET = "pin_set"
+        const val KEY_FAILED_ATTEMPTS = "failed_attempts"
+        const val KEY_LOCKED_UNTIL = "locked_until"
+        const val MAX_FAILED_ATTEMPTS = 5
+        const val LOCKOUT_MS = 30_000L
     }
 
-    private val prefs by lazy {
+    private val prefs: SharedPreferences by lazy {
         try {
             val masterKey = MasterKey.Builder(context)
                 .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
@@ -44,9 +47,8 @@ class ParentalControlManager @Inject constructor(
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             )
         } catch (e: Exception) {
-            Timber.e(e, "EncryptedSharedPreferences init failed, falling back to plain prefs")
-            // Fallback to regular prefs (less secure but won't crash)
-            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            Timber.e(e, "EncryptedSharedPreferences init failed")
+            throw IllegalStateException("Secure parental control storage is unavailable", e)
         }
     }
 
@@ -63,15 +65,16 @@ class ParentalControlManager @Inject constructor(
         get() = prefs.getBoolean(KEY_CHILD_LOCK, false)
 
     /**
-     * Set a new 4-digit PIN. Stores its SHA-256 hash.
+     * Set a new 4-digit PIN. Stores a salted PBKDF2 hash.
      * Returns false if PIN format is invalid.
      */
     fun setPin(pin: String): Boolean {
         if (pin.length != 4 || !pin.all { it.isDigit() }) return false
-        val hash = hashPin(pin)
         prefs.edit()
-            .putString(KEY_PIN_HASH, hash)
+            .putString(KEY_PIN_HASH, PinHasher.hash(pin))
             .putBoolean(KEY_PIN_SET, true)
+            .remove(KEY_FAILED_ATTEMPTS)
+            .remove(KEY_LOCKED_UNTIL)
             .apply()
         Timber.d("ParentalControl: PIN set")
         return true
@@ -82,8 +85,26 @@ class ParentalControlManager @Inject constructor(
      */
     fun verifyPin(pin: String): Boolean {
         if (!isPinSet) return false
+        val now = System.currentTimeMillis()
+        if (prefs.getLong(KEY_LOCKED_UNTIL, 0L) > now) return false
+
         val storedHash = prefs.getString(KEY_PIN_HASH, null) ?: return false
-        return hashPin(pin) == storedHash
+        val verified = PinHasher.verify(pin, storedHash)
+
+        if (verified) {
+            prefs.edit()
+                .remove(KEY_FAILED_ATTEMPTS)
+                .remove(KEY_LOCKED_UNTIL)
+                .apply()
+
+            if (PinHasher.needsRehash(storedHash)) {
+                prefs.edit().putString(KEY_PIN_HASH, PinHasher.hash(pin)).apply()
+            }
+            return true
+        }
+
+        recordFailedAttempt(now)
+        return false
     }
 
     /**
@@ -135,21 +156,21 @@ class ParentalControlManager @Inject constructor(
             .remove(KEY_PIN_HASH)
             .putBoolean(KEY_PIN_SET, false)
             .putBoolean(KEY_CHILD_LOCK, false)
+            .remove(KEY_FAILED_ATTEMPTS)
+            .remove(KEY_LOCKED_UNTIL)
             .apply()
         Timber.d("ParentalControl: PIN cleared")
     }
 
-    /**
-     * SHA-256 hash of the PIN for secure storage.
-     */
-    private fun hashPin(pin: String): String {
-        return try {
-            val digest = java.security.MessageDigest.getInstance("SHA-256")
-            val hashBytes = digest.digest(pin.toByteArray(Charsets.UTF_8))
-            hashBytes.joinToString("") { "%02x".format(it) }
-        } catch (e: Exception) {
-            Timber.e(e, "PIN hashing failed")
-            pin // fallback — shouldn't happen
-        }
+    private fun recordFailedAttempt(now: Long) {
+        val failedAttempts = prefs.getInt(KEY_FAILED_ATTEMPTS, 0) + 1
+        prefs.edit().apply {
+            if (failedAttempts >= MAX_FAILED_ATTEMPTS) {
+                putInt(KEY_FAILED_ATTEMPTS, 0)
+                putLong(KEY_LOCKED_UNTIL, now + LOCKOUT_MS)
+            } else {
+                putInt(KEY_FAILED_ATTEMPTS, failedAttempts)
+            }
+        }.apply()
     }
 }

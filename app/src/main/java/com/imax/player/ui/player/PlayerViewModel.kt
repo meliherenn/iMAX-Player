@@ -2,6 +2,7 @@ package com.imax.player.ui.player
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.imax.player.core.common.SensitiveLog
 import com.imax.player.core.datastore.AppSettings
 import com.imax.player.core.datastore.SettingsDataStore
 import com.imax.player.core.model.Channel
@@ -63,6 +64,12 @@ data class LiveChannelSwitchState(
     val errorMessage: String? = null
 )
 
+private data class PlaybackRecoverySnapshot(
+    val playbackState: PlaybackState,
+    val isPlaybackConfirmed: Boolean,
+    val errorMessage: String?
+)
+
 @HiltViewModel
 class PlayerViewModel @Inject constructor(
     val playerManager: PlayerManager,
@@ -122,11 +129,17 @@ class PlayerViewModel @Inject constructor(
 
         viewModelScope.launch {
             state
-                .map { it.playbackState }
+                .map { playerState ->
+                    PlaybackRecoverySnapshot(
+                        playbackState = playerState.playbackState,
+                        isPlaybackConfirmed = playerState.isPlaybackConfirmed,
+                        errorMessage = playerState.errorMessage
+                    )
+                }
                 .distinctUntilChanged()
-                .collect { playbackState ->
-                    if (playbackState == PlaybackState.ERROR && !retryManager.state.value.isRetrying) {
-                        val errorMessage = state.value.errorMessage
+                .collect { recovery ->
+                    if (recovery.playbackState == PlaybackState.ERROR && !retryManager.state.value.isRetrying) {
+                        val errorMessage = recovery.errorMessage
                         val isHttpError = errorMessage?.contains("503") == true ||
                             errorMessage?.contains("HTTP_STATUS") == true ||
                             errorMessage?.contains("BAD_HTTP") == true
@@ -170,7 +183,7 @@ class PlayerViewModel @Inject constructor(
                                 )
                             }
                         }
-                    } else if (state.value.isPlaybackConfirmed) {
+                    } else if (recovery.isPlaybackConfirmed) {
                         httpRetryCount = 0
                         retryManager.onPlaybackSuccess()
                     }
@@ -602,7 +615,12 @@ class PlayerViewModel @Inject constructor(
             val attempts = if (candidateIndex == 0) 2 else 1
 
             for (attempt in 0 until attempts) {
-                Timber.d("LivePlayback: trying candidate[$candidateIndex] attempt[$attempt] url=$candidate")
+                Timber.d(
+                    "LivePlayback: trying candidate[%d] attempt[%d] url=%s",
+                    candidateIndex,
+                    attempt,
+                    SensitiveLog.redactUrl(candidate)
+                )
                 resetPlaybackAttempt()
                 delay(if (attempt == 0) 140L else 220L)
                 playerManager.play(
@@ -620,7 +638,7 @@ class PlayerViewModel @Inject constructor(
                     clearLiveChannelSwitchError()
                     return true
                 } else {
-                    Timber.w("LivePlayback candidate failed: $candidate")
+                    Timber.w("LivePlayback candidate failed: %s", SensitiveLog.redactUrl(candidate))
 
                     if (isUnavailableHttpStatus(state.value.errorMessage)) {
                         Timber.w("LivePlayback HTTP unavailable, skipping candidate: ${state.value.errorMessage}")
@@ -629,7 +647,10 @@ class PlayerViewModel @Inject constructor(
                     }
 
                     if (!shouldRetryCurrentLiveCandidate(candidate, state.value)) {
-                        Timber.w("LivePlayback skipping repeated attempt for non-rendering candidate: $candidate")
+                        Timber.w(
+                            "LivePlayback skipping repeated attempt for non-rendering candidate: %s",
+                            SensitiveLog.redactUrl(candidate)
+                        )
                         resetPlaybackAttempt()
                         break
                     }

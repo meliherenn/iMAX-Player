@@ -5,12 +5,26 @@ import java.util.Locale
 
 object StringUtils {
     fun normalizeTitle(title: String): String {
-        return Normalizer.normalize(title, Normalizer.Form.NFD)
+        return Normalizer.normalize(transliterateSpecialLetters(title), Normalizer.Form.NFD)
             .replace(Regex("[\\p{InCombiningDiacriticalMarks}]"), "")
             .replace(Regex("[^a-zA-Z0-9\\s]"), "")
             .trim()
             .lowercase(Locale.ENGLISH)
             .replace(Regex("\\s+"), " ")
+    }
+
+    private fun transliterateSpecialLetters(value: String): String {
+        return value
+            .replace('ı', 'i')
+            .replace('İ', 'I')
+            .replace('đ', 'd')
+            .replace('Đ', 'D')
+            .replace('ø', 'o')
+            .replace('Ø', 'O')
+            .replace('æ', 'a')
+            .replace('Æ', 'A')
+            .replace('œ', 'o')
+            .replace('Œ', 'O')
     }
 
     /**

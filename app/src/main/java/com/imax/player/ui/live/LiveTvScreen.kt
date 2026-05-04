@@ -89,39 +89,43 @@ class LiveTvViewModel @Inject constructor(
                         )
                     }
 
-                    contentRepository.getChannels(playlist.id).collectLatest { channels ->
-                        val orderedChannels = channels
-                        val processed = withContext(Dispatchers.Default) {
-                            val groups = orderedChannels.distinctGroupsInOrder()
-                            val mobileGroups = prioritizeGroupsForMobile(groups)
-                            val mobileChannels = rankChannelsForMobile(orderedChannels)
-                            val groupCounts = orderedChannels
-                                .groupBy { it.groupTitle }
-                                .mapValues { it.value.size }
-
-                            ProcessedLiveTvContent(
-                                groups = groups,
-                                mobileGroups = mobileGroups,
-                                mobileChannels = mobileChannels,
-                                groupCounts = groupCounts
-                            )
+                    contentRepository.getChannels(playlist.id)
+                        .combine(contentRepository.getChannelGroups(playlist.id)) { channels, groups ->
+                            channels to groups
                         }
+                        .collectLatest { (channels, groups) ->
+                            val orderedChannels = channels
+                            val processed = withContext(Dispatchers.Default) {
+                                val mobileGroups = prioritizeGroupsForMobile(groups)
+                                val mobileChannels = rankChannelsForMobile(orderedChannels)
+                                val groupCounts = orderedChannels
+                                    .filter { it.groupTitle.isNotBlank() }
+                                    .groupBy { it.groupTitle }
+                                    .mapValues { it.value.size }
 
-                        _state.update { currentState ->
-                            val selectedGroup = currentState.selectedGroup
-                                ?.takeIf { it in processed.groups }
+                                ProcessedLiveTvContent(
+                                    groups = groups,
+                                    mobileGroups = mobileGroups,
+                                    mobileChannels = mobileChannels,
+                                    groupCounts = groupCounts
+                                )
+                            }
 
-                            currentState.copy(
-                                channels = orderedChannels,
-                                mobileChannels = processed.mobileChannels,
-                                groups = processed.groups,
-                                mobileGroups = processed.mobileGroups,
-                                groupCounts = processed.groupCounts,
-                                selectedGroup = selectedGroup,
-                                isLoading = false
-                            )
+                            _state.update { currentState ->
+                                val selectedGroup = currentState.selectedGroup
+                                    ?.takeIf { it in processed.groups }
+
+                                currentState.copy(
+                                    channels = orderedChannels,
+                                    mobileChannels = processed.mobileChannels,
+                                    groups = processed.groups,
+                                    mobileGroups = processed.mobileGroups,
+                                    groupCounts = processed.groupCounts,
+                                    selectedGroup = selectedGroup,
+                                    isLoading = false
+                                )
+                            }
                         }
-                    }
                 }
             }
         }
@@ -206,6 +210,15 @@ private fun TvLiveTvContent(
         val firstChannelRequester = display.firstOrNull()
             ?.let { channel -> channelFocusRequesters.getValue(channel.id) }
 
+        LaunchedEffect(state.isLoading, state.selectedGroup, display.firstOrNull()?.id) {
+            if (!state.isLoading) {
+                withFrameNanos { }
+                selectedCategoryRequester
+                    ?.requestFocusSafely()
+                    ?: firstChannelRequester?.requestFocusSafely()
+            }
+        }
+
         TvCategoryPanel {
             itemsIndexed(displayCategories, key = { _, category -> category.id }) { index, category ->
                 TvRailCategoryItem(
@@ -214,7 +227,6 @@ private fun TvLiveTvContent(
                     modifier = Modifier
                         .focusRequester(categoryFocusRequesters.getValue(category.id))
                         .focusProperties {
-                            left = FocusRequester.Cancel
                             right = firstChannelRequester ?: FocusRequester.Cancel
                             // Prevent wrap-around: block UP on first item, DOWN on last item
                             if (index == 0) up = FocusRequester.Cancel
@@ -351,19 +363,6 @@ private data class ProcessedLiveTvContent(
     val mobileChannels: List<Channel>,
     val groupCounts: Map<String, Int>
 )
-
-private fun List<Channel>.distinctGroupsInOrder(): List<String> {
-    if (isEmpty()) return emptyList()
-
-    val seen = LinkedHashSet<String>(size)
-    forEach { channel ->
-        val group = channel.groupTitle
-        if (group.isNotBlank()) {
-            seen += group
-        }
-    }
-    return seen.toList()
-}
 
 @Composable
 private fun ChannelListLoadingPlaceholder() {
@@ -541,3 +540,7 @@ private data class TvCategoryRailItem(
 )
 
 private const val TV_ALL_CATEGORY_KEY = "__tv_all__"
+
+private fun FocusRequester.requestFocusSafely() {
+    runCatching { requestFocus() }
+}
