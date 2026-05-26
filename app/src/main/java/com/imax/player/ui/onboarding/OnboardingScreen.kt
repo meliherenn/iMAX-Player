@@ -1496,7 +1496,7 @@ private fun TvPlaylistRow(
                 // Right Actions Area
                 Row(
                     modifier = Modifier
-                        .padding(end = 44.dp)
+                        .padding(end = 60.dp)
                         .padding(vertical = 20.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -2490,6 +2490,7 @@ private fun TvFocusableCard(
     )
     val trailingFocusPillColor by animateColorAsState(
         targetValue = when {
+            onClick == null -> Color.Transparent
             isFocusedAndSelected -> ImaxColors.Primary.copy(alpha = 0.35f)
             hasFocus -> ImaxColors.Primary.copy(alpha = 0.25f)
             isSelected -> ImaxColors.Primary.copy(alpha = 0.15f)
