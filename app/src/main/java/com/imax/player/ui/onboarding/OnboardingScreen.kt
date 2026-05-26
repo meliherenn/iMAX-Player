@@ -2546,20 +2546,20 @@ private fun TvActionButton(
     val backgroundColor = when {
         !enabled -> ImaxColors.SurfaceVariant.copy(alpha = 0.5f)
         isDestructive -> ImaxColors.Error.copy(alpha = if (isFocused) 0.6f else 0.18f)
-        isSecondary -> ImaxColors.SurfaceVariant
+        isSecondary -> if (isFocused) ImaxColors.SurfaceElevated else ImaxColors.SurfaceVariant
         else -> if (isFocused) Color.White else ImaxColors.SurfaceVariant.copy(alpha = 0.5f)
     }
     val borderColor = when {
         !enabled -> ImaxColors.CardBorder
         isDestructive && isFocused -> ImaxColors.Error
-        isFocused -> Color.White
-        isSecondary -> ImaxColors.CardBorder
+        isSecondary -> if (isFocused) ImaxColors.FocusBorder else ImaxColors.CardBorder
+        isFocused -> ImaxColors.FocusBorder
         else -> Color.Transparent
     }
     val textColor = when {
         !enabled -> ImaxColors.TextTertiary
-        isFocused && !isDestructive -> Color.Black
-        isFocused && isDestructive -> Color.White
+        isFocused && !isDestructive && !isSecondary -> Color.Black
+        isFocused && isSecondary -> ImaxColors.TextPrimary
         else -> ImaxColors.TextPrimary
     }
 
@@ -2569,11 +2569,11 @@ private fun TvActionButton(
             .shadow(
                 elevation = if (isFocused && enabled) 16.dp else 0.dp,
                 shape = RoundedCornerShape(20.dp),
-                ambientColor = Color.Black,
-                spotColor = Color.Black
+                ambientColor = if (isFocused) ImaxColors.FocusGlow else Color.Black,
+                spotColor = if (isFocused) ImaxColors.FocusGlow else Color.Black
             )
             .background(backgroundColor, RoundedCornerShape(20.dp))
-            .border(if (isFocused) 0.dp else 1.dp, borderColor, RoundedCornerShape(20.dp))
+            .border(if (isFocused) 2.5.dp else 1.dp, borderColor, RoundedCornerShape(20.dp))
             .onFocusChanged { isFocused = it.isFocused }
             .clickable(
                 enabled = enabled,
