@@ -1391,99 +1391,118 @@ private fun TvPlaylistRow(
         TvFocusableCard(
             modifier = modifier.fillMaxWidth(),
             isSelected = playlist.isActive,
-            onClick = onSelect
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 26.dp, vertical = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+            onClick = null
+        ) { isFocused ->
+            var isLeftFocused by remember { mutableStateOf(false) }
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.Top
+                // Left Clickable/Focusable Area
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .onFocusChanged { isLeftFocused = it.isFocused }
+                        .clickable(onClick = onSelect)
                 ) {
-                    Box(
+                    Column(
                         modifier = Modifier
-                            .size(64.dp)
-                            .clip(RoundedCornerShape(22.dp))
-                            .background(ImaxColors.Primary.copy(alpha = 0.16f)),
-                        contentAlignment = Alignment.Center
+                            .fillMaxWidth()
+                            .padding(start = 26.dp, top = 20.dp, bottom = 20.dp, end = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        Icon(
-                            imageVector = playlistTypeIcon(playlist.type),
-                            contentDescription = null,
-                            tint = ImaxColors.Primary,
-                            modifier = Modifier.size(34.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.width(22.dp))
-
-                    Column(modifier = Modifier.weight(1f)) {
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = playlist.name,
-                                style = MaterialTheme.typography.headlineSmall,
-                                color = ImaxColors.TextPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            if (playlist.isActive) {
-                                TvActivePill()
+                            Box(
+                                modifier = Modifier
+                                    .size(64.dp)
+                                    .clip(RoundedCornerShape(22.dp))
+                                    .background(ImaxColors.Primary.copy(alpha = 0.16f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = playlistTypeIcon(playlist.type),
+                                    contentDescription = null,
+                                    tint = ImaxColors.Primary,
+                                    modifier = Modifier.size(34.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(22.dp))
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Text(
+                                        text = playlist.name,
+                                        style = MaterialTheme.typography.headlineSmall,
+                                        color = ImaxColors.TextPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (playlist.isActive) {
+                                        TvActivePill()
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = playlistTypeLabel(playlist.type),
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = ImaxColors.TextSecondary
+                                )
                             }
                         }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = playlistTypeLabel(playlist.type),
-                            style = MaterialTheme.typography.titleMedium,
-                            color = ImaxColors.TextSecondary
-                        )
-                    }
 
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        TvInlineHint("OK ile aç")
-                        if (onEdit != null) {
-                            TvPlaylistMiniAction(
-                                icon = Icons.Filled.Edit,
-                                contentDescription = "Düzenle",
-                                tint = ImaxColors.TextPrimary,
-                                onClick = onEdit
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            TvPlaylistStat(
+                                value = playlist.channelCount,
+                                label = "Kanal",
+                                modifier = Modifier.weight(1f)
+                            )
+                            TvPlaylistStat(
+                                value = playlist.movieCount,
+                                label = "Film",
+                                modifier = Modifier.weight(1f)
+                            )
+                            TvPlaylistStat(
+                                value = playlist.seriesCount,
+                                label = "Dizi",
+                                modifier = Modifier.weight(1f)
                             )
                         }
-                        TvPlaylistMiniAction(
-                            icon = Icons.Filled.Delete,
-                            contentDescription = "Sil",
-                            tint = ImaxColors.Error.copy(alpha = 0.9f),
-                            onClick = onDelete
-                        )
                     }
                 }
 
+                // Right Actions Area
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .padding(end = 26.dp)
+                        .padding(vertical = 20.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    TvPlaylistStat(
-                        value = playlist.channelCount,
-                        label = "Kanal",
-                        modifier = Modifier.weight(1f)
-                    )
-                    TvPlaylistStat(
-                        value = playlist.movieCount,
-                        label = "Film",
-                        modifier = Modifier.weight(1f)
-                    )
-                    TvPlaylistStat(
-                        value = playlist.seriesCount,
-                        label = "Dizi",
-                        modifier = Modifier.weight(1f)
+                    TvInlineHint("OK ile aç", isHighlighted = isLeftFocused)
+                    if (onEdit != null) {
+                        TvPlaylistMiniAction(
+                            icon = Icons.Filled.Edit,
+                            contentDescription = "Düzenle",
+                            tint = ImaxColors.TextPrimary,
+                            onClick = onEdit
+                        )
+                    }
+                    TvPlaylistMiniAction(
+                        icon = Icons.Filled.Delete,
+                        contentDescription = "Sil",
+                        tint = ImaxColors.Error.copy(alpha = 0.9f),
+                        onClick = onDelete
                     )
                 }
             }
@@ -1508,10 +1527,9 @@ private fun TvPlaylistMiniAction(
     Surface(
         modifier = Modifier
             .size(56.dp)
-            .graphicsLayer(scaleX = scale, scaleY = scale)
             .onFocusChanged { isFocused = it.isFocused }
             .clickable(onClick = onClick)
-            .focusable(),
+            .graphicsLayer(scaleX = scale, scaleY = scale),
         shape = RoundedCornerShape(18.dp),
         color = if (isFocused) Color.White else ImaxColors.Background.copy(alpha = 0.5f),
         border = androidx.compose.foundation.BorderStroke(
@@ -1594,7 +1612,7 @@ private fun TvAddPlaylistCard(
     TvFocusableCard(
         modifier = modifier,
         onClick = onClick
-    ) {
+    ) { isFocused ->
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1629,7 +1647,7 @@ private fun TvAddPlaylistCard(
                     color = ImaxColors.TextSecondary
                 )
             }
-            TvInlineHint("OK ile ekle")
+            TvInlineHint("OK ile ekle", isHighlighted = isFocused)
         }
     }
 }
@@ -2396,16 +2414,16 @@ private fun TvTypeCard(
 @Composable
 private fun TvFocusableCard(
     modifier: Modifier = Modifier,
-    onClick: () -> Unit,
+    onClick: (() -> Unit)? = null,
     isSelected: Boolean = false,
-    content: @Composable () -> Unit
+    content: @Composable (isFocused: Boolean) -> Unit
 ) {
-    var isFocused by remember { mutableStateOf(false) }
-    val isFocusedAndSelected = isFocused && isSelected
+    var hasFocus by remember { mutableStateOf(false) }
+    val isFocusedAndSelected = hasFocus && isSelected
     val scale by animateFloatAsState(
         targetValue = when {
             isFocusedAndSelected -> 1.055f
-            isFocused -> 1.045f
+            hasFocus -> 1.045f
             isSelected -> 1.012f
             else -> 1f
         },
@@ -2415,7 +2433,7 @@ private fun TvFocusableCard(
     val borderWidth by animateDpAsState(
         targetValue = when {
             isFocusedAndSelected -> 4.dp
-            isFocused -> 3.5.dp
+            hasFocus -> 3.5.dp
             isSelected -> 2.dp
             else -> 1.dp
         },
@@ -2425,7 +2443,7 @@ private fun TvFocusableCard(
     val backgroundColor by animateColorAsState(
         targetValue = when {
             isFocusedAndSelected -> Color(0xFF2C161D)
-            isFocused -> Color(0xFF1E1A2E)
+            hasFocus -> Color(0xFF1E1A2E)
             isSelected -> ImaxColors.Surface.copy(alpha = 0.96f)
             else -> ImaxColors.Surface
         },
@@ -2434,7 +2452,7 @@ private fun TvFocusableCard(
     val borderColor by animateColorAsState(
         targetValue = when {
             isFocusedAndSelected -> ImaxColors.Primary
-            isFocused -> ImaxColors.FocusBorder
+            hasFocus -> ImaxColors.FocusBorder
             isSelected -> ImaxColors.Primary.copy(alpha = 0.6f)
             else -> ImaxColors.CardBorder
         },
@@ -2443,7 +2461,7 @@ private fun TvFocusableCard(
     val focusGlowColor by animateColorAsState(
         targetValue = when {
             isFocusedAndSelected -> ImaxColors.FocusGlow
-            isFocused -> ImaxColors.FocusGlow
+            hasFocus -> ImaxColors.FocusGlow
             else -> Color.Transparent
         },
         label = "tvFocusableCardGlowColor"
@@ -2451,7 +2469,7 @@ private fun TvFocusableCard(
     val indicatorWidth by animateDpAsState(
         targetValue = when {
             isFocusedAndSelected -> 12.dp
-            isFocused -> 10.dp
+            hasFocus -> 10.dp
             isSelected -> 6.dp
             else -> 0.dp
         },
@@ -2461,7 +2479,7 @@ private fun TvFocusableCard(
     val trailingFocusPillColor by animateColorAsState(
         targetValue = when {
             isFocusedAndSelected -> ImaxColors.Primary.copy(alpha = 0.35f)
-            isFocused -> ImaxColors.Primary.copy(alpha = 0.25f)
+            hasFocus -> ImaxColors.Primary.copy(alpha = 0.25f)
             isSelected -> ImaxColors.Primary.copy(alpha = 0.15f)
             else -> Color.Transparent
         },
@@ -2470,14 +2488,17 @@ private fun TvFocusableCard(
 
     Box(
         modifier = modifier
-            .onFocusChanged { isFocused = it.isFocused }
-            .clickable(onClick = onClick)
+            .onFocusChanged { hasFocus = it.hasFocus }
+            .then(
+                if (onClick != null) Modifier.clickable(onClick = onClick)
+                else Modifier
+            )
             .graphicsLayer(scaleX = scale, scaleY = scale)
             .shadow(
-                elevation = if (isFocused) 26.dp else 0.dp,
+                elevation = if (hasFocus) 26.dp else 0.dp,
                 shape = RoundedCornerShape(28.dp),
-                ambientColor = if (isFocused) focusGlowColor else ImaxColors.FocusGlow,
-                spotColor = if (isFocused) focusGlowColor else ImaxColors.FocusGlow
+                ambientColor = if (hasFocus) focusGlowColor else ImaxColors.FocusGlow,
+                spotColor = if (hasFocus) focusGlowColor else ImaxColors.FocusGlow
             )
             .clip(RoundedCornerShape(28.dp))
             .background(backgroundColor)
@@ -2503,7 +2524,7 @@ private fun TvFocusableCard(
                         .background(
                             when {
                                 isFocusedAndSelected -> ImaxColors.Primary
-                                isFocused -> ImaxColors.PrimaryVariant
+                                hasFocus -> ImaxColors.PrimaryVariant
                                 else -> ImaxColors.Primary.copy(alpha = 0.6f)
                             }
                         )
@@ -2513,14 +2534,14 @@ private fun TvFocusableCard(
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        .width(12.dp)
-                        .height(54.dp)
-                        .clip(RoundedCornerShape(999.dp))
+                        .width(28.dp)
+                        .height(28.dp)
+                        .clip(CircleShape)
                         .background(trailingFocusPillColor)
                 )
             }
         }
-        content()
+        content(hasFocus)
     }
 }
 
@@ -2609,15 +2630,19 @@ private fun TvActionButton(
 }
 
 @Composable
-private fun TvInlineHint(text: String) {
+private fun TvInlineHint(
+    text: String,
+    isHighlighted: Boolean = false
+) {
     Surface(
         shape = RoundedCornerShape(999.dp),
-        color = ImaxColors.Secondary.copy(alpha = 0.15f)
+        color = if (isHighlighted) ImaxColors.Primary.copy(alpha = 0.24f) else ImaxColors.Secondary.copy(alpha = 0.15f),
+        border = if (isHighlighted) androidx.compose.foundation.BorderStroke(1.dp, ImaxColors.Primary) else null
     ) {
         Text(
             text = text,
             style = MaterialTheme.typography.labelLarge,
-            color = ImaxColors.Secondary,
+            color = if (isHighlighted) ImaxColors.Primary else ImaxColors.Secondary,
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
         )
     }
@@ -2736,7 +2761,7 @@ private fun TvQrPairingCard(
     TvFocusableCard(
         modifier = modifier,
         onClick = onClick
-    ) {
+    ) { isFocused ->
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -2771,7 +2796,7 @@ private fun TvQrPairingCard(
                     color = ImaxColors.TextSecondary
                 )
             }
-            TvInlineHint("OK ile başlat")
+            TvInlineHint("OK ile başlat", isHighlighted = isFocused)
         }
     }
 }
