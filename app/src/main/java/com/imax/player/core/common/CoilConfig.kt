@@ -42,6 +42,6 @@ fun buildImaxImageLoader(context: Context, okHttpClient: OkHttpClient): ImageLoa
         .diskCachePolicy(CachePolicy.ENABLED)
         .networkCachePolicy(CachePolicy.ENABLED)
         .crossfade(300)
-        .respectCacheHeaders(false) // Many IPTV image servers send no-cache headers
+        .respectCacheHeaders(false) // Many image servers send no-cache headers
         .build()
 }

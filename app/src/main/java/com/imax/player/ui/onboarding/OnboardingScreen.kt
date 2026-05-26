@@ -75,6 +75,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -96,8 +97,59 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
+import android.content.Context
+import android.net.Uri
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.decodeFromJsonElement
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.File
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import coil.compose.AsyncImage
 
 private const val TV_ONBOARDING_LOG_TAG = "TvOnboarding"
+
+private const val SUPABASE_URL = "https://apkurmmvlpqsznybnxyq.supabase.co"
+private const val SUPABASE_ANON_KEY = "sb_publishable_QU2LmMC06cBEpcabFqjTJg_vIrEFNUm"
+
+@Serializable
+data class SupabasePairingResponse(
+    val status: String,
+    val payload: JsonObject? = null
+)
+
+@Serializable
+data class RemoteSetupPayload(
+    val version: Int,
+    val source: String,
+    val pairingCode: String,
+    val playlist: RemotePlaylistInfo
+)
+
+@Serializable
+data class RemotePlaylistInfo(
+    val name: String,
+    val type: String,
+    val epgUrl: String = "",
+    val rememberOnStart: Boolean = true,
+    val epgAutoSync: Boolean = true,
+    val serverUrl: String = "",
+    val username: String = "",
+    val password: String = "",
+    val url: String = "",
+    val fileName: String = "",
+    val fileSize: Long = 0,
+    val fileContent: String = ""
+)
 
 data class OnboardingState(
     val playlists: List<Playlist> = emptyList(),
@@ -105,15 +157,29 @@ data class OnboardingState(
     val showAddDialog: Boolean = false,
     val isSyncing: Boolean = false,
     val syncMessage: String = "",
-    val syncError: String? = null
+    val syncError: String? = null,
+    val pairingCode: String? = null,
+    val pairingStatus: String? = null,
+    val pairingErrorMessage: String? = null
 )
 
 @HiltViewModel
 class OnboardingViewModel @Inject constructor(
-    private val playlistRepository: PlaylistRepository
+    private val playlistRepository: PlaylistRepository,
+    @ApplicationContext private val context: Context,
+    private val okHttpClient: OkHttpClient
 ) : ViewModel() {
     private val _state = MutableStateFlow(OnboardingState())
     val state: StateFlow<OnboardingState> = _state.asStateFlow()
+
+    private var pairingJob: Job? = null
+
+    private val json = Json {
+        ignoreUnknownKeys = true
+        coerceInputValues = true
+        isLenient = true
+        explicitNulls = false
+    }
 
     init {
         viewModelScope.launch {
@@ -126,6 +192,181 @@ class OnboardingViewModel @Inject constructor(
             } catch(e: Exception) {
                 Timber.e(e, "Error collecting playlists")
                 _state.update { it.copy(isLoading = false) }
+            }
+        }
+    }
+
+    fun startQrPairing(onPlaylistSelected: () -> Unit) {
+        pairingJob?.cancel()
+        val code = (1..6).map { "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".random() }.joinToString("")
+        _state.update {
+            it.copy(
+                pairingCode = code,
+                pairingStatus = "pending",
+                pairingErrorMessage = null
+            )
+        }
+
+        pairingJob = viewModelScope.launch {
+            val isInserted = insertPairingCode(code)
+            if (!isInserted) {
+                _state.update {
+                    it.copy(
+                        pairingStatus = "error",
+                        pairingErrorMessage = "Sunucu bağlantısı kurulamadı."
+                    )
+                }
+                return@launch
+            }
+
+            val startTime = System.currentTimeMillis()
+            val timeout = 10 * 60 * 1000 // 10 minutes
+            var isCompleted = false
+
+            while (System.currentTimeMillis() - startTime < timeout) {
+                delay(2000)
+                val response = checkPairingStatus(code)
+                if (response != null && response.status == "completed") {
+                    isCompleted = true
+                    if (response.payload != null) {
+                        _state.update {
+                            it.copy(
+                                pairingStatus = "completed",
+                                pairingCode = null
+                            )
+                        }
+                        saveAndActivateRemotePlaylist(response.payload, onPlaylistSelected)
+                    } else {
+                        _state.update {
+                            it.copy(
+                                pairingStatus = "error",
+                                pairingErrorMessage = "Sunucudan boş paket döndü."
+                            )
+                        }
+                    }
+                    break
+                }
+            }
+
+            if (!isCompleted && _state.value.pairingStatus == "pending") {
+                _state.update {
+                    it.copy(
+                        pairingStatus = "error",
+                        pairingErrorMessage = "Eşleşme süresi doldu."
+                    )
+                }
+            }
+        }
+    }
+
+    fun cancelPairing() {
+        pairingJob?.cancel()
+        pairingJob = null
+        _state.update {
+            it.copy(
+                pairingCode = null,
+                pairingStatus = "idle",
+                pairingErrorMessage = null
+            )
+        }
+    }
+
+    private suspend fun insertPairingCode(code: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val jsonBody = """
+                {
+                    "pairing_code": "$code",
+                    "status": "pending",
+                    "payload": {}
+                }
+            """.trimIndent()
+            val body = jsonBody.toRequestBody("application/json".toMediaType())
+            val request = Request.Builder()
+                .url("$SUPABASE_URL/rest/v1/tv_pairings")
+                .post(body)
+                .addHeader("apikey", SUPABASE_ANON_KEY)
+                .addHeader("Authorization", "Bearer $SUPABASE_ANON_KEY")
+                .addHeader("Content-Type", "application/json")
+                .build()
+
+            okHttpClient.newCall(request).execute().use { response ->
+                response.isSuccessful
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to insert pairing code")
+            false
+        }
+    }
+
+    private suspend fun checkPairingStatus(code: String): SupabasePairingResponse? = withContext(Dispatchers.IO) {
+        try {
+            val request = Request.Builder()
+                .url("$SUPABASE_URL/rest/v1/tv_pairings?pairing_code=eq.$code&select=status,payload")
+                .get()
+                .addHeader("apikey", SUPABASE_ANON_KEY)
+                .addHeader("Authorization", "Bearer $SUPABASE_ANON_KEY")
+                .build()
+
+            okHttpClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val bodyString = response.body?.string() ?: return@use null
+                    val list = json.decodeFromString<List<SupabasePairingResponse>>(bodyString)
+                    list.firstOrNull()
+                } else {
+                    null
+                }
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to check pairing status")
+            null
+        }
+    }
+
+    private fun saveAndActivateRemotePlaylist(payloadJson: JsonObject, onPlaylistSelected: () -> Unit) {
+        viewModelScope.launch {
+            try {
+                val payload = json.decodeFromJsonElement<RemoteSetupPayload>(payloadJson)
+                val remotePlaylist = payload.playlist
+
+                val type = when (remotePlaylist.type) {
+                    "xtream" -> PlaylistType.XTREAM_CODES
+                    "m3u" -> PlaylistType.M3U_URL
+                    "file" -> PlaylistType.M3U_FILE
+                    else -> PlaylistType.M3U_URL
+                }
+
+                var filePath = ""
+                if (type == PlaylistType.M3U_FILE && remotePlaylist.fileContent.isNotEmpty()) {
+                    val dir = File(context.filesDir, "playlists")
+                    if (!dir.exists()) dir.mkdirs()
+                    val fileName = remotePlaylist.fileName.ifBlank { "remote_${System.currentTimeMillis()}.m3u" }
+                    val file = File(dir, fileName)
+                    file.writeText(remotePlaylist.fileContent)
+                    filePath = file.absolutePath
+                }
+
+                val playlist = Playlist(
+                    name = remotePlaylist.name,
+                    type = type,
+                    url = if (type == PlaylistType.M3U_URL) remotePlaylist.url else "",
+                    filePath = filePath,
+                    serverUrl = if (type == PlaylistType.XTREAM_CODES) remotePlaylist.serverUrl else "",
+                    username = if (type == PlaylistType.XTREAM_CODES) remotePlaylist.username else "",
+                    password = if (type == PlaylistType.XTREAM_CODES) remotePlaylist.password else ""
+                )
+
+                val id = playlistRepository.savePlaylist(playlist)
+                val savedPlaylist = playlist.copy(id = id)
+
+                selectPlaylist(savedPlaylist, onPlaylistSelected)
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to save remote playlist")
+                _state.update {
+                    it.copy(
+                        pairingStatus = "error",
+                        pairingErrorMessage = "Playlist kaydedilemedi: ${e.localizedMessage}"
+                    )
+                }
             }
         }
     }
@@ -428,12 +669,12 @@ private fun TvOnboardingContent(
     val firstPlaylistFocusRequester = remember { FocusRequester() }
     var editingPlaylist by remember { mutableStateOf<Playlist?>(null) }
 
-    LaunchedEffect(state.showAddDialog, editingPlaylist, state.isSyncing, state.isLoading, state.playlists.size) {
-        if (!state.showAddDialog && editingPlaylist == null && !state.isSyncing && !state.isLoading) {
+    LaunchedEffect(state.showAddDialog, editingPlaylist, state.isSyncing, state.isLoading, state.playlists.size, state.pairingCode) {
+        if (!state.showAddDialog && editingPlaylist == null && !state.isSyncing && !state.isLoading && state.pairingCode == null) {
             if (state.playlists.isNotEmpty()) {
                 firstPlaylistFocusRequester.requestFocusSafely("TV onboarding first saved playlist")
             } else {
-                addPlaylistFocusRequester.requestFocusSafely("TV onboarding add playlist card")
+                addPlaylistFocusRequester.requestFocusSafely("TV onboarding QR pairing card")
             }
         }
     }
@@ -463,12 +704,21 @@ private fun TvOnboardingContent(
             }
 
             if (state.playlists.isEmpty() && !state.isLoading) {
-                TvAddPlaylistCard(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(addPlaylistFocusRequester),
-                    onClick = { viewModel.showAddDialog() }
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(24.dp)
+                ) {
+                    TvQrPairingCard(
+                        modifier = Modifier
+                            .weight(1.2f)
+                            .focusRequester(addPlaylistFocusRequester),
+                        onClick = { viewModel.startQrPairing(onPlaylistSelected) }
+                    )
+                    TvAddPlaylistCard(
+                        modifier = Modifier.weight(1f),
+                        onClick = { viewModel.showAddDialog() }
+                    )
+                }
             } else {
                 Text(
                     "Listelerim",
@@ -519,7 +769,20 @@ private fun TvOnboardingContent(
                 },
                 onTest = { name, type, url, server, user, pass, onResult ->
                     viewModel.testDraftConnection(name, type, url, server, user, pass, onResult)
+                },
+                onQrClick = {
+                    viewModel.hideAddDialog()
+                    viewModel.startQrPairing(onPlaylistSelected)
                 }
+            )
+        }
+
+        if (state.pairingCode != null) {
+            TvQrPairingDialog(
+                pairingCode = state.pairingCode,
+                pairingStatus = state.pairingStatus ?: "pending",
+                errorMessage = state.pairingErrorMessage,
+                onDismiss = { viewModel.cancelPairing() }
             )
         }
 
@@ -623,7 +886,7 @@ private fun MobilePlaylistTopBar(
                 text = if (playlistCount > 0) {
                     "$playlistCount kaynak hazır"
                 } else {
-                    "Kendi IPTV kaynaklarını ekle"
+                    "Kendi oynatma listelerini ekle"
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = ImaxColors.TextTertiary
@@ -1020,7 +1283,7 @@ private fun TvPlaylistHeader(
                         }
                         Text(
                             text = if (playlists.isEmpty()) {
-                                "TV için kendi IPTV kaynaklarını ekle"
+                                "TV için medya kaynaklarını ekle"
                             } else {
                                 "TV liste merkezi"
                             },
@@ -1376,13 +1639,15 @@ private fun AddPlaylistDialog(
     isTv: Boolean,
     onDismiss: () -> Unit,
     onAdd: (String, PlaylistType, String, String, String, String) -> Unit,
-    onTest: (String, PlaylistType, String, String, String, String, (String) -> Unit) -> Unit
+    onTest: (String, PlaylistType, String, String, String, String, (String) -> Unit) -> Unit,
+    onQrClick: (() -> Unit)? = null
 ) {
     if (isTv) {
         TvAddPlaylistDialog(
             onDismiss = onDismiss,
             onAdd = onAdd,
-            onTest = onTest
+            onTest = onTest,
+            onQrClick = onQrClick
         )
     } else {
         MobileAddPlaylistDialog(
@@ -1630,7 +1895,8 @@ private fun TvAddPlaylistDialog(
     primaryActionText: String = "Save and Continue",
     onDismiss: () -> Unit,
     onAdd: (String, PlaylistType, String, String, String, String) -> Unit,
-    onTest: (String, PlaylistType, String, String, String, String, (String) -> Unit) -> Unit
+    onTest: (String, PlaylistType, String, String, String, String, (String) -> Unit) -> Unit,
+    onQrClick: (() -> Unit)? = null
 ) {
     var selectedType by remember(initialPlaylist?.id) {
         mutableStateOf(initialPlaylist?.type ?: PlaylistType.M3U_URL)
@@ -1763,7 +2029,7 @@ private fun TvAddPlaylistDialog(
                             testMessage = null
                         },
                         label = "Playlist name",
-                        placeholder = "Living room IPTV",
+                        placeholder = "Living room playlist",
                         focusRequester = nameFocusRequester
                     )
 
@@ -1870,11 +2136,18 @@ private fun TvAddPlaylistDialog(
                         )
                     }
                 }
-
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
+                    if (onQrClick != null && initialPlaylist == null) {
+                        TvActionButton(
+                            text = "QR ile Uzaktan Ekle",
+                            onClick = onQrClick,
+                            modifier = Modifier.weight(1f),
+                            isSecondary = true
+                        )
+                    }
                     TvActionButton(
                         text = if (isTesting) "Testing..." else "Test Connection",
                         onClick = {
@@ -2454,4 +2727,233 @@ private fun FocusRequester.requestFocusSafely(reason: String) {
         .onFailure { error ->
             Timber.tag(TV_ONBOARDING_LOG_TAG).w(error, "Unable to request focus for %s", reason)
         }
+}
+
+@Composable
+private fun TvQrPairingCard(
+    modifier: Modifier,
+    onClick: () -> Unit
+) {
+    TvFocusableCard(
+        modifier = modifier,
+        onClick = onClick
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 32.dp, vertical = 28.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(68.dp)
+                    .clip(CircleShape)
+                    .background(ImaxColors.Primary.copy(alpha = 0.16f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Link,
+                    contentDescription = null,
+                    tint = ImaxColors.Primary,
+                    modifier = Modifier.size(34.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(20.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "QR Kod ile Uzaktan Ekle",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = ImaxColors.TextPrimary
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    "QR kodu telefonunuzla taratarak listenizi saniyeler içinde yükleyin.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = ImaxColors.TextSecondary
+                )
+            }
+            TvInlineHint("OK ile başlat")
+        }
+    }
+}
+
+@Composable
+private fun TvQrPairingDialog(
+    pairingCode: String,
+    pairingStatus: String,
+    errorMessage: String?,
+    onDismiss: () -> Unit
+) {
+    val netlifyBaseUrl = "https://imax-player.netlify.app"
+    val pairingUrl = "$netlifyBaseUrl/?code=$pairingCode"
+    val qrCodeUrl = "https://api.qrserver.com/v1/create-qr-code/?size=400x400&color=ffffff&bgcolor=12121a&data=${Uri.encode(pairingUrl)}"
+
+    val closeFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        closeFocusRequester.requestFocusSafely("TV QR pairing dialog close button")
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false)
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.85f)
+                .widthIn(max = 880.dp),
+            shape = RoundedCornerShape(32.dp),
+            color = ImaxColors.Surface,
+            border = androidx.compose.foundation.BorderStroke(
+                width = 1.dp,
+                color = ImaxColors.CardBorder.copy(alpha = 0.75f)
+            )
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(40.dp),
+                verticalArrangement = Arrangement.spacedBy(28.dp)
+            ) {
+                // Header
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Uzaktan Kurulum (Remote Setup)",
+                        style = MaterialTheme.typography.displaySmall,
+                        color = ImaxColors.TextPrimary
+                    )
+                    Text(
+                        text = "Kumandayla uzun listeleri yazmak yerine QR kodu telefonunuzdan taratarak hızlıca kurulumu tamamlayın.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = ImaxColors.TextSecondary
+                    )
+                }
+
+                // Row containing QR and code details
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(36.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Left: QR Code Box
+                    Box(
+                        modifier = Modifier
+                            .size(220.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(ImaxColors.SurfaceVariant)
+                            .border(1.dp, ImaxColors.CardBorder, RoundedCornerShape(20.dp)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AsyncImage(
+                            model = qrCodeUrl,
+                            contentDescription = "Pairing QR Code",
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(16.dp)
+                        )
+                    }
+
+                    // Right: Code displays and status
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Column {
+                            Text(
+                                text = "TV Eşleştirme Kodu",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = ImaxColors.TextTertiary
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = pairingCode,
+                                style = MaterialTheme.typography.displayLarge.copy(
+                                    fontSize = 42.sp,
+                                    letterSpacing = 4.sp,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold
+                                ),
+                                color = ImaxColors.Primary
+                            )
+                        }
+
+                        Column {
+                            Text(
+                                text = "Adres",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = ImaxColors.TextTertiary
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = netlifyBaseUrl,
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = ImaxColors.TextSecondary
+                            )
+                        }
+
+                        // Connection Status panel
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = when (pairingStatus) {
+                                "completed" -> ImaxColors.Success.copy(alpha = 0.12f)
+                                "error" -> ImaxColors.Error.copy(alpha = 0.12f)
+                                else -> ImaxColors.Secondary.copy(alpha = 0.12f)
+                            },
+                            border = androidx.compose.foundation.BorderStroke(
+                                width = 1.dp,
+                                color = when (pairingStatus) {
+                                    "completed" -> ImaxColors.Success.copy(alpha = 0.4f)
+                                    "error" -> ImaxColors.Error.copy(alpha = 0.4f)
+                                    else -> ImaxColors.Secondary.copy(alpha = 0.4f)
+                                }
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                if (pairingStatus == "pending" || pairingStatus == "completed") {
+                                    CircularProgressIndicator(
+                                        color = if (pairingStatus == "completed") ImaxColors.Success else ImaxColors.Secondary,
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                }
+                                Text(
+                                    text = when (pairingStatus) {
+                                        "completed" -> "Eşleşme başarılı! Listeniz TV'ye aktarılıyor..."
+                                        "error" -> errorMessage ?: "Eşleşme sırasında bir hata oluştu."
+                                        else -> "Oturum açık. Web formundan listeyi TV'ye gönderin."
+                                    },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = when (pairingStatus) {
+                                        "completed" -> ImaxColors.Success
+                                        "error" -> ImaxColors.Error
+                                        else -> ImaxColors.TextPrimary
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Action Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TvActionButton(
+                        text = "İptal Et / Kapat",
+                        onClick = onDismiss,
+                        modifier = Modifier
+                            .width(220.dp)
+                            .focusRequester(closeFocusRequester),
+                        isSecondary = true
+                    )
+                }
+            }
+        }
+    }
 }

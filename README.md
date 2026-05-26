@@ -1,7 +1,7 @@
 <div align="center">
   <img src="iMAX%20logo.png" width="200" alt="iMAX Player Logo">
   <h1>🎬 iMAX Player</h1>
-  <p><b>Premium IPTV Player for Android TV & Android Mobile</b></p>
+  <p><b>Premium Media Player for Android TV & Mobile</b></p>
   <p><i>Production-grade architecture, beautiful dark theme UI, and comprehensive feature set.</i></p>
 
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0.21-7F52FF.svg?logo=kotlin)](https://kotlinlang.org)
@@ -27,7 +27,7 @@
 
 ### 🎮 Player Engine
 - **Media3 / ExoPlayer primary engine** for modern Android playback, HLS, DASH, progressive streams, and track controls
-- **LibVLC fallback engine** for legacy IPTV streams and codec edge cases
+- **LibVLC fallback engine** for legacy media streams and codec edge cases
 - **Runtime engine switching** from Settings without restarting the app
 - **Confirmed playback readiness** before live candidates are accepted
 - **Surface-first playback lifecycle** hardened for Android TV and phones/tablets
@@ -172,9 +172,12 @@ TMDB_API_KEY=your_tmdb_api_key_here
 
 ---
 
-## ⚖️ Legal Notice
+## ⚖️ Legal Notice & Disclaimer
 
-**iMAX Player does NOT provide any content.** It is a media player that plays user-provided streams. Users are responsible for ensuring they have the right to access the content they add to the app. The developers of iMAX Player are not responsible for any misuse.
+- **No Content Provided**: iMAX Player does not provide, host, or link to any digital media playlists, channels, or streams. The application is a pure media player (client tool) designed to render user-provided M3U playlists, XMLTV EPG data, or Xtream Codes server credentials.
+- **User Responsibility**: Users must provide their own content sources. Users are solely responsible for ensuring that they have the legal right to access and play any media streams they configure within the application.
+- **No Affiliation**: iMAX Player has no affiliation with any third-party playlist providers or media streaming operators. We do not sell subscriptions, streams, or content packages of any kind.
+- **Limitation of Liability**: The developers of iMAX Player do not condone, promote, or facilitate the unauthorized streaming of copyrighted material. Any use of the application for illegal purposes is strictly prohibited and is the sole responsibility of the user.
 
 ---
 

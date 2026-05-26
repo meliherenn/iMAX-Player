@@ -1,3 +1,15 @@
+// app.js - iMAX Player Remote Setup Web Controller
+
+// Define Supabase project credentials. The user will replace these.
+const SUPABASE_URL = "https://apkurmmvlpqsznybnxyq.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_QU2LmMC06cBEpcabFqjTJg_vIrEFNUm";
+
+let supabaseClient = null;
+if (SUPABASE_URL !== "YOUR_SUPABASE_URL" && SUPABASE_ANON_KEY !== "YOUR_SUPABASE_ANON_KEY") {
+  const { createClient } = window.supabase;
+  supabaseClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+}
+
 const form = document.querySelector("#setupForm");
 const tabs = [...document.querySelectorAll(".tab")];
 const fields = [...document.querySelectorAll(".mode-fields")];
@@ -18,20 +30,29 @@ const setup = {
 
 const params = new URLSearchParams(window.location.search);
 const codeFromUrl = params.get("code") || params.get("pair") || "";
-const apiBase = params.get("api") || localStorage.getItem("imaxRemoteSetupApi") || "";
 
 if (codeFromUrl) {
   pairingCode.value = codeFromUrl.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
   updatePairingState();
+  if (supabaseClient && pairingCode.value.length >= 6) {
+    checkPairingStatusDb();
+  }
 }
 
 tabs.forEach((tab) => {
   tab.addEventListener("click", () => setMode(tab.dataset.mode));
 });
 
+let pairingCheckTimeout = null;
+
 pairingCode.addEventListener("input", () => {
   pairingCode.value = pairingCode.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
   updatePairingState();
+
+  clearTimeout(pairingCheckTimeout);
+  if (supabaseClient && pairingCode.value.length >= 6) {
+    pairingCheckTimeout = setTimeout(checkPairingStatusDb, 500);
+  }
 });
 
 fileInput.addEventListener("change", async () => {
@@ -79,23 +100,26 @@ form.addEventListener("submit", async (event) => {
     setup.payload = payload;
     validatePayload(payload);
 
-    if (apiBase) {
-      const response = await fetch(`${apiBase.replace(/\/$/, "")}/api/pairings/${payload.pairingCode}/playlist`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Sunucu ${response.status} döndürdü`);
-      }
-
-      setResult("TV’ye gönderildi", "iMAX Player cihazı kaynak bilgilerini alabilir.", "success");
-      return;
+    if (!supabaseClient) {
+      throw new Error("Supabase yapılandırılmamış! Lütfen app.js dosyasındaki SUPABASE_URL ve SUPABASE_ANON_KEY değerlerini güncelleyin.");
     }
 
-    localStorage.setItem(`imaxSetup:${payload.pairingCode}`, JSON.stringify(payload));
-    setResult("Paket hazır", "QR entegrasyonunda bu paket TV’ye güvenli eşleştirme ile gönderilecek.", "success");
+    setResult("Gönderiliyor...", "Kurulum paketi TV'ye gönderiliyor...", "loading");
+
+    const code = payload.pairingCode.toUpperCase();
+    const { data, error } = await supabaseClient
+      .from("tv_pairings")
+      .update({
+        payload: payload,
+        status: "completed"
+      })
+      .eq("pairing_code", code);
+
+    if (error) {
+      throw new Error(`Supabase hatası: ${error.message}`);
+    }
+
+    setResult("TV’ye gönderildi", "iMAX Player cihazı kaynak bilgilerini alabilir.", "success");
   } catch (error) {
     setResult("Kontrol gerekli", error.message, "error");
   }
@@ -116,7 +140,42 @@ function setMode(mode) {
 function updatePairingState() {
   const ready = pairingCode.value.trim().length >= 4;
   pairingState.textContent = ready ? "Hazır" : "Bekliyor";
-  pairingState.classList.toggle("ready", ready);
+  pairingState.className = "status-chip";
+  if (ready) pairingState.classList.add("ready");
+}
+
+async function checkPairingStatusDb() {
+  const code = pairingCode.value.trim().toUpperCase();
+  if (!supabaseClient || code.length < 4) {
+    updatePairingState();
+    return;
+  }
+
+  try {
+    const { data, error } = await supabaseClient
+      .from("tv_pairings")
+      .select("status")
+      .eq("pairing_code", code)
+      .maybeSingle();
+
+    if (error) throw error;
+
+    if (data) {
+      if (data.status === "pending") {
+        pairingState.textContent = "TV Bağlı";
+        pairingState.className = "status-chip ready";
+      } else if (data.status === "completed") {
+        pairingState.textContent = "Gönderildi";
+        pairingState.className = "status-chip ready";
+      }
+    } else {
+      pairingState.textContent = "Kod Bulunamadı";
+      pairingState.className = "status-chip error";
+    }
+  } catch (e) {
+    console.error("Eşleşme kontrolü başarısız:", e);
+    updatePairingState();
+  }
 }
 
 function buildPayload(data) {
@@ -196,7 +255,7 @@ function isUrlLike(value) {
 function setResult(title, text, state) {
   resultTitle.textContent = title;
   resultText.textContent = text;
-  resultCard.classList.remove("success", "error");
+  resultCard.className = "result-card";
   if (state) resultCard.classList.add(state);
 }
 
