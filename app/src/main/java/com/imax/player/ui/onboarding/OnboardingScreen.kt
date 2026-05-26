@@ -2424,8 +2424,8 @@ private fun TvFocusableCard(
     )
     val backgroundColor by animateColorAsState(
         targetValue = when {
-            isFocusedAndSelected -> Color(0xFF3B2730)
-            isFocused -> Color(0xFF241D28)
+            isFocusedAndSelected -> Color(0xFF2C161D)
+            isFocused -> Color(0xFF1E1A2E)
             isSelected -> ImaxColors.Surface.copy(alpha = 0.96f)
             else -> ImaxColors.Surface
         },
@@ -2433,8 +2433,8 @@ private fun TvFocusableCard(
     )
     val borderColor by animateColorAsState(
         targetValue = when {
-            isFocusedAndSelected -> Color(0xFFFFD7DF)
-            isFocused -> Color(0xFFFFC2CF)
+            isFocusedAndSelected -> ImaxColors.Primary
+            isFocused -> ImaxColors.FocusBorder
             isSelected -> ImaxColors.Primary.copy(alpha = 0.6f)
             else -> ImaxColors.CardBorder
         },
@@ -2442,8 +2442,8 @@ private fun TvFocusableCard(
     )
     val focusGlowColor by animateColorAsState(
         targetValue = when {
-            isFocusedAndSelected -> Color(0x88FF9DB2)
-            isFocused -> Color(0x70FF87A1)
+            isFocusedAndSelected -> ImaxColors.FocusGlow
+            isFocused -> ImaxColors.FocusGlow
             else -> Color.Transparent
         },
         label = "tvFocusableCardGlowColor"
@@ -2460,9 +2460,9 @@ private fun TvFocusableCard(
     )
     val trailingFocusPillColor by animateColorAsState(
         targetValue = when {
-            isFocusedAndSelected -> Color(0x66FFD7DF)
-            isFocused -> Color(0x4CFFB6C7)
-            isSelected -> Color(0x20FF9DB2)
+            isFocusedAndSelected -> ImaxColors.Primary.copy(alpha = 0.35f)
+            isFocused -> ImaxColors.Primary.copy(alpha = 0.25f)
+            isSelected -> ImaxColors.Primary.copy(alpha = 0.15f)
             else -> Color.Transparent
         },
         label = "tvFocusableCardTrailingPill"
@@ -2470,6 +2470,8 @@ private fun TvFocusableCard(
 
     Box(
         modifier = modifier
+            .onFocusChanged { isFocused = it.isFocused }
+            .clickable(onClick = onClick)
             .graphicsLayer(scaleX = scale, scaleY = scale)
             .shadow(
                 elevation = if (isFocused) 26.dp else 0.dp,
@@ -2484,9 +2486,6 @@ private fun TvFocusableCard(
                 color = borderColor,
                 shape = RoundedCornerShape(28.dp)
             )
-            .clickable(onClick = onClick)
-            .onFocusChanged { isFocused = it.isFocused }
-            .focusable()
     ) {
         Box(
             modifier = Modifier
@@ -2503,9 +2502,9 @@ private fun TvFocusableCard(
                         .clip(RoundedCornerShape(999.dp))
                         .background(
                             when {
-                                isFocusedAndSelected -> Color(0xFFFFDCE4)
-                                isFocused -> Color(0xFFFFC9D5)
-                                else -> Color(0xFFE1A5B6)
+                                isFocusedAndSelected -> ImaxColors.Primary
+                                isFocused -> ImaxColors.PrimaryVariant
+                                else -> ImaxColors.Primary.copy(alpha = 0.6f)
                             }
                         )
                 )
