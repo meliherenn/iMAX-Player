@@ -260,6 +260,10 @@ fun PlayerScreen(
     // Handle back — optimized: navigate FIRST, release async
     BackHandler {
         when {
+            isScreenLocked && !isTv -> {
+                isScreenLocked = false
+                controlsVisible = true
+            }
             showSettingsSheet -> showSettingsSheet = false
             showChannelSheet && !isChannelSwitching -> showChannelSheet = false
             else -> viewModel.exitPlayer(onBack)
@@ -926,10 +930,22 @@ fun PlayerScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(Unit) { /* consume all touches */ }
                 .background(Color.Transparent),
             contentAlignment = Alignment.TopEnd
         ) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                event.changes.forEach { it.consume() }
+                            }
+                        }
+                    }
+            )
+
             // Persistent unlock button — only interactive element
             Surface(
                 shape = RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp),

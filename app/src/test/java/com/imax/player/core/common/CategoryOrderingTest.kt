@@ -7,7 +7,7 @@ import java.util.Locale
 class CategoryOrderingTest {
 
     @Test
-    fun `orderCategoryNames sorts names naturally`() {
+    fun `orderCategoryNames preserves first source order`() {
         val categories = listOf(
             "Sports 10",
             "Movies",
@@ -19,11 +19,11 @@ class CategoryOrderingTest {
         val result = orderCategoryNames(categories, Locale.US)
 
         assertThat(result).containsExactly(
+            "Sports 10",
             "Movies",
-            "News",
-            "Sports 1",
             "sports 2",
-            "Sports 10"
+            "News",
+            "Sports 1"
         ).inOrder()
     }
 
@@ -34,6 +34,6 @@ class CategoryOrderingTest {
             Locale.US
         )
 
-        assertThat(result).containsExactly("Movies", "News").inOrder()
+        assertThat(result).containsExactly("News", "Movies").inOrder()
     }
 }

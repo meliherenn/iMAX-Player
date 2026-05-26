@@ -6,9 +6,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -82,7 +87,7 @@ fun SeriesScreen(
             selectedRoute = Routes.SERIES,
             isTv = true,
             onToggle = { isDrawerExpanded = !isDrawerExpanded },
-            onNavigate = { if (it == "exit") onNavigate(Routes.ONBOARDING) else onNavigate(it) }
+            onNavigate = onNavigate
         ) {
             if (state.isLoading) LoadingScreen()
             else TvSeriesContent(state, viewModel, onSeriesClick)
@@ -93,6 +98,7 @@ fun SeriesScreen(
     }
 }
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun TvSeriesContent(
     state: SeriesState,
@@ -100,25 +106,56 @@ private fun TvSeriesContent(
     onSeriesClick: (Long) -> Unit
 ) {
     val dimens = LocalImaxDimens.current
+    val allCategoryFocusRequester = remember { FocusRequester() }
+    val display = if (state.selectedCategory != null) {
+        state.series.filter { it.categoryName == state.selectedCategory }
+    } else {
+        state.series
+    }
+    val firstSeriesFocusRequester = remember(display.firstOrNull()?.id) { FocusRequester() }
+
+    LaunchedEffect(state.selectedCategory, display.firstOrNull()?.id) {
+        withFrameNanos { }
+        allCategoryFocusRequester.requestFocusSafely()
+    }
+
     Row(modifier = Modifier.fillMaxSize()) {
         TvCategoryPanel {
-            item {
+            item(key = "__all_series__") {
                 TvRailCategoryItem(
                     name = stringResource(R.string.category_all),
                     isSelected = state.selectedCategory == null,
+                    modifier = Modifier
+                        .focusRequester(allCategoryFocusRequester)
+                        .focusProperties {
+                            right = if (display.isNotEmpty()) {
+                                firstSeriesFocusRequester
+                            } else {
+                                FocusRequester.Cancel
+                            }
+                            up = FocusRequester.Cancel
+                        },
                     onClick = { viewModel.selectCategory(null) }
                 )
             }
-            items(state.categories) { cat ->
+            itemsIndexed(state.categories, key = { _, cat -> cat }) { index, cat ->
                 TvRailCategoryItem(
                     name = cat,
                     isSelected = state.selectedCategory == cat,
+                    modifier = Modifier.focusProperties {
+                        right = if (display.isNotEmpty()) {
+                            firstSeriesFocusRequester
+                        } else {
+                            FocusRequester.Cancel
+                        }
+                        if (index == state.categories.lastIndex) {
+                            down = FocusRequester.Cancel
+                        }
+                    },
                     onClick = { viewModel.selectCategory(cat) }
                 )
             }
         }
-
-        val display = if (state.selectedCategory != null) state.series.filter { it.categoryName == state.selectedCategory } else state.series
 
         if (display.isEmpty()) {
             EmptyScreen(message = stringResource(R.string.no_content))
@@ -133,13 +170,22 @@ private fun TvSeriesContent(
                 horizontalArrangement = Arrangement.spacedBy(dimens.cardSpacing),
                 verticalArrangement = Arrangement.spacedBy(dimens.cardSpacing)
             ) {
-                items(display) { s ->
+                items(display, key = { it.id }) { s ->
                     ContentPosterCard(title = s.name, posterUrl = s.posterUrl, rating = s.rating, year = s.year, isTv = true,
+                        modifier = if (s.id == display.firstOrNull()?.id) {
+                            Modifier.focusRequester(firstSeriesFocusRequester)
+                        } else {
+                            Modifier
+                        },
                         onClick = { onSeriesClick(s.id) })
                 }
             }
         }
     }
+}
+
+private fun FocusRequester.requestFocusSafely() {
+    runCatching { requestFocus() }
 }
 
 @Composable
@@ -191,7 +237,7 @@ private fun MobileSeriesContent(
                 horizontalArrangement = Arrangement.spacedBy(dimens.cardSpacing),
                 verticalArrangement = Arrangement.spacedBy(dimens.cardSpacing)
             ) {
-                items(display) { s ->
+                items(display, key = { it.id }) { s ->
                     ContentPosterCard(title = s.name, posterUrl = s.posterUrl, rating = s.rating, year = s.year, isTv = false,
                         onClick = { onSeriesClick(s.id) })
                 }

@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import com.imax.player.core.common.SensitiveLog
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -183,7 +184,7 @@ class VlcPlayerEngine @Inject constructor(
             pendingUrl = url
             pendingStartPos = startPosition
             publishState()
-            Timber.d("VLC playback queued until surface is ready: %s", url)
+            Timber.d("VLC playback queued until surface is ready: %s", SensitiveLog.redactUrl(url))
             return
         }
 
@@ -419,9 +420,9 @@ class VlcPlayerEngine @Inject constructor(
             }
 
             publishState()
-            Timber.d("VLC playback started: %s", url)
+            Timber.d("VLC playback started: %s", SensitiveLog.redactUrl(url))
         } catch (throwable: Throwable) {
-            Timber.e(throwable, "VLC play failed: %s", url)
+            Timber.e(throwable, "VLC play failed: %s", SensitiveLog.redactUrl(url))
             currentErrorMessage = "VLC playback failed: ${throwable.localizedMessage}"
             playbackState = PlaybackState.ERROR
             publishState()

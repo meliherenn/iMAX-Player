@@ -21,7 +21,7 @@ fun TvPlaylistsScreen(
     onNavigate: (String) -> Unit,
     onPlaylistSelected: () -> Unit
 ) {
-    var isDrawerExpanded by remember { mutableStateOf(true) }
+    var isDrawerExpanded by remember { mutableStateOf(false) }
 
     ImaxDrawer(
         isExpanded = isDrawerExpanded,

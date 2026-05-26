@@ -1,11 +1,13 @@
 package com.imax.player.data.repository
 
+import androidx.room.withTransaction
 import com.imax.player.core.common.Resource
 import com.imax.player.core.database.*
 import com.imax.player.core.datastore.SettingsDataStore
 import com.imax.player.core.model.*
 import com.imax.player.data.parser.M3uParser
 import com.imax.player.data.parser.XtreamClient
+import com.imax.player.data.parser.XtreamContentResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.withContext
@@ -23,6 +25,7 @@ class PlaylistRepository @Inject constructor(
     private val seriesDao: SeriesDao,
     private val episodeDao: EpisodeDao,
     private val categoryDao: CategoryDao,
+    private val database: ImaxDatabase,
     private val m3uParser: M3uParser,
     private val xtreamClient: XtreamClient,
     private val okHttpClient: OkHttpClient,
@@ -47,12 +50,10 @@ class PlaylistRepository @Inject constructor(
     }
 
     suspend fun deletePlaylist(playlist: Playlist) {
-        channelDao.deleteByPlaylist(playlist.id)
-        movieDao.deleteByPlaylist(playlist.id)
-        episodeDao.deleteByPlaylist(playlist.id)
-        seriesDao.deleteByPlaylist(playlist.id)
-        categoryDao.deleteByPlaylist(playlist.id)
-        playlistDao.delete(playlist.toEntity())
+        database.withTransaction {
+            replacePlaylistContent(playlist.id)
+            playlistDao.delete(playlist.toEntity())
+        }
     }
 
     suspend fun activatePlaylist(id: Long) {
@@ -60,6 +61,11 @@ class PlaylistRepository @Inject constructor(
         playlistDao.activate(id)
         settingsDataStore.updateLastPlaylistId(id)
     }
+
+    suspend fun hasSyncedContent(playlistId: Long): Boolean =
+        channelDao.countByPlaylist(playlistId) > 0 ||
+            movieDao.countByPlaylist(playlistId) > 0 ||
+            seriesDao.countByPlaylist(playlistId) > 0
 
     suspend fun testConnection(playlist: Playlist): Result<String> = withContext(Dispatchers.IO) {
         try {
@@ -84,22 +90,27 @@ class PlaylistRepository @Inject constructor(
 
     suspend fun syncPlaylist(playlist: Playlist): Resource<Unit> = withContext(Dispatchers.IO) {
         try {
-            channelDao.deleteByPlaylist(playlist.id)
-            movieDao.deleteByPlaylist(playlist.id)
-            episodeDao.deleteByPlaylist(playlist.id)
-            seriesDao.deleteByPlaylist(playlist.id)
-            categoryDao.deleteByPlaylist(playlist.id)
-
-            when (playlist.type) {
-                PlaylistType.M3U_URL -> syncM3uUrl(playlist)
-                PlaylistType.M3U_FILE -> syncM3uFile(playlist)
-                PlaylistType.XTREAM_CODES -> syncXtream(playlist)
+            val normalizedPlaylist = playlist.normalizedForSync()
+            val content = when (normalizedPlaylist.type) {
+                PlaylistType.M3U_URL -> PlaylistSyncContent.M3u(loadM3uUrl(normalizedPlaylist))
+                PlaylistType.M3U_FILE -> PlaylistSyncContent.M3u(loadM3uFile(normalizedPlaylist))
+                PlaylistType.XTREAM_CODES -> PlaylistSyncContent.Xtream(loadXtream(normalizedPlaylist))
             }
+            content.requireNonEmpty()
 
-            val channelCount = channelDao.countByPlaylist(playlist.id)
-            val movieCount = movieDao.countByPlaylist(playlist.id)
-            val seriesCount = seriesDao.countByPlaylist(playlist.id)
-            playlistDao.updateCounts(playlist.id, channelCount, movieCount, seriesCount)
+            database.withTransaction {
+                replacePlaylistContent(playlist.id)
+
+                when (content) {
+                    is PlaylistSyncContent.M3u -> saveParseResult(content.result)
+                    is PlaylistSyncContent.Xtream -> saveXtreamResult(content.result)
+                }
+
+                val channelCount = channelDao.countByPlaylist(playlist.id)
+                val movieCount = movieDao.countByPlaylist(playlist.id)
+                val seriesCount = seriesDao.countByPlaylist(playlist.id)
+                playlistDao.updateCounts(playlist.id, channelCount, movieCount, seriesCount)
+            }
 
             Resource.Success(Unit)
         } catch (e: Exception) {
@@ -108,25 +119,39 @@ class PlaylistRepository @Inject constructor(
         }
     }
 
-    private suspend fun syncM3uUrl(playlist: Playlist) {
+    private suspend fun loadM3uUrl(playlist: Playlist): com.imax.player.data.parser.M3uParseResult {
         val request = Request.Builder().url(playlist.url).build()
-        val response = okHttpClient.newCall(request).execute()
-        val body = response.body ?: throw Exception("Empty response")
-        val result = m3uParser.parse(body.byteStream(), playlist.id)
-        saveParseResult(result)
+        okHttpClient.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw Exception("Playlist request failed: HTTP ${response.code}")
+            }
+            val body = response.body ?: throw Exception("Empty response")
+            return m3uParser.parse(body.byteStream(), playlist.id)
+        }
     }
 
-    private suspend fun syncM3uFile(playlist: Playlist) {
+    private suspend fun loadM3uFile(playlist: Playlist): com.imax.player.data.parser.M3uParseResult {
         val file = java.io.File(playlist.filePath)
         if (!file.exists()) throw Exception("File not found: ${playlist.filePath}")
-        val result = m3uParser.parse(file.inputStream(), playlist.id)
-        saveParseResult(result)
+        return file.inputStream().use { input ->
+            m3uParser.parse(input, playlist.id)
+        }
     }
 
-    private suspend fun syncXtream(playlist: Playlist) {
-        val result = xtreamClient.loadContent(
+    private suspend fun loadXtream(playlist: Playlist): XtreamContentResult =
+        xtreamClient.loadContent(
             playlist.serverUrl, playlist.username, playlist.password, playlist.id
         )
+
+    private suspend fun replacePlaylistContent(playlistId: Long) {
+        channelDao.deleteByPlaylist(playlistId)
+        movieDao.deleteByPlaylist(playlistId)
+        episodeDao.deleteByPlaylist(playlistId)
+        seriesDao.deleteByPlaylist(playlistId)
+        categoryDao.deleteByPlaylist(playlistId)
+    }
+
+    private suspend fun saveXtreamResult(result: XtreamContentResult) {
         channelDao.insertAll(result.channels)
         movieDao.insertAll(result.movies)
         seriesDao.insertAll(result.series)
@@ -236,4 +261,50 @@ class PlaylistRepository @Inject constructor(
         val episodeNumber: Int,
         val displayName: String
     )
+}
+
+private sealed interface PlaylistSyncContent {
+    data class M3u(val result: com.imax.player.data.parser.M3uParseResult) : PlaylistSyncContent
+    data class Xtream(val result: XtreamContentResult) : PlaylistSyncContent
+}
+
+private fun PlaylistSyncContent.requireNonEmpty() {
+    val hasContent = when (this) {
+        is PlaylistSyncContent.M3u ->
+            result.channels.isNotEmpty() || result.movies.isNotEmpty() || result.series.isNotEmpty()
+        is PlaylistSyncContent.Xtream ->
+            result.channels.isNotEmpty() || result.movies.isNotEmpty() || result.series.isNotEmpty()
+    }
+    if (!hasContent) {
+        throw IllegalStateException("Playlist sync returned no playable content")
+    }
+}
+
+private fun Playlist.normalizedForSync(): Playlist {
+    return when (type) {
+        PlaylistType.M3U_URL -> copy(url = normalizeHttpUrl(url))
+        PlaylistType.XTREAM_CODES -> copy(serverUrl = normalizeXtreamServerUrl(serverUrl))
+        PlaylistType.M3U_FILE -> this
+    }
+}
+
+private fun normalizeHttpUrl(value: String): String {
+    val trimmed = value.trim()
+    if (trimmed.isBlank()) return trimmed
+    return if (trimmed.startsWith("http://", ignoreCase = true) ||
+        trimmed.startsWith("https://", ignoreCase = true)
+    ) {
+        trimmed
+    } else {
+        "http://$trimmed"
+    }
+}
+
+private fun normalizeXtreamServerUrl(value: String): String {
+    val normalized = normalizeHttpUrl(value).trimEnd('/')
+    return if (normalized.endsWith("/player_api.php", ignoreCase = true)) {
+        normalized.dropLast("/player_api.php".length)
+    } else {
+        normalized
+    }
 }

@@ -22,7 +22,6 @@ import com.imax.player.core.player.VideoQualityMode
 import com.imax.player.data.repository.ContentRepository
 import com.imax.player.data.repository.EpgRepository
 import com.imax.player.data.repository.PlaylistRepository
-import com.imax.player.ui.live.rankChannelsForMobile
 
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -724,17 +723,16 @@ class PlayerViewModel @Inject constructor(
                         playlist != null -> contentRepository.getChannels(playlist.id).first()
                         else -> emptyList()
                     }
-                    val rankedChannels = rankChannelsForMobile(primaryChannels)
-                    val currentIndex = rankedChannels.indexOfFirst { channel ->
+                    val currentIndex = primaryChannels.indexOfFirst { channel ->
                         channel.id == contentId || channel.streamUrl == url
-                    }
+                    }.takeIf { it >= 0 }
 
                     PlayerSessionState(
                         title = currentChannel?.name ?: title,
                         currentChannel = currentChannel,
-                        previousChannel = rankedChannels.getOrNull(currentIndex - 1),
-                        nextChannel = rankedChannels.getOrNull(currentIndex + 1),
-                        availableChannels = rankedChannels,
+                        previousChannel = currentIndex?.let { primaryChannels.getOrNull(it - 1) },
+                        nextChannel = currentIndex?.let { primaryChannels.getOrNull(it + 1) },
+                        availableChannels = primaryChannels,
                         liveGroup = groupContext
                     )
                 }

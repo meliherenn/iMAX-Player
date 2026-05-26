@@ -6,11 +6,16 @@ import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
@@ -88,7 +93,7 @@ fun MoviesScreen(
             selectedRoute = Routes.MOVIES,
             isTv = true,
             onToggle = { isDrawerExpanded = !isDrawerExpanded },
-            onNavigate = { if (it == "exit") onNavigate(Routes.ONBOARDING) else onNavigate(it) }
+            onNavigate = onNavigate
         ) {
             if (state.isLoading) LoadingScreen()
             else TvMoviesContent(state, viewModel, onMovieClick)
@@ -103,6 +108,7 @@ fun MoviesScreen(
 // TV: Side category panel + grid
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun TvMoviesContent(
     state: MoviesState,
@@ -110,27 +116,55 @@ private fun TvMoviesContent(
     onMovieClick: (Long) -> Unit
 ) {
     val dimens = LocalImaxDimens.current
+    val allCategoryFocusRequester = remember { FocusRequester() }
+
+    val displayMovies = if (state.selectedCategory != null)
+        state.movies.filter { it.categoryName == state.selectedCategory }
+    else state.movies
+    val firstMovieFocusRequester = remember(displayMovies.firstOrNull()?.id) { FocusRequester() }
+
+    LaunchedEffect(state.selectedCategory, displayMovies.firstOrNull()?.id) {
+        withFrameNanos { }
+        allCategoryFocusRequester.requestFocusSafely()
+    }
+
     Row(modifier = Modifier.fillMaxSize()) {
         TvCategoryPanel {
-            item {
+            item(key = "__all_movies__") {
                 TvRailCategoryItem(
                     name = stringResource(R.string.category_all),
                     isSelected = state.selectedCategory == null,
+                    modifier = Modifier
+                        .focusRequester(allCategoryFocusRequester)
+                        .focusProperties {
+                            right = if (displayMovies.isNotEmpty()) {
+                                firstMovieFocusRequester
+                            } else {
+                                FocusRequester.Cancel
+                            }
+                            up = FocusRequester.Cancel
+                        },
                     onClick = { viewModel.selectCategory(null) }
                 )
             }
-            items(state.categories) { cat ->
+            itemsIndexed(state.categories, key = { _, cat -> cat }) { index, cat ->
                 TvRailCategoryItem(
                     name = cat,
                     isSelected = state.selectedCategory == cat,
+                    modifier = Modifier.focusProperties {
+                        right = if (displayMovies.isNotEmpty()) {
+                            firstMovieFocusRequester
+                        } else {
+                            FocusRequester.Cancel
+                        }
+                        if (index == state.categories.lastIndex) {
+                            down = FocusRequester.Cancel
+                        }
+                    },
                     onClick = { viewModel.selectCategory(cat) }
                 )
             }
         }
-
-        val displayMovies = if (state.selectedCategory != null)
-            state.movies.filter { it.categoryName == state.selectedCategory }
-        else state.movies
 
         if (displayMovies.isEmpty()) {
             EmptyScreen(message = stringResource(R.string.no_content))
@@ -145,19 +179,28 @@ private fun TvMoviesContent(
                 horizontalArrangement = Arrangement.spacedBy(dimens.cardSpacing),
                 verticalArrangement = Arrangement.spacedBy(dimens.cardSpacing)
             ) {
-                items(displayMovies) { movie ->
+                items(displayMovies, key = { it.id }) { movie ->
                     ContentPosterCard(
                         title = movie.name,
                         posterUrl = movie.posterUrl,
                         rating = movie.rating,
                         year = movie.year,
                         isTv = true,
+                        modifier = if (movie.id == displayMovies.firstOrNull()?.id) {
+                            Modifier.focusRequester(firstMovieFocusRequester)
+                        } else {
+                            Modifier
+                        },
                         onClick = { onMovieClick(movie.id) }
                     )
                 }
             }
         }
     }
+}
+
+private fun FocusRequester.requestFocusSafely() {
+    runCatching { requestFocus() }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -221,7 +264,7 @@ private fun MobileMoviesContent(
                 horizontalArrangement = Arrangement.spacedBy(dimens.cardSpacing),
                 verticalArrangement = Arrangement.spacedBy(dimens.cardSpacing)
             ) {
-                items(displayMovies) { movie ->
+                items(displayMovies, key = { it.id }) { movie ->
                     ContentPosterCard(
                         title = movie.name,
                         posterUrl = movie.posterUrl,

@@ -22,8 +22,12 @@ import com.imax.player.ui.mobile.MobileSeriesScreen
 import com.imax.player.ui.mobile.MobileSettingsScreen
 import com.imax.player.ui.navigation.Routes
 import com.imax.player.ui.navigation.startup.StartupRoute
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
+import timber.log.Timber
 
 private const val MOBILE_STARTUP = "mobile_startup"
+private const val MOBILE_NAV_LOG_TAG = "MobileNavGraph"
 
 @Composable
 fun MobileNavGraph(
@@ -198,23 +202,28 @@ private fun MobileNavHostContent(
             )
         ) { backStackEntry ->
             MobilePlayerScreen(
-                url = java.net.URLDecoder.decode(
-                    backStackEntry.arguments?.getString("url").orEmpty(),
-                    "UTF-8"
-                ),
-                title = java.net.URLDecoder.decode(
-                    backStackEntry.arguments?.getString("title").orEmpty(),
-                    "UTF-8"
-                ),
+                url = decodeMobileNavArg(backStackEntry.arguments?.getString("url"), "url"),
+                title = decodeMobileNavArg(backStackEntry.arguments?.getString("title"), "title"),
                 contentId = backStackEntry.arguments?.getLong("contentId") ?: 0L,
                 contentType = backStackEntry.arguments?.getString("contentType").orEmpty(),
                 startPosition = backStackEntry.arguments?.getLong("startPos") ?: 0L,
-                groupContext = java.net.URLDecoder.decode(
-                    backStackEntry.arguments?.getString("group").orEmpty(),
-                    "UTF-8"
-                ),
+                groupContext = decodeMobileNavArg(backStackEntry.arguments?.getString("group"), "group"),
                 onBack = { navController.popBackStack() }
             )
         }
+    }
+}
+
+private fun decodeMobileNavArg(value: String?, argumentName: String): String {
+    val rawValue = value.orEmpty()
+    if (rawValue.isBlank()) {
+        return ""
+    }
+
+    return runCatching {
+        URLDecoder.decode(rawValue, StandardCharsets.UTF_8.name())
+    }.getOrElse { error ->
+        Timber.tag(MOBILE_NAV_LOG_TAG).w(error, "Failed to decode mobile nav argument: %s", argumentName)
+        rawValue
     }
 }

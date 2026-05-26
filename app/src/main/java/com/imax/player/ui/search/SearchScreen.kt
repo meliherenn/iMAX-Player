@@ -19,6 +19,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -173,7 +174,7 @@ fun SearchScreen(
             selectedRoute = Routes.SEARCH,
             isTv = true,
             onToggle = { isDrawerExpanded = !isDrawerExpanded },
-            onNavigate = { if (it == "exit") onNavigate(Routes.ONBOARDING) else onNavigate(it) }
+            onNavigate = onNavigate
         ) {
             TvSearchContent(state, viewModel, onContentClick, onPlayContent)
         }
@@ -190,6 +191,12 @@ private fun TvSearchContent(
     onPlayContent: (String, String, Long, String) -> Unit
 ) {
     val dimens = LocalImaxDimens.current
+    val searchFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        withFrameNanos { }
+        runCatching { searchFocusRequester.requestFocus() }
+    }
 
     Column(modifier = Modifier.fillMaxSize().padding(dimens.screenPadding)) {
         OutlinedTextField(
@@ -205,7 +212,9 @@ private fun TvSearchContent(
                 }
             },
             singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(searchFocusRequester),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = ImaxColors.Primary,
                 unfocusedBorderColor = ImaxColors.CardBorder,
@@ -234,6 +243,16 @@ private fun MobileSearchContent(
     val config = LocalConfiguration.current
     val columns = if (config.screenWidthDp > 600) 4 else if (config.screenWidthDp > 400) 3 else 2
     val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val searchFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        withFrameNanos { }
+        runCatching {
+            searchFocusRequester.requestFocus()
+            keyboardController?.show()
+        }
+    }
 
     Column(modifier = Modifier.fillMaxSize().padding(top = dimens.screenPadding)) {
         Text(stringResource(R.string.search), style = MaterialTheme.typography.headlineMedium, color = ImaxColors.TextPrimary,
@@ -253,7 +272,10 @@ private fun MobileSearchContent(
                 }
             },
             singleLine = true,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = dimens.screenPadding),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = dimens.screenPadding)
+                .focusRequester(searchFocusRequester),
             shape = RoundedCornerShape(12.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = ImaxColors.Primary,
@@ -323,7 +345,7 @@ private fun SearchResults(
                 horizontalArrangement = Arrangement.spacedBy(dimens.cardSpacing),
                 verticalArrangement = Arrangement.spacedBy(dimens.cardSpacing)
             ) {
-                items(state.results) { result ->
+                items(state.results, key = { "${it.contentType.name}-${it.id}" }) { result ->
                     ContentPosterCard(
                         title = result.title,
                         posterUrl = result.posterUrl,

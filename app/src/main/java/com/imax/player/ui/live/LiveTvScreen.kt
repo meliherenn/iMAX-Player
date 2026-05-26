@@ -96,8 +96,6 @@ class LiveTvViewModel @Inject constructor(
                         .collectLatest { (channels, groups) ->
                             val orderedChannels = channels
                             val processed = withContext(Dispatchers.Default) {
-                                val mobileGroups = prioritizeGroupsForMobile(groups)
-                                val mobileChannels = rankChannelsForMobile(orderedChannels)
                                 val groupCounts = orderedChannels
                                     .filter { it.groupTitle.isNotBlank() }
                                     .groupBy { it.groupTitle }
@@ -105,8 +103,8 @@ class LiveTvViewModel @Inject constructor(
 
                                 ProcessedLiveTvContent(
                                     groups = groups,
-                                    mobileGroups = mobileGroups,
-                                    mobileChannels = mobileChannels,
+                                    mobileGroups = groups,
+                                    mobileChannels = orderedChannels,
                                     groupCounts = groupCounts
                                 )
                             }
@@ -163,7 +161,7 @@ fun LiveTvScreen(
             selectedRoute = Routes.LIVE_TV,
             isTv = true,
             onToggle = { isDrawerExpanded = !isDrawerExpanded },
-            onNavigate = { if (it == "exit") onNavigate(Routes.ONBOARDING) else onNavigate(it) }
+            onNavigate = onNavigate
         ) {
             if (state.isLoading) LoadingScreen()
             else TvLiveTvContent(state, viewModel, onPlayChannel)

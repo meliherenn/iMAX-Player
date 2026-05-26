@@ -4,7 +4,6 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -33,10 +33,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.PlaylistAdd
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Storage
@@ -45,7 +46,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -69,11 +69,10 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -82,7 +81,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
-import com.imax.player.R
+import com.imax.player.core.common.Resource
 import com.imax.player.core.designsystem.theme.ImaxColors
 import com.imax.player.core.designsystem.theme.LocalImaxDimens
 import com.imax.player.core.model.Playlist
@@ -105,7 +104,8 @@ data class OnboardingState(
     val isLoading: Boolean = true,
     val showAddDialog: Boolean = false,
     val isSyncing: Boolean = false,
-    val syncMessage: String = ""
+    val syncMessage: String = "",
+    val syncError: String? = null
 )
 
 @HiltViewModel
@@ -130,7 +130,7 @@ class OnboardingViewModel @Inject constructor(
         }
     }
 
-    fun showAddDialog() = _state.update { it.copy(showAddDialog = true) }
+    fun showAddDialog() = _state.update { it.copy(showAddDialog = true, syncError = null) }
     fun hideAddDialog() = _state.update { it.copy(showAddDialog = false) }
 
     fun addPlaylist(
@@ -150,9 +150,9 @@ class OnboardingViewModel @Inject constructor(
                     type = type,
                     url = if (type == PlaylistType.M3U_URL) url else "",
                     filePath = if (type == PlaylistType.M3U_FILE) url else "",
-                    serverUrl = server,
-                    username = username,
-                    password = password
+                    serverUrl = if (type == PlaylistType.XTREAM_CODES) server else "",
+                    username = if (type == PlaylistType.XTREAM_CODES) username else "",
+                    password = if (type == PlaylistType.XTREAM_CODES) password else ""
                 )
                 val id = playlistRepository.savePlaylist(playlist)
                 val savedPlaylist = playlist.copy(id = id)
@@ -160,21 +160,56 @@ class OnboardingViewModel @Inject constructor(
                 selectPlaylist(savedPlaylist, onSuccess)
             } catch (e: Exception) {
                 Timber.e(e, "Failed to add playlist")
+                _state.update { it.copy(syncError = e.localizedMessage ?: "Failed to add playlist") }
             }
         }
     }
 
     fun selectPlaylist(playlist: Playlist, onSelected: () -> Unit) {
         viewModelScope.launch {
-            _state.update { it.copy(isSyncing = true, syncMessage = "Syncing playlist...") }
+            _state.update {
+                it.copy(
+                    isSyncing = true,
+                    syncMessage = "Syncing playlist...",
+                    syncError = null
+                )
+            }
             try {
-                playlistRepository.activatePlaylist(playlist.id)
-                playlistRepository.syncPlaylist(playlist)
-                _state.update { it.copy(isSyncing = false, syncMessage = "") }
-                onSelected()
+                when (val syncResult = playlistRepository.syncPlaylist(playlist)) {
+                    is Resource.Success -> {
+                        playlistRepository.activatePlaylist(playlist.id)
+                        _state.update { it.copy(isSyncing = false, syncMessage = "") }
+                        onSelected()
+                    }
+
+                    is Resource.Error -> {
+                        Timber.w(syncResult.throwable, "Playlist sync failed, checking existing content")
+                        if (playlistRepository.hasSyncedContent(playlist.id)) {
+                            playlistRepository.activatePlaylist(playlist.id)
+                            _state.update { it.copy(isSyncing = false, syncMessage = "") }
+                            onSelected()
+                        } else {
+                            _state.update {
+                                it.copy(
+                                    isSyncing = false,
+                                    syncMessage = "",
+                                    syncError = syncResult.message
+                                )
+                            }
+                        }
+                    }
+
+                    Resource.Loading -> Unit
+                }
             } catch (e: Exception) {
                 Timber.e(e, "Failed to sync selected playlist")
-                _state.update { it.copy(isSyncing = false, syncMessage = "") }
+                _state.update {
+                    it.copy(
+                        isSyncing = false,
+                        syncMessage = "",
+                        syncError = e.localizedMessage ?: "Playlist sync failed"
+                    )
+                }
             }
         }
     }
@@ -182,6 +217,38 @@ class OnboardingViewModel @Inject constructor(
     fun deletePlaylist(playlist: Playlist) {
         viewModelScope.launch {
             playlistRepository.deletePlaylist(playlist)
+        }
+    }
+
+    fun editPlaylist(
+        playlist: Playlist,
+        name: String,
+        type: PlaylistType,
+        url: String,
+        server: String,
+        username: String,
+        password: String,
+        onSuccess: () -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                playlistRepository.updatePlaylist(
+                    playlist.copy(
+                        name = name,
+                        type = type,
+                        url = if (type == PlaylistType.M3U_URL) url else "",
+                        filePath = if (type == PlaylistType.M3U_FILE) url else "",
+                        serverUrl = if (type == PlaylistType.XTREAM_CODES) server else "",
+                        username = if (type == PlaylistType.XTREAM_CODES) username else "",
+                        password = if (type == PlaylistType.XTREAM_CODES) password else "",
+                        lastUpdated = System.currentTimeMillis()
+                    )
+                )
+                onSuccess()
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to edit playlist")
+                _state.update { it.copy(syncError = e.localizedMessage ?: "Failed to edit playlist") }
+            }
         }
     }
 
@@ -239,6 +306,7 @@ private fun MobileOnboardingContent(
     onPlaylistSelected: () -> Unit
 ) {
     val dimens = LocalImaxDimens.current
+    var editingPlaylist by remember { mutableStateOf<Playlist?>(null) }
 
     Box(
         modifier = Modifier
@@ -251,22 +319,16 @@ private fun MobileOnboardingContent(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(dimens.screenPadding),
-            horizontalAlignment = Alignment.CenterHorizontally
+            horizontalAlignment = Alignment.Start
         ) {
-            Spacer(modifier = Modifier.height(60.dp))
+            Spacer(modifier = Modifier.height(34.dp))
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("iMAX", style = MaterialTheme.typography.displayLarge, color = ImaxColors.Primary)
-                Text(" Player", style = MaterialTheme.typography.displayLarge, color = ImaxColors.Secondary)
-            }
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                "Your premium IPTV experience",
-                style = MaterialTheme.typography.bodyMedium,
-                color = ImaxColors.TextTertiary
+            MobilePlaylistTopBar(
+                playlistCount = state.playlists.size,
+                onAdd = { viewModel.showAddDialog() }
             )
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(28.dp))
 
             if (state.isSyncing) {
                 CircularProgressIndicator(color = ImaxColors.Primary)
@@ -276,65 +338,44 @@ private fun MobileOnboardingContent(
                     style = MaterialTheme.typography.bodyMedium,
                     color = ImaxColors.TextSecondary
                 )
-            } else if (state.playlists.isEmpty() && !state.isLoading) {
-                Spacer(modifier = Modifier.height(40.dp))
-                Icon(
-                    Icons.AutoMirrored.Filled.PlaylistAdd,
-                    contentDescription = null,
-                    tint = ImaxColors.TextTertiary,
-                    modifier = Modifier.size(72.dp)
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Text(
-                    "No playlists yet",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = ImaxColors.TextPrimary
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    "Add a playlist to get started",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = ImaxColors.TextSecondary
-                )
-                Spacer(modifier = Modifier.height(24.dp))
-                GradientButton(
-                    text = "Add Playlist",
-                    icon = Icons.Filled.Add,
-                    onClick = { viewModel.showAddDialog() }
-                )
             } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                state.syncError?.let { error ->
+                    SyncErrorPanel(message = error)
+                    Spacer(modifier = Modifier.height(20.dp))
+                }
+
+                if (state.playlists.isEmpty() && !state.isLoading) {
+                    EmptyMobilePlaylistState(
+                        onAdd = { viewModel.showAddDialog() },
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
                     Text(
-                        "Your Playlists",
-                        style = MaterialTheme.typography.headlineSmall,
+                        "Listelerim",
+                        style = MaterialTheme.typography.headlineMedium,
                         color = ImaxColors.TextPrimary
                     )
-                    IconButton(onClick = { viewModel.showAddDialog() }) {
-                        Icon(
-                            Icons.Filled.AddCircle,
-                            contentDescription = "Add",
-                            tint = ImaxColors.Primary,
-                            modifier = Modifier.size(32.dp)
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        "Aktif kaynak, içerik sayıları ve hızlı işlemler tek ekranda.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = ImaxColors.TextSecondary
+                    )
+                    Spacer(modifier = Modifier.height(18.dp))
 
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    items(state.playlists) { playlist ->
-                        PlaylistCard(
-                            playlist = playlist,
-                            isTv = false,
-                            onSelect = { viewModel.selectPlaylist(playlist, onPlaylistSelected) },
-                            onDelete = { viewModel.deletePlaylist(playlist) }
-                        )
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        items(state.playlists, key = { it.id }) { playlist ->
+                            PlaylistCard(
+                                playlist = playlist,
+                                isTv = false,
+                                onSelect = { viewModel.selectPlaylist(playlist, onPlaylistSelected) },
+                                onEdit = { editingPlaylist = playlist },
+                                onDelete = { viewModel.deletePlaylist(playlist) }
+                            )
+                        }
                     }
                 }
             }
@@ -347,7 +388,31 @@ private fun MobileOnboardingContent(
                 onAdd = { name, type, url, server, user, pass ->
                     viewModel.addPlaylist(name, type, url, server, user, pass, onPlaylistSelected)
                 },
-                onTest = { _, _, _, _, _, _, _ -> }
+                onTest = { name, type, url, server, user, pass, onResult ->
+                    viewModel.testDraftConnection(name, type, url, server, user, pass, onResult)
+                }
+            )
+        }
+
+        editingPlaylist?.let { playlist ->
+            MobileEditPlaylistDialog(
+                playlist = playlist,
+                onDismiss = { editingPlaylist = null },
+                onSave = { name, type, url, server, user, pass ->
+                    viewModel.editPlaylist(
+                        playlist = playlist,
+                        name = name,
+                        type = type,
+                        url = url,
+                        server = server,
+                        username = user,
+                        password = pass,
+                        onSuccess = { editingPlaylist = null }
+                    )
+                },
+                onTest = { name, type, url, server, user, pass, onResult ->
+                    viewModel.testDraftConnection(name, type, url, server, user, pass, onResult)
+                }
             )
         }
     }
@@ -359,13 +424,17 @@ private fun TvOnboardingContent(
     viewModel: OnboardingViewModel,
     onPlaylistSelected: () -> Unit
 ) {
-    val dimens = LocalImaxDimens.current
     val addPlaylistFocusRequester = remember { FocusRequester() }
-    val logoPainter = painterResource(id = R.mipmap.ic_launcher_foreground)
+    val firstPlaylistFocusRequester = remember { FocusRequester() }
+    var editingPlaylist by remember { mutableStateOf<Playlist?>(null) }
 
-    LaunchedEffect(state.showAddDialog, state.isSyncing) {
-        if (!state.showAddDialog && !state.isSyncing) {
-            addPlaylistFocusRequester.requestFocusSafely("TV onboarding add playlist card")
+    LaunchedEffect(state.showAddDialog, editingPlaylist, state.isSyncing, state.isLoading, state.playlists.size) {
+        if (!state.showAddDialog && editingPlaylist == null && !state.isSyncing && !state.isLoading) {
+            if (state.playlists.isNotEmpty()) {
+                firstPlaylistFocusRequester.requestFocusSafely("TV onboarding first saved playlist")
+            } else {
+                addPlaylistFocusRequester.requestFocusSafely("TV onboarding add playlist card")
+            }
         }
     }
 
@@ -379,112 +448,40 @@ private fun TvOnboardingContent(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 72.dp, vertical = 56.dp)
+                .padding(horizontal = 72.dp, vertical = 40.dp)
         ) {
-            Image(
-                painter = logoPainter,
-                contentDescription = stringResource(R.string.app_name),
-                contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .width(150.dp)
-                    .height(150.dp)
+            TvPlaylistHeader(
+                playlists = state.playlists,
+                modifier = Modifier.fillMaxWidth(),
+                onAddPlaylist = { viewModel.showAddDialog() }
             )
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                "Set up your TV playlists",
-                style = MaterialTheme.typography.displayMedium,
-                color = ImaxColors.TextPrimary
-            )
-            Spacer(modifier = Modifier.height(10.dp))
-            Text(
-                "Choose a provider type, add a playlist and continue with the remote. Focus is always highlighted and the form only shows fields you need.",
-                style = MaterialTheme.typography.titleMedium,
-                color = ImaxColors.TextSecondary,
-                modifier = Modifier.widthIn(max = 920.dp)
-            )
-            Spacer(modifier = Modifier.height(28.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-            TvFocusableCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .focusRequester(addPlaylistFocusRequester),
-                onClick = { viewModel.showAddDialog() }
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 32.dp, vertical = 28.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(68.dp)
-                            .clip(CircleShape)
-                            .background(ImaxColors.Primary.copy(alpha = 0.16f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.PlaylistAdd,
-                            contentDescription = null,
-                            tint = ImaxColors.Primary,
-                            modifier = Modifier.size(34.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(20.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            "Add a new playlist",
-                            style = MaterialTheme.typography.headlineMedium,
-                            color = ImaxColors.TextPrimary
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            "M3U URL, Xtream / Portal or local file. Press center to open the TV-friendly setup flow.",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = ImaxColors.TextSecondary
-                        )
-                    }
-                    TvInlineHint("Press OK")
-                }
+            state.syncError?.let { error ->
+                SyncErrorPanel(message = error)
+                Spacer(modifier = Modifier.height(16.dp))
             }
 
-            Spacer(modifier = Modifier.height(28.dp))
-
             if (state.playlists.isEmpty() && !state.isLoading) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(28.dp),
-                    color = ImaxColors.Surface
-                ) {
-                    Column(
-                        modifier = Modifier.padding(horizontal = 32.dp, vertical = 28.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Text(
-                            "No saved playlists yet",
-                            style = MaterialTheme.typography.headlineMedium,
-                            color = ImaxColors.TextPrimary
-                        )
-                        Text(
-                            "Start with one provider type, fill in only the required fields, test the connection and save. The setup dialog opens with remote-first focus by default.",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = ImaxColors.TextSecondary
-                        )
-                    }
-                }
+                TvAddPlaylistCard(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(addPlaylistFocusRequester),
+                    onClick = { viewModel.showAddDialog() }
+                )
             } else {
                 Text(
-                    "Saved playlists",
+                    "Listelerim",
                     style = MaterialTheme.typography.headlineMedium,
                     color = ImaxColors.TextPrimary
                 )
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    "Select a playlist to sync and continue, or remove an old entry.",
-                    style = MaterialTheme.typography.bodyLarge,
+                    "Kumandayla liste seç, bilgileri düzenle veya yeni kaynak ekle.",
+                    style = MaterialTheme.typography.titleMedium,
                     color = ImaxColors.TextSecondary
                 )
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
 
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth(),
@@ -492,9 +489,16 @@ private fun TvOnboardingContent(
                     contentPadding = PaddingValues(bottom = 24.dp)
                 ) {
                     items(state.playlists, key = { it.id }) { playlist ->
+                        val playlistModifier = if (playlist.id == state.playlists.firstOrNull()?.id) {
+                            Modifier.focusRequester(firstPlaylistFocusRequester)
+                        } else {
+                            Modifier
+                        }
                         TvPlaylistRow(
                             playlist = playlist,
+                            modifier = playlistModifier,
                             onSelect = { viewModel.selectPlaylist(playlist, onPlaylistSelected) },
+                            onEdit = { editingPlaylist = playlist },
                             onDelete = { viewModel.deletePlaylist(playlist) }
                         )
                     }
@@ -518,6 +522,59 @@ private fun TvOnboardingContent(
                 }
             )
         }
+
+        editingPlaylist?.let { playlist ->
+            EditPlaylistDialog(
+                playlist = playlist,
+                onDismiss = { editingPlaylist = null },
+                onSave = { name, type, url, server, user, pass ->
+                    viewModel.editPlaylist(
+                        playlist = playlist,
+                        name = name,
+                        type = type,
+                        url = url,
+                        server = server,
+                        username = user,
+                        password = pass,
+                        onSuccess = { editingPlaylist = null }
+                    )
+                },
+                onTest = { name, type, url, server, user, pass, onResult ->
+                    viewModel.testDraftConnection(name, type, url, server, user, pass, onResult)
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun SyncErrorPanel(message: String) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        color = ImaxColors.Error.copy(alpha = 0.12f),
+        border = androidx.compose.foundation.BorderStroke(
+            width = 1.dp,
+            color = ImaxColors.Error.copy(alpha = 0.45f)
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Info,
+                contentDescription = null,
+                tint = ImaxColors.Error,
+                modifier = Modifier.size(24.dp)
+            )
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyLarge,
+                color = ImaxColors.Error
+            )
+        }
     }
 }
 
@@ -539,10 +596,136 @@ private fun SharedOnboardingBackground() {
 }
 
 @Composable
+private fun MobilePlaylistTopBar(
+    playlistCount: Int,
+    onAdd: () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "iMAX",
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = ImaxColors.Primary
+                )
+                Text(
+                    " Player",
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = ImaxColors.Secondary
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = if (playlistCount > 0) {
+                    "$playlistCount kaynak hazır"
+                } else {
+                    "Kendi IPTV kaynaklarını ekle"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = ImaxColors.TextTertiary
+            )
+        }
+
+        Surface(
+            modifier = Modifier
+                .clip(RoundedCornerShape(18.dp))
+                .clickable(onClick = onAdd),
+            shape = RoundedCornerShape(18.dp),
+            color = ImaxColors.Primary.copy(alpha = 0.16f)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    Icons.Filled.Add,
+                    contentDescription = null,
+                    tint = ImaxColors.Primary,
+                    modifier = Modifier.size(20.dp)
+                )
+                Text(
+                    "Yeni",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = ImaxColors.TextPrimary
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyMobilePlaylistState(
+    onAdd: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 36.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Surface(
+            shape = RoundedCornerShape(28.dp),
+            color = ImaxColors.SurfaceVariant.copy(alpha = 0.72f),
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(
+                    width = 1.dp,
+                    color = ImaxColors.CardBorder.copy(alpha = 0.9f),
+                    shape = RoundedCornerShape(28.dp)
+                )
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 30.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = ImaxColors.Primary.copy(alpha = 0.16f)
+                ) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.PlaylistAdd,
+                        contentDescription = null,
+                        tint = ImaxColors.Primary,
+                        modifier = Modifier
+                            .padding(18.dp)
+                            .size(42.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(18.dp))
+                Text(
+                    "Henüz liste yok",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = ImaxColors.TextPrimary
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    "M3U, dosya veya Xtream hesabını ekleyerek başla.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = ImaxColors.TextSecondary
+                )
+                Spacer(modifier = Modifier.height(22.dp))
+                GradientButton(
+                    text = "Liste Ekle",
+                    icon = Icons.Filled.Add,
+                    onClick = onAdd
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun PlaylistCard(
     playlist: Playlist,
     isTv: Boolean,
     onSelect: () -> Unit,
+    onEdit: (() -> Unit)? = null,
     onDelete: () -> Unit
 ) {
     if (isTv) {
@@ -556,80 +739,375 @@ private fun PlaylistCard(
 
     var isFocused by remember { mutableStateOf(false) }
 
-    Row(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(if (isFocused) ImaxColors.SurfaceVariant else ImaxColors.CardBackground)
+            .heightIn(min = 176.dp)
+            .clip(RoundedCornerShape(26.dp))
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        ImaxColors.SurfaceVariant.copy(alpha = if (isFocused) 0.98f else 0.82f),
+                        ImaxColors.CardBackground.copy(alpha = 0.96f)
+                    )
+                )
+            )
             .then(
-                if (isFocused) {
-                    Modifier.border(1.dp, ImaxColors.FocusBorder, RoundedCornerShape(12.dp))
-                } else {
-                    Modifier
-                }
+                Modifier.border(
+                    width = if (isFocused) 2.dp else 1.dp,
+                    color = if (isFocused) ImaxColors.FocusBorder else ImaxColors.CardBorder.copy(alpha = 0.75f),
+                    shape = RoundedCornerShape(26.dp)
+                )
             )
             .clickable(onClick = onSelect)
             .onFocusChanged { isFocused = it.isFocused }
             .focusable()
-            .padding(16.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(18.dp)
     ) {
-        Icon(
-            imageVector = playlistTypeIcon(playlist.type),
-            contentDescription = null,
-            tint = ImaxColors.Primary,
-            modifier = Modifier.size(28.dp)
-        )
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                playlist.name,
-                style = MaterialTheme.typography.titleMedium,
-                color = ImaxColors.TextPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (playlist.channelCount > 0) {
-                    Text(
-                        "${playlist.channelCount} channels",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = ImaxColors.TextTertiary
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = ImaxColors.Primary.copy(alpha = 0.16f),
+                    modifier = Modifier.size(58.dp)
+                ) {
+                    Icon(
+                        imageVector = playlistTypeIcon(playlist.type),
+                        contentDescription = null,
+                        tint = ImaxColors.Primary,
+                        modifier = Modifier.padding(15.dp)
                     )
                 }
-                if (playlist.movieCount > 0) {
+
+                Spacer(modifier = Modifier.width(14.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        "${playlist.movieCount} movies",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = ImaxColors.TextTertiary
+                        playlist.name,
+                        style = MaterialTheme.typography.titleLarge,
+                        color = ImaxColors.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        playlistTypeLabel(playlist.type),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = ImaxColors.TextSecondary
                     )
                 }
-                if (playlist.seriesCount > 0) {
-                    Text(
-                        "${playlist.seriesCount} series",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = ImaxColors.TextTertiary
-                    )
+
+                if (playlist.isActive) {
+                    Surface(
+                        shape = RoundedCornerShape(999.dp),
+                        color = ImaxColors.Success.copy(alpha = 0.16f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                Icons.Filled.CheckCircle,
+                                contentDescription = null,
+                                tint = ImaxColors.Success,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                "Aktif",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = ImaxColors.Success
+                            )
+                        }
+                    }
                 }
             }
-        }
-        if (playlist.isActive) {
-            Surface(shape = RoundedCornerShape(4.dp), color = ImaxColors.Success.copy(alpha = 0.15f)) {
-                Text(
-                    "Active",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = ImaxColors.Success,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                PlaylistStatPill(
+                    label = "Kanal",
+                    value = playlist.channelCount,
+                    modifier = Modifier.weight(1f)
+                )
+                PlaylistStatPill(
+                    label = "Film",
+                    value = playlist.movieCount,
+                    modifier = Modifier.weight(1f)
+                )
+                PlaylistStatPill(
+                    label = "Dizi",
+                    value = playlist.seriesCount,
+                    modifier = Modifier.weight(1f)
                 )
             }
-            Spacer(modifier = Modifier.width(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable(onClick = onSelect),
+                    shape = RoundedCornerShape(16.dp),
+                    color = ImaxColors.Primary.copy(alpha = 0.16f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            Icons.Filled.PlayArrow,
+                            contentDescription = null,
+                            tint = ImaxColors.Primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "Aç",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = ImaxColors.TextPrimary
+                        )
+                    }
+                }
+
+                if (onEdit != null) {
+                    PlaylistIconAction(
+                        icon = Icons.Filled.Edit,
+                        contentDescription = "Düzenle",
+                        tint = ImaxColors.TextPrimary,
+                        onClick = onEdit
+                    )
+                }
+
+                PlaylistIconAction(
+                    icon = Icons.Filled.Delete,
+                    contentDescription = "Sil",
+                    tint = ImaxColors.Error.copy(alpha = 0.86f),
+                    onClick = onDelete
+                )
+            }
         }
-        IconButton(onClick = onDelete) {
-            Icon(
-                Icons.Filled.Delete,
-                contentDescription = "Delete",
-                tint = ImaxColors.Error.copy(alpha = 0.7f),
-                modifier = Modifier.size(22.dp)
+    }
+}
+
+@Composable
+private fun PlaylistStatPill(
+    label: String,
+    value: Int,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(14.dp),
+        color = ImaxColors.Background.copy(alpha = 0.38f)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 9.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = value.toString(),
+                style = MaterialTheme.typography.titleSmall,
+                color = ImaxColors.TextPrimary,
+                maxLines = 1
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = ImaxColors.TextTertiary,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlaylistIconAction(
+    icon: ImageVector,
+    contentDescription: String,
+    tint: Color,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .size(46.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(16.dp),
+        color = ImaxColors.Background.copy(alpha = 0.42f)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = tint,
+            modifier = Modifier.padding(12.dp)
+        )
+    }
+}
+
+@Composable
+private fun TvPlaylistHeader(
+    playlists: List<Playlist>,
+    modifier: Modifier = Modifier,
+    addButtonModifier: Modifier = Modifier,
+    onAddPlaylist: () -> Unit
+) {
+    val totalChannels = playlists.sumOf { it.channelCount }
+    val totalMovies = playlists.sumOf { it.movieCount }
+    val totalSeries = playlists.sumOf { it.seriesCount }
+    val activePlaylist = playlists.firstOrNull { it.isActive }
+
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(32.dp),
+        color = Color.Transparent,
+        border = androidx.compose.foundation.BorderStroke(
+            width = 1.dp,
+            color = ImaxColors.CardBorder.copy(alpha = 0.75f)
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(
+                    Brush.horizontalGradient(
+                        colors = listOf(
+                            ImaxColors.SurfaceVariant.copy(alpha = 0.95f),
+                            ImaxColors.CardBackground.copy(alpha = 0.98f)
+                        )
+                    )
+                )
+                .padding(horizontal = 32.dp, vertical = 22.dp)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(28.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "iMAX",
+                                style = MaterialTheme.typography.displaySmall,
+                                color = ImaxColors.Primary
+                            )
+                            Text(
+                                " Player",
+                                style = MaterialTheme.typography.displaySmall,
+                                color = ImaxColors.Secondary
+                            )
+                        }
+                        Text(
+                            text = if (playlists.isEmpty()) {
+                                "TV için kendi IPTV kaynaklarını ekle"
+                            } else {
+                                "TV liste merkezi"
+                            },
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = ImaxColors.TextPrimary
+                        )
+                        Text(
+                            text = activePlaylist?.let { "Aktif kaynak: ${it.name}" }
+                                ?: "Kaynak ekle, test et ve kumandayla devam et.",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = ImaxColors.TextSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    TvActionButton(
+                        text = "Yeni liste",
+                        icon = Icons.Filled.Add,
+                        onClick = onAddPlaylist,
+                        isSecondary = true,
+                        modifier = addButtonModifier.width(198.dp)
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    TvDashboardMetric(
+                        value = playlists.size.toString(),
+                        label = "Kaynak",
+                        modifier = Modifier.weight(1f)
+                    )
+                    TvDashboardMetric(
+                        value = totalChannels.toString(),
+                        label = "Kanal",
+                        modifier = Modifier.weight(1f)
+                    )
+                    TvDashboardMetric(
+                        value = totalMovies.toString(),
+                        label = "Film",
+                        modifier = Modifier.weight(1f)
+                    )
+                    TvDashboardMetric(
+                        value = totalSeries.toString(),
+                        label = "Dizi",
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvDashboardMetric(
+    value: String,
+    label: String,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(999.dp),
+        color = ImaxColors.Background.copy(alpha = 0.42f),
+        border = androidx.compose.foundation.BorderStroke(
+            width = 1.dp,
+            color = ImaxColors.CardBorder.copy(alpha = 0.6f)
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = value,
+                style = MaterialTheme.typography.titleMedium,
+                color = ImaxColors.TextPrimary,
+                maxLines = 1
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                color = ImaxColors.TextTertiary,
+                maxLines = 1
             )
         }
     }
@@ -638,99 +1116,258 @@ private fun PlaylistCard(
 @Composable
 private fun TvPlaylistRow(
     playlist: Playlist,
+    modifier: Modifier = Modifier,
     onSelect: () -> Unit,
+    onEdit: (() -> Unit)? = null,
     onDelete: () -> Unit
 ) {
-    Row(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         TvFocusableCard(
-            modifier = Modifier.weight(1f),
+            modifier = modifier.fillMaxWidth(),
+            isSelected = playlist.isActive,
             onClick = onSelect
         ) {
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 22.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(horizontal = 26.dp, vertical = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(54.dp)
-                        .clip(CircleShape)
-                        .background(ImaxColors.Primary.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Top
                 ) {
-                    Icon(
-                        imageVector = playlistTypeIcon(playlist.type),
-                        contentDescription = null,
-                        tint = ImaxColors.Primary,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(18.dp))
-                Column(modifier = Modifier.weight(1f)) {
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(RoundedCornerShape(22.dp))
+                            .background(ImaxColors.Primary.copy(alpha = 0.16f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = playlistTypeIcon(playlist.type),
+                            contentDescription = null,
+                            tint = ImaxColors.Primary,
+                            modifier = Modifier.size(34.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(22.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                text = playlist.name,
+                                style = MaterialTheme.typography.headlineSmall,
+                                color = ImaxColors.TextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            if (playlist.isActive) {
+                                TvActivePill()
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = playlistTypeLabel(playlist.type),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = ImaxColors.TextSecondary
+                        )
+                    }
+
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text(
-                            text = playlist.name,
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = ImaxColors.TextPrimary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        if (playlist.isActive) {
-                            Surface(
-                                shape = RoundedCornerShape(999.dp),
-                                color = ImaxColors.Success.copy(alpha = 0.15f)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        Icons.Filled.CheckCircle,
-                                        contentDescription = null,
-                                        tint = ImaxColors.Success,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text(
-                                        "Active",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = ImaxColors.Success
-                                    )
-                                }
-                            }
+                        TvInlineHint("OK ile aç")
+                        if (onEdit != null) {
+                            TvPlaylistMiniAction(
+                                icon = Icons.Filled.Edit,
+                                contentDescription = "Düzenle",
+                                tint = ImaxColors.TextPrimary,
+                                onClick = onEdit
+                            )
                         }
+                        TvPlaylistMiniAction(
+                            icon = Icons.Filled.Delete,
+                            contentDescription = "Sil",
+                            tint = ImaxColors.Error.copy(alpha = 0.9f),
+                            onClick = onDelete
+                        )
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = playlistTypeLabel(playlist.type),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = ImaxColors.TextSecondary
+                }
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    TvPlaylistStat(
+                        value = playlist.channelCount,
+                        label = "Kanal",
+                        modifier = Modifier.weight(1f)
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = playlistStats(playlist),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = ImaxColors.TextTertiary
+                    TvPlaylistStat(
+                        value = playlist.movieCount,
+                        label = "Film",
+                        modifier = Modifier.weight(1f)
+                    )
+                    TvPlaylistStat(
+                        value = playlist.seriesCount,
+                        label = "Dizi",
+                        modifier = Modifier.weight(1f)
                     )
                 }
-                TvInlineHint("Continue")
             }
         }
+    }
+}
 
-        TvActionButton(
-            text = "Remove",
-            onClick = onDelete,
-            isDestructive = true,
-            modifier = Modifier.width(170.dp)
+@Composable
+private fun TvPlaylistMiniAction(
+    icon: ImageVector,
+    contentDescription: String,
+    tint: Color,
+    onClick: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(
+        targetValue = if (isFocused) 1.08f else 1f,
+        animationSpec = spring(stiffness = 320f),
+        label = "tvPlaylistMiniActionScale"
+    )
+
+    Surface(
+        modifier = Modifier
+            .size(56.dp)
+            .graphicsLayer(scaleX = scale, scaleY = scale)
+            .onFocusChanged { isFocused = it.isFocused }
+            .clickable(onClick = onClick)
+            .focusable(),
+        shape = RoundedCornerShape(18.dp),
+        color = if (isFocused) Color.White else ImaxColors.Background.copy(alpha = 0.5f),
+        border = androidx.compose.foundation.BorderStroke(
+            width = 1.dp,
+            color = if (isFocused) Color.White else ImaxColors.CardBorder.copy(alpha = 0.55f)
         )
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = if (isFocused) Color.Black else tint,
+            modifier = Modifier.padding(14.dp)
+        )
+    }
+}
+
+@Composable
+private fun TvActivePill() {
+    Surface(
+        shape = RoundedCornerShape(999.dp),
+        color = ImaxColors.Success.copy(alpha = 0.16f)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                Icons.Filled.CheckCircle,
+                contentDescription = null,
+                tint = ImaxColors.Success,
+                modifier = Modifier.size(16.dp)
+            )
+            Text(
+                "Aktif",
+                style = MaterialTheme.typography.labelLarge,
+                color = ImaxColors.Success
+            )
+        }
+    }
+}
+
+@Composable
+private fun TvPlaylistStat(
+    value: Int,
+    label: String,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(18.dp),
+        color = ImaxColors.Background.copy(alpha = 0.38f)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                value.toString(),
+                style = MaterialTheme.typography.titleLarge,
+                color = ImaxColors.TextPrimary,
+                maxLines = 1
+            )
+            Spacer(modifier = Modifier.height(3.dp))
+            Text(
+                label,
+                style = MaterialTheme.typography.labelLarge,
+                color = ImaxColors.TextTertiary,
+                maxLines = 1
+            )
+        }
+    }
+}
+
+@Composable
+private fun TvAddPlaylistCard(
+    modifier: Modifier,
+    onClick: () -> Unit
+) {
+    TvFocusableCard(
+        modifier = modifier,
+        onClick = onClick
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 32.dp, vertical = 28.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(68.dp)
+                    .clip(CircleShape)
+                    .background(ImaxColors.Primary.copy(alpha = 0.16f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.PlaylistAdd,
+                    contentDescription = null,
+                    tint = ImaxColors.Primary,
+                    modifier = Modifier.size(34.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(20.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    "Yeni liste ekle",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = ImaxColors.TextPrimary
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    "M3U URL, Xtream / Portal veya yerel dosya. Kumandada OK ile TV uyumlu kurulum akışına geç.",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = ImaxColors.TextSecondary
+                )
+            }
+            TvInlineHint("OK ile ekle")
+        }
     }
 }
 
@@ -750,22 +1387,64 @@ private fun AddPlaylistDialog(
     } else {
         MobileAddPlaylistDialog(
             onDismiss = onDismiss,
-            onAdd = onAdd
+            onAdd = onAdd,
+            onTest = onTest
         )
     }
 }
 
 @Composable
-private fun MobileAddPlaylistDialog(
+private fun EditPlaylistDialog(
+    playlist: Playlist,
     onDismiss: () -> Unit,
-    onAdd: (String, PlaylistType, String, String, String, String) -> Unit
+    onSave: (String, PlaylistType, String, String, String, String) -> Unit,
+    onTest: (String, PlaylistType, String, String, String, String, (String) -> Unit) -> Unit
 ) {
-    var selectedType by remember { mutableStateOf(PlaylistType.M3U_URL) }
-    var name by remember { mutableStateOf("") }
-    var url by remember { mutableStateOf("") }
-    var server by remember { mutableStateOf("") }
-    var username by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
+    TvAddPlaylistDialog(
+        initialPlaylist = playlist,
+        title = "Edit playlist",
+        subtitle = "Update provider details, test the connection and save without leaving the TV playlist manager.",
+        primaryActionText = "Save changes",
+        onDismiss = onDismiss,
+        onAdd = onSave,
+        onTest = onTest
+    )
+}
+
+@Composable
+private fun MobileAddPlaylistDialog(
+    initialPlaylist: Playlist? = null,
+    title: String = "Add Playlist",
+    primaryActionText: String = "Add",
+    onDismiss: () -> Unit,
+    onAdd: (String, PlaylistType, String, String, String, String) -> Unit,
+    onTest: (String, PlaylistType, String, String, String, String, (String) -> Unit) -> Unit
+) {
+    var selectedType by remember(initialPlaylist?.id) {
+        mutableStateOf(initialPlaylist?.type ?: PlaylistType.M3U_URL)
+    }
+    var name by remember(initialPlaylist?.id) {
+        mutableStateOf(initialPlaylist?.name.orEmpty())
+    }
+    var url by remember(initialPlaylist?.id) {
+        mutableStateOf(
+            when (initialPlaylist?.type) {
+                PlaylistType.M3U_FILE -> initialPlaylist.filePath
+                else -> initialPlaylist?.url.orEmpty()
+            }
+        )
+    }
+    var server by remember(initialPlaylist?.id) {
+        mutableStateOf(initialPlaylist?.serverUrl.orEmpty())
+    }
+    var username by remember(initialPlaylist?.id) {
+        mutableStateOf(initialPlaylist?.username.orEmpty())
+    }
+    var password by remember(initialPlaylist?.id) {
+        mutableStateOf(initialPlaylist?.password.orEmpty())
+    }
+    var isTesting by remember { mutableStateOf(false) }
+    var testMessage by remember { mutableStateOf<String?>(null) }
 
     val canSave = remember(selectedType, name, url, server, username, password) {
         isDraftValid(
@@ -783,7 +1462,7 @@ private fun MobileAddPlaylistDialog(
         containerColor = ImaxColors.Surface,
         titleContentColor = ImaxColors.TextPrimary,
         textContentColor = ImaxColors.TextSecondary,
-        title = { Text("Add Playlist", style = MaterialTheme.typography.headlineSmall) },
+        title = { Text(title, style = MaterialTheme.typography.headlineSmall) },
         text = {
             Column(
                 modifier = Modifier
@@ -861,22 +1540,62 @@ private fun MobileAddPlaylistDialog(
                             onValueChange = { password = it },
                             label = "Password",
                             keyboardType = KeyboardType.Password,
-                            imeAction = ImeAction.Done
+                            imeAction = ImeAction.Done,
+                            visualTransformation = PasswordVisualTransformation()
+                        )
+                    }
+                }
+
+                testMessage?.let { message ->
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isPositiveTestMessage(message)) {
+                            ImaxColors.Success.copy(alpha = 0.12f)
+                        } else {
+                            ImaxColors.Error.copy(alpha = 0.12f)
+                        }
+                    ) {
+                        Text(
+                            text = message,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (isPositiveTestMessage(message)) {
+                                ImaxColors.Success
+                            } else {
+                                ImaxColors.Error
+                            },
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
                         )
                     }
                 }
             }
         },
         confirmButton = {
-            GradientButton(
-                text = "Add",
-                enabled = canSave,
-                onClick = {
-                    if (canSave) {
-                        onAdd(name, selectedType, url, server, username, password)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(
+                    enabled = canSave && !isTesting,
+                    onClick = {
+                        isTesting = true
+                        onTest(name, selectedType, url, server, username, password) { result ->
+                            testMessage = result
+                            isTesting = false
+                        }
                     }
+                ) {
+                    Text(
+                        text = if (isTesting) "Testing..." else "Test",
+                        color = if (canSave) ImaxColors.Primary else ImaxColors.TextTertiary
+                    )
                 }
-            )
+                GradientButton(
+                    text = primaryActionText,
+                    enabled = canSave,
+                    onClick = {
+                        if (canSave) {
+                            onAdd(name, selectedType, url, server, username, password)
+                        }
+                    }
+                )
+            }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
@@ -887,17 +1606,55 @@ private fun MobileAddPlaylistDialog(
 }
 
 @Composable
+private fun MobileEditPlaylistDialog(
+    playlist: Playlist,
+    onDismiss: () -> Unit,
+    onSave: (String, PlaylistType, String, String, String, String) -> Unit,
+    onTest: (String, PlaylistType, String, String, String, String, (String) -> Unit) -> Unit
+) {
+    MobileAddPlaylistDialog(
+        initialPlaylist = playlist,
+        title = "Edit Playlist",
+        primaryActionText = "Save",
+        onDismiss = onDismiss,
+        onAdd = onSave,
+        onTest = onTest
+    )
+}
+
+@Composable
 private fun TvAddPlaylistDialog(
+    initialPlaylist: Playlist? = null,
+    title: String = "Add playlist on TV",
+    subtitle: String = "Step 1: choose a provider type. Step 2: fill only the required fields. Step 3: test and save.",
+    primaryActionText: String = "Save and Continue",
     onDismiss: () -> Unit,
     onAdd: (String, PlaylistType, String, String, String, String) -> Unit,
     onTest: (String, PlaylistType, String, String, String, String, (String) -> Unit) -> Unit
 ) {
-    var selectedType by remember { mutableStateOf(PlaylistType.M3U_URL) }
-    var name by remember { mutableStateOf("") }
-    var url by remember { mutableStateOf("") }
-    var server by remember { mutableStateOf("") }
-    var username by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
+    var selectedType by remember(initialPlaylist?.id) {
+        mutableStateOf(initialPlaylist?.type ?: PlaylistType.M3U_URL)
+    }
+    var name by remember(initialPlaylist?.id) {
+        mutableStateOf(initialPlaylist?.name.orEmpty())
+    }
+    var url by remember(initialPlaylist?.id) {
+        mutableStateOf(
+            when (initialPlaylist?.type) {
+                PlaylistType.M3U_FILE -> initialPlaylist.filePath
+                else -> initialPlaylist?.url.orEmpty()
+            }
+        )
+    }
+    var server by remember(initialPlaylist?.id) {
+        mutableStateOf(initialPlaylist?.serverUrl.orEmpty())
+    }
+    var username by remember(initialPlaylist?.id) {
+        mutableStateOf(initialPlaylist?.username.orEmpty())
+    }
+    var password by remember(initialPlaylist?.id) {
+        mutableStateOf(initialPlaylist?.password.orEmpty())
+    }
     var isTesting by remember { mutableStateOf(false) }
     var testMessage by remember { mutableStateOf<String?>(null) }
     var shouldMoveFocusToForm by remember { mutableStateOf(false) }
@@ -951,13 +1708,13 @@ private fun TvAddPlaylistDialog(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            "Add playlist on TV",
+                            title,
                             style = MaterialTheme.typography.displaySmall,
                             color = ImaxColors.TextPrimary
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            "Step 1: choose a provider type. Step 2: fill only the required fields. Step 3: test and save.",
+                            subtitle,
                             style = MaterialTheme.typography.bodyLarge,
                             color = ImaxColors.TextSecondary
                         )
@@ -1064,7 +1821,8 @@ private fun TvAddPlaylistDialog(
                                 },
                                 label = "Password",
                                 placeholder = "Enter provider password",
-                                keyboardType = KeyboardType.Password
+                                keyboardType = KeyboardType.Password,
+                                visualTransformation = PasswordVisualTransformation()
                             )
                         }
                     }
@@ -1130,7 +1888,7 @@ private fun TvAddPlaylistDialog(
                         modifier = Modifier.weight(1f)
                     )
                     TvActionButton(
-                        text = "Save and Continue",
+                        text = primaryActionText,
                         onClick = {
                             onAdd(name, selectedType, url, server, username, password)
                         },
@@ -1155,7 +1913,8 @@ private fun DialogTextField(
     onValueChange: (String) -> Unit,
     label: String,
     keyboardType: KeyboardType = KeyboardType.Text,
-    imeAction: ImeAction = ImeAction.Next
+    imeAction: ImeAction = ImeAction.Next,
+    visualTransformation: VisualTransformation = VisualTransformation.None
 ) {
     OutlinedTextField(
         value = value,
@@ -1163,6 +1922,7 @@ private fun DialogTextField(
         label = { Text(label) },
         modifier = Modifier.fillMaxWidth(),
         singleLine = true,
+        visualTransformation = visualTransformation,
         colors = OutlinedTextFieldDefaults.colors(
             focusedBorderColor = ImaxColors.Primary,
             unfocusedBorderColor = ImaxColors.CardBorder,
@@ -1182,7 +1942,8 @@ private fun TvDialogTextField(
     label: String,
     placeholder: String,
     keyboardType: KeyboardType = KeyboardType.Text,
-    focusRequester: FocusRequester? = null
+    focusRequester: FocusRequester? = null,
+    visualTransformation: VisualTransformation = VisualTransformation.None
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(
@@ -1225,6 +1986,7 @@ private fun TvDialogTextField(
                 .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
                 .onFocusChanged { isFocused = it.isFocused },
             singleLine = true,
+            visualTransformation = visualTransformation,
             shape = RoundedCornerShape(22.dp),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = Color.White,
@@ -1495,6 +2257,7 @@ private fun TvActionButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
     enabled: Boolean = true,
     isSecondary: Boolean = false,
     isDestructive: Boolean = false
@@ -1548,14 +2311,28 @@ private fun TvActionButton(
             .padding(horizontal = 24.dp, vertical = 14.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = if (isFocused) androidx.compose.ui.text.font.FontWeight.Bold else null,
-            color = textColor,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            if (icon != null) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = textColor,
+                    modifier = Modifier.size(22.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+            }
+            Text(
+                text = text,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = if (isFocused) androidx.compose.ui.text.font.FontWeight.Bold else null,
+                color = textColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 

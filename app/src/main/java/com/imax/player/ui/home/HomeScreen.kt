@@ -58,9 +58,7 @@ fun HomeScreen(
             selectedRoute = Routes.HOME,
             isTv = true,
             onToggle = {},
-            onNavigate = { route ->
-                if (route == "exit") onNavigate(Routes.ONBOARDING) else onNavigate(route)
-            }
+            onNavigate = onNavigate
         ) {
             TvHomeContent(
                 state = state,

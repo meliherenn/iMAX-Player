@@ -1,9 +1,10 @@
 package com.imax.player.core.database
 
 import com.imax.player.core.model.*
+import java.util.Locale
 
 fun PlaylistEntity.toModel() = Playlist(
-    id = id, name = name, type = PlaylistType.valueOf(type),
+    id = id, name = name, type = resolvePlaylistType(),
     url = url, serverUrl = serverUrl, username = username, password = password,
     filePath = filePath, lastUpdated = lastUpdated, lastUsed = lastUsed,
     isActive = isActive, channelCount = channelCount, movieCount = movieCount, seriesCount = seriesCount
@@ -15,6 +16,30 @@ fun Playlist.toEntity() = PlaylistEntity(
     filePath = filePath, lastUpdated = lastUpdated, lastUsed = lastUsed,
     isActive = isActive, channelCount = channelCount, movieCount = movieCount, seriesCount = seriesCount
 )
+
+private fun PlaylistEntity.resolvePlaylistType(): PlaylistType {
+    val normalizedType = type.trim().uppercase(Locale.ROOT)
+    return when (normalizedType) {
+        PlaylistType.M3U_URL.name,
+        "M3U",
+        "URL" -> PlaylistType.M3U_URL
+
+        PlaylistType.M3U_FILE.name,
+        "FILE",
+        "LOCAL_FILE" -> PlaylistType.M3U_FILE
+
+        PlaylistType.XTREAM_CODES.name,
+        "XTREAM",
+        "XC",
+        "PORTAL" -> PlaylistType.XTREAM_CODES
+
+        else -> when {
+            serverUrl.isNotBlank() || username.isNotBlank() || password.isNotBlank() -> PlaylistType.XTREAM_CODES
+            filePath.isNotBlank() -> PlaylistType.M3U_FILE
+            else -> PlaylistType.M3U_URL
+        }
+    }
+}
 
 fun ChannelEntity.toModel() = Channel(
     id = id, playlistId = playlistId, streamId = streamId, name = name,

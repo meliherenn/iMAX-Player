@@ -629,7 +629,7 @@ fun TvCategoryItem(
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 /**
- * Quick category bar: "All" + recent categories + "Browse" button.
+ * Quick category bar: "All" + the first source-order categories + "Browse" button.
  * Used at the top of Movies/Series/LiveTV mobile screens.
  */
 @Composable
@@ -644,8 +644,7 @@ fun QuickCategoryBar(
     val allLabel = stringResource(R.string.category_all)
     val quickList = buildList {
         add(allLabel)
-        // Add recent/frequent (max 5) that are actually in the full list
-        recentCategories.filter { it in categories }.take(5).forEach { add(it) }
+        categories.take(5).forEach { add(it) }
     }
 
     LazyRow(
@@ -699,8 +698,7 @@ fun QuickCategoryBar(
 }
 
 /**
- * Full-height category bottom sheet with search, alphabetical list,
- * pinned/recent sections, and item counts.
+ * Full-height category bottom sheet with search and source-order item counts.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -727,14 +725,6 @@ fun CategoryBottomSheet(
         } else {
             orderedCategories.filter { it.contains(searchQuery, ignoreCase = true) }
         }
-    }
-
-    // Group: pinned first, then recent, then alphabetical
-    val groupedCategories = remember(filteredCategories, pinnedCategories, recentCategories) {
-        val pinned = filteredCategories.filter { it in pinnedCategories }
-        val recent = filteredCategories.filter { it in recentCategories && it !in pinnedCategories }.take(5)
-        val rest = filteredCategories.filter { it !in pinnedCategories && it !in recentCategories }
-        Triple(pinned, recent, rest)
     }
 
     ModalBottomSheet(
@@ -815,57 +805,15 @@ fun CategoryBottomSheet(
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 contentPadding = PaddingValues(bottom = 20.dp)
             ) {
-                val (pinned, recent, rest) = groupedCategories
-
-                if (pinned.isNotEmpty()) {
-                    item {
-                        Text("📌 Pinned", style = MaterialTheme.typography.labelMedium, color = ImaxColors.TextTertiary,
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
-                    }
-                    items(pinned) { cat ->
-                        CategorySheetItem(
-                            name = cat,
-                            count = categoryCounts[cat] ?: 0,
-                            isSelected = selectedCategory == cat,
-                            isPinned = true,
-                            onClick = { onCategorySelected(cat); onDismiss() },
-                            onTogglePin = { onTogglePin(cat) }
-                        )
-                    }
-                }
-
-                if (recent.isNotEmpty()) {
-                    item {
-                        Text("🕐 Recent", style = MaterialTheme.typography.labelMedium, color = ImaxColors.TextTertiary,
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
-                    }
-                    items(recent) { cat ->
-                        CategorySheetItem(
-                            name = cat,
-                            count = categoryCounts[cat] ?: 0,
-                            isSelected = selectedCategory == cat,
-                            isPinned = cat in pinnedCategories,
-                            onClick = { onCategorySelected(cat); onDismiss() },
-                            onTogglePin = { onTogglePin(cat) }
-                        )
-                    }
-                }
-
-                if (rest.isNotEmpty()) {
-                    item {
-                        Text("A–Z", style = MaterialTheme.typography.labelMedium, color = ImaxColors.TextTertiary,
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp))
-                    }
-                    items(rest) { cat ->
-                        CategorySheetItem(
-                            name = cat,
-                            count = categoryCounts[cat] ?: 0,
-                            isSelected = selectedCategory == cat,
-                            isPinned = cat in pinnedCategories,
-                            onClick = { onCategorySelected(cat); onDismiss() },
-                            onTogglePin = { onTogglePin(cat) }
-                        )
-                    }
+                items(filteredCategories, key = { it }) { cat ->
+                    CategorySheetItem(
+                        name = cat,
+                        count = categoryCounts[cat] ?: 0,
+                        isSelected = selectedCategory == cat,
+                        isPinned = false,
+                        onClick = { onCategorySelected(cat); onDismiss() },
+                        onTogglePin = {}
+                    )
                 }
 
                 if (filteredCategories.isEmpty()) {
@@ -932,14 +880,6 @@ private fun CategorySheetItem(
                     style = MaterialTheme.typography.bodySmall,
                     color = ImaxColors.TextTertiary,
                     modifier = Modifier.padding(end = 8.dp)
-                )
-            }
-            IconButton(onClick = onTogglePin, modifier = Modifier.size(28.dp)) {
-                Icon(
-                    imageVector = if (isPinned) Icons.Filled.PushPin else Icons.Filled.PushPin,
-                    contentDescription = if (isPinned) "Unpin" else "Pin",
-                    tint = if (isPinned) ImaxColors.Primary else ImaxColors.TextTertiary.copy(alpha = 0.4f),
-                    modifier = Modifier.size(16.dp)
                 )
             }
         }
