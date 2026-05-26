@@ -1396,128 +1396,120 @@ private fun TvPlaylistRow(
     onEdit: (() -> Unit)? = null,
     onDelete: () -> Unit
 ) {
-    Column(
+    Row(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         TvFocusableCard(
-            modifier = modifier.fillMaxWidth(),
+            modifier = modifier.weight(1f),
             isSelected = playlist.isActive,
-            onClick = null
+            onClick = onSelect
         ) { isFocused ->
-            var isLeftFocused by remember { mutableStateOf(false) }
-            
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 26.dp, vertical = 20.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Left Clickable/Focusable Area
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .onFocusChanged { isLeftFocused = it.isFocused }
-                        .clickable(onClick = onSelect)
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 26.dp, top = 20.dp, bottom = 20.dp, end = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
+                        Box(
+                            modifier = Modifier
+                                .size(64.dp)
+                                .clip(RoundedCornerShape(22.dp))
+                                .background(ImaxColors.Primary.copy(alpha = 0.16f)),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(64.dp)
-                                    .clip(RoundedCornerShape(22.dp))
-                                    .background(ImaxColors.Primary.copy(alpha = 0.16f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = playlistTypeIcon(playlist.type),
-                                    contentDescription = null,
-                                    tint = ImaxColors.Primary,
-                                    modifier = Modifier.size(34.dp)
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.width(22.dp))
-
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    Text(
-                                        text = playlist.name,
-                                        style = MaterialTheme.typography.headlineSmall,
-                                        color = ImaxColors.TextPrimary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    if (playlist.isActive) {
-                                        TvActivePill()
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = playlistTypeLabel(playlist.type),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = ImaxColors.TextSecondary
-                                )
-                            }
+                            Icon(
+                                imageVector = playlistTypeIcon(playlist.type),
+                                contentDescription = null,
+                                tint = ImaxColors.Primary,
+                                modifier = Modifier.size(34.dp)
+                            )
                         }
 
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            TvPlaylistStat(
-                                value = playlist.channelCount,
-                                label = "Kanal",
-                                modifier = Modifier.weight(1f)
-                            )
-                            TvPlaylistStat(
-                                value = playlist.movieCount,
-                                label = "Film",
-                                modifier = Modifier.weight(1f)
-                            )
-                            TvPlaylistStat(
-                                value = playlist.seriesCount,
-                                label = "Dizi",
-                                modifier = Modifier.weight(1f)
+                        Spacer(modifier = Modifier.width(22.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Text(
+                                    text = playlist.name,
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    color = ImaxColors.TextPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (playlist.isActive) {
+                                    TvActivePill()
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = playlistTypeLabel(playlist.type),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = ImaxColors.TextSecondary
                             )
                         }
                     }
-                }
 
-                // Right Actions Area
-                Row(
-                    modifier = Modifier
-                        .padding(end = 60.dp)
-                        .padding(vertical = 20.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    TvInlineHint("OK ile aç", isHighlighted = isLeftFocused)
-                    if (onEdit != null) {
-                        TvPlaylistMiniAction(
-                            icon = Icons.Filled.Edit,
-                            contentDescription = "Düzenle",
-                            tint = ImaxColors.TextPrimary,
-                            onClick = onEdit
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        TvPlaylistStat(
+                            value = playlist.channelCount,
+                            label = "Kanal",
+                            modifier = Modifier.weight(1f)
+                        )
+                        TvPlaylistStat(
+                            value = playlist.movieCount,
+                            label = "Film",
+                            modifier = Modifier.weight(1f)
+                        )
+                        TvPlaylistStat(
+                            value = playlist.seriesCount,
+                            label = "Dizi",
+                            modifier = Modifier.weight(1f)
                         )
                     }
-                    TvPlaylistMiniAction(
-                        icon = Icons.Filled.Delete,
-                        contentDescription = "Sil",
-                        tint = ImaxColors.Error.copy(alpha = 0.9f),
-                        onClick = onDelete
-                    )
+                }
+
+                if (isFocused) {
+                    Spacer(modifier = Modifier.width(16.dp))
+                    TvInlineHint("OK ile aç", isHighlighted = true)
                 }
             }
+        }
+
+        // Right Actions Area (outside the card)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            if (onEdit != null) {
+                TvPlaylistMiniAction(
+                    icon = Icons.Filled.Edit,
+                    contentDescription = "Düzenle",
+                    tint = ImaxColors.TextPrimary,
+                    onClick = onEdit
+                )
+            }
+            TvPlaylistMiniAction(
+                icon = Icons.Filled.Delete,
+                contentDescription = "Sil",
+                tint = ImaxColors.Error.copy(alpha = 0.9f),
+                onClick = onDelete
+            )
         }
     }
 }
