@@ -689,23 +689,29 @@ private fun TvOnboardingContent(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 72.dp, vertical = 40.dp)
+                .padding(vertical = 40.dp)
         ) {
             TvPlaylistHeader(
                 playlists = state.playlists,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 72.dp),
                 onAddPlaylist = { viewModel.showAddDialog() }
             )
             Spacer(modifier = Modifier.height(24.dp))
 
             state.syncError?.let { error ->
-                SyncErrorPanel(message = error)
+                Box(modifier = Modifier.padding(horizontal = 72.dp)) {
+                    SyncErrorPanel(message = error)
+                }
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
             if (state.playlists.isEmpty() && !state.isLoading) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 72.dp),
                     horizontalArrangement = Arrangement.spacedBy(24.dp)
                 ) {
                     TvQrPairingCard(
@@ -720,23 +726,29 @@ private fun TvOnboardingContent(
                     )
                 }
             } else {
-                Text(
-                    "Listelerim",
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = ImaxColors.TextPrimary
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    "Kumandayla liste seç, bilgileri düzenle veya yeni kaynak ekle.",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = ImaxColors.TextSecondary
-                )
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 72.dp)
+                ) {
+                    Text(
+                        "Listelerim",
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = ImaxColors.TextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        "Kumandayla liste seç, bilgileri düzenle veya yeni kaynak ekle.",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = ImaxColors.TextSecondary
+                    )
+                }
                 Spacer(modifier = Modifier.height(14.dp))
 
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
-                    contentPadding = PaddingValues(bottom = 24.dp)
+                    contentPadding = PaddingValues(start = 72.dp, end = 72.dp, bottom = 24.dp)
                 ) {
                     items(state.playlists, key = { it.id }) { playlist ->
                         val playlistModifier = if (playlist.id == state.playlists.firstOrNull()?.id) {
