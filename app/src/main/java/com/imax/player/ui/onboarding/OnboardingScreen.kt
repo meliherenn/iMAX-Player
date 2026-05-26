@@ -1484,7 +1484,7 @@ private fun TvPlaylistRow(
                 // Right Actions Area
                 Row(
                     modifier = Modifier
-                        .padding(end = 26.dp)
+                        .padding(end = 44.dp)
                         .padding(vertical = 20.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
