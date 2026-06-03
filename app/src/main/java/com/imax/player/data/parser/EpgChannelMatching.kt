@@ -8,6 +8,24 @@ private val combiningMarksRegex = Regex("\\p{Mn}+")
 private val separatorRegex = Regex("[^a-z0-9]+")
 private val repeatedDashRegex = Regex("-+")
 private val repeatedUnderscoreRegex = Regex("_+")
+private val leadingRegionTokens = setOf("tr", "turkey", "turkiye")
+private val trailingRegionTokens = setOf("tr", "turkey", "turkiye")
+private val trailingDescriptorTokens = setOf(
+    "raw",
+    "hd",
+    "fhd",
+    "fullhd",
+    "uhd",
+    "sd",
+    "hevc",
+    "h264",
+    "h265",
+    "x264",
+    "x265",
+    "vip",
+    "backup",
+    "yedek"
+)
 
 fun buildEpgChannelIdMap(channels: List<Channel>): Map<String, String> {
     val map = linkedMapOf<String, String>()
@@ -73,6 +91,45 @@ private fun MutableList<String>.addEpgLookupKeys(value: String) {
     addUnique(normalized.replace(separatorRegex, "-").replace(repeatedDashRegex, "-").trim('-'))
     addUnique(normalized.replace(separatorRegex, "_").replace(repeatedUnderscoreRegex, "_").trim('_'))
     addUnique(normalized.filter { it in 'a'..'z' || it in '0'..'9' })
+
+    val tokens = normalized.split(separatorRegex)
+        .filter(String::isNotBlank)
+    addTokenLookupVariants(tokens)
+}
+
+private fun MutableList<String>.addTokenLookupVariants(tokens: List<String>) {
+    if (tokens.isEmpty()) return
+
+    val variants = linkedSetOf<List<String>>()
+    variants += tokens
+
+    val withoutLeadingRegion = tokens.dropWhile { it in leadingRegionTokens }
+    if (withoutLeadingRegion.isNotEmpty()) {
+        variants += withoutLeadingRegion
+    }
+
+    variants.toList().forEach { variant ->
+        val withoutTrailingDescriptors = variant.dropLastWhile { it in trailingDescriptorTokens }
+        if (withoutTrailingDescriptors.isNotEmpty()) {
+            variants += withoutTrailingDescriptors
+        }
+
+        val withoutTrailingRegion = variant.dropLastWhile { it in trailingRegionTokens }
+        if (withoutTrailingRegion.isNotEmpty()) {
+            variants += withoutTrailingRegion
+        }
+
+        val compacted = withoutTrailingDescriptors.dropLastWhile { it in trailingRegionTokens }
+        if (compacted.isNotEmpty()) {
+            variants += compacted
+        }
+    }
+
+    variants.forEach { variant ->
+        addUnique(variant.joinToString("-"))
+        addUnique(variant.joinToString("_"))
+        addUnique(variant.joinToString(""))
+    }
 }
 
 private fun MutableList<String>.addUnique(value: String) {

@@ -179,5 +179,7 @@
     <string name="epg_sync_now">EPG Şimdi Güncelle</string>
     <string name="epg_last_sync_time">Son EPG Güncellemesi: %1$s</string>
     <string name="epg_no_data">Program bilgisi yok</string>
+    <string name="epg_current_program_format">Şu an: %1$s</string>
+    <string name="epg_progress_percent_format">%1$s - %2$s • %3$d%% bitti</string>
     <string name="channel_number_hint">Kanal No</string>
 </resources>

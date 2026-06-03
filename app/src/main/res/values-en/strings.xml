@@ -178,5 +178,7 @@
     <string name="epg_sync_now">Update EPG Now</string>
     <string name="epg_last_sync_time">Last EPG update: %1$s</string>
     <string name="epg_no_data">No program info</string>
+    <string name="epg_current_program_format">Now: %1$s</string>
+    <string name="epg_progress_percent_format">%1$s - %2$s • %3$d%% complete</string>
     <string name="channel_number_hint">Channel No</string>
 </resources>

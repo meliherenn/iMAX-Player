@@ -30,6 +30,24 @@ class EpgChannelMatchingTest {
     }
 
     @Test
+    fun `lookup keys strip playlist region and raw suffix from channel names`() {
+        val channel = Channel(
+            playlistId = 1L,
+            name = "TR • Show Tv RAW",
+            groupTitle = "TR ✨ Raw",
+            streamUrl = "http://example.test/live/show"
+        )
+
+        val keys = epgLookupKeysForChannel(channel)
+
+        assertThat(keys).containsAtLeast(
+            "tr-show-tv-raw",
+            "show-tv",
+            "showtv"
+        )
+    }
+
+    @Test
     fun `channel id map points normalized aliases to canonical epg id`() {
         val channel = Channel(
             playlistId = 1L,

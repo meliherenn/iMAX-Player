@@ -87,6 +87,7 @@ fun PlayerScreen(
     val sleepTimerState by viewModel.sleepTimerState.collectAsStateWithLifecycle()
     val currentEpgProgram by viewModel.currentEpgProgram.collectAsStateWithLifecycle()
     val nextEpgProgram by viewModel.nextEpgProgram.collectAsStateWithLifecycle()
+    val channelListEpgPrograms by viewModel.channelListEpgPrograms.collectAsStateWithLifecycle()
     var controlsVisible by rememberSaveable { mutableStateOf(true) }
     var showSettingsSheet by remember { mutableStateOf(false) }
     var showChannelSheet by remember { mutableStateOf(false) }
@@ -255,6 +256,12 @@ fun PlayerScreen(
         ) {
             showChannelSheet = true
             controlsVisible = true
+        }
+    }
+
+    LaunchedEffect(showChannelSheet, session.availableChannels.map(Channel::id)) {
+        if (showChannelSheet && session.availableChannels.isNotEmpty()) {
+            viewModel.loadEpgForChannels(session.availableChannels)
         }
     }
 
@@ -1070,6 +1077,7 @@ fun PlayerScreen(
             currentChannelId = liveChannelSwitch.targetChannelId ?: session.currentChannel?.id ?: contentId,
             isSwitching = isChannelSwitching,
             isTv = isTv,
+            epgPrograms = channelListEpgPrograms,
             onDismiss = {
                 if (!isChannelSwitching) {
                     showChannelSheet = false
@@ -1143,6 +1151,73 @@ fun EpgMiniStrip(
             Spacer(Modifier.height(2.dp))
             Text(text = "Sonraki: ${next.title}", style = MaterialTheme.typography.labelSmall,
                 color = Color.White.copy(alpha = 0.5f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+private fun ChannelSwitchEpgDetails(
+    epgProgram: com.imax.player.data.parser.EpgProgram?,
+    fallback: String,
+    primaryColor: Color,
+    showProgress: Boolean
+) {
+    when {
+        epgProgram != null -> {
+            val progress = epgProgram.progressFraction
+            val progressPercent = (progress * 100f).roundToInt().coerceIn(0, 100)
+            val timeFormatter = remember { java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()) }
+            val startTime = remember(epgProgram.startTime) {
+                timeFormatter.format(java.util.Date(epgProgram.startTime))
+            }
+            val endTime = remember(epgProgram.endTime) {
+                timeFormatter.format(java.util.Date(epgProgram.endTime))
+            }
+
+            Spacer(modifier = Modifier.height(3.dp))
+            Text(
+                text = stringResource(R.string.epg_current_program_format, epgProgram.title),
+                style = MaterialTheme.typography.bodySmall,
+                color = primaryColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = stringResource(
+                    R.string.epg_progress_percent_format,
+                    startTime,
+                    endTime,
+                    progressPercent
+                ),
+                style = MaterialTheme.typography.labelSmall,
+                color = primaryColor.copy(alpha = 0.78f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (showProgress) {
+                Spacer(modifier = Modifier.height(5.dp))
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier
+                        .fillMaxWidth(0.72f)
+                        .height(2.dp)
+                        .clip(RoundedCornerShape(1.dp)),
+                    color = ImaxColors.Primary,
+                    trackColor = Color.White.copy(alpha = 0.14f)
+                )
+            }
+        }
+
+        fallback.isNotBlank() -> {
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = fallback,
+                style = MaterialTheme.typography.bodySmall,
+                color = primaryColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
         }
     }
 }
@@ -1594,6 +1669,7 @@ private fun ChannelSwitchSheet(
     currentChannelId: Long,
     isSwitching: Boolean,
     isTv: Boolean,
+    epgPrograms: Map<Long, com.imax.player.data.parser.EpgProgram>,
     onDismiss: () -> Unit,
     onChannelSelected: (Channel) -> Unit
 ) {
@@ -1626,6 +1702,7 @@ private fun ChannelSwitchSheet(
                         ) {
                             items(channels, key = { it.id }) { channel ->
                                 val isCurrent = channel.id == currentChannelId
+                                val epgProgram = epgPrograms[channel.id]
                                 val interactionSource = remember(channel.id) { MutableInteractionSource() }
                                 val isFocused by interactionSource.collectIsFocusedAsState()
                                 val itemShape = RoundedCornerShape(12.dp)
@@ -1678,16 +1755,12 @@ private fun ChannelSwitchSheet(
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis
                                             )
-                                            if (channel.groupTitle.isNotBlank()) {
-                                                Spacer(modifier = Modifier.height(2.dp))
-                                                Text(
-                                                    text = channel.groupTitle,
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = if (isFocused) ImaxColors.TextSecondary else ImaxColors.TextTertiary,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
+                                            ChannelSwitchEpgDetails(
+                                                epgProgram = epgProgram,
+                                                fallback = channel.groupTitle,
+                                                primaryColor = if (isFocused) ImaxColors.TextSecondary else ImaxColors.TextTertiary,
+                                                showProgress = true
+                                            )
                                         }
                                         if (isCurrent) {
                                             Text(
@@ -1740,6 +1813,7 @@ private fun ChannelSwitchSheet(
             ) {
                 items(channels, key = { it.id }) { channel ->
                     val isCurrent = channel.id == currentChannelId
+                    val epgProgram = epgPrograms[channel.id]
                     Surface(
                         shape = RoundedCornerShape(14.dp),
                         color = if (isCurrent) {
@@ -1768,16 +1842,12 @@ private fun ChannelSwitchSheet(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
-                                if (channel.groupTitle.isNotBlank()) {
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = channel.groupTitle,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = ImaxColors.TextTertiary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
+                                ChannelSwitchEpgDetails(
+                                    epgProgram = epgProgram,
+                                    fallback = channel.groupTitle,
+                                    primaryColor = ImaxColors.TextTertiary,
+                                    showProgress = true
+                                )
                             }
                             if (isCurrent) {
                                 Text(

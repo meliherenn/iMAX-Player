@@ -115,6 +115,7 @@ import com.imax.player.ui.player.PlayerShellMode
 import com.imax.player.ui.player.PlayerSurfaceHost
 import com.imax.player.ui.player.PlayerSurfaceHostState
 import com.imax.player.ui.player.PlayerViewModel
+import kotlin.math.roundToInt
 import timber.log.Timber
 
 private enum class TvPlayerPanel {
@@ -147,6 +148,7 @@ private const val TV_PLAYER_LOG_TAG = "TvPlayerScreen"
 private data class TvPanelOption(
     val title: String,
     val subtitle: String? = null,
+    val progressFraction: Float? = null,
     val selected: Boolean = false,
     val enabled: Boolean = true,
     val onClick: () -> Unit
@@ -157,6 +159,21 @@ private fun nextAspectRatioMode(current: AspectRatioMode): AspectRatioMode {
     val modes = AspectRatioMode.entries
     val index = modes.indexOf(current).takeIf { it >= 0 } ?: 0
     return modes[(index + 1) % modes.size]
+}
+
+private fun tvChannelPanelSubtitle(
+    epgProgram: com.imax.player.data.parser.EpgProgram?,
+    fallback: String
+): String? {
+    if (epgProgram == null) {
+        return fallback.ifBlank { null }
+    }
+
+    val timeFormatter = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+    val startTime = timeFormatter.format(java.util.Date(epgProgram.startTime))
+    val endTime = timeFormatter.format(java.util.Date(epgProgram.endTime))
+    val progressPercent = (epgProgram.progressFraction * 100f).roundToInt().coerceIn(0, 100)
+    return "${epgProgram.title} • $startTime - $endTime • $progressPercent%"
 }
 
 private fun KeyEvent.isTvBackKey(): Boolean {
@@ -260,6 +277,7 @@ fun TvPlayerScreen(
     val liveChannelSwitch by viewModel.liveChannelSwitch.collectAsStateWithLifecycle()
     val currentEpgProgram by viewModel.currentEpgProgram.collectAsStateWithLifecycle()
     val nextEpgProgram by viewModel.nextEpgProgram.collectAsStateWithLifecycle()
+    val channelListEpgPrograms by viewModel.channelListEpgPrograms.collectAsStateWithLifecycle()
 
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
@@ -536,6 +554,12 @@ fun TvPlayerScreen(
             } else {
                 showOverlay(TvOverlayAction.CHANNELS)
             }
+        }
+    }
+
+    LaunchedEffect(activePanel, session.availableChannels.map(Channel::id)) {
+        if (activePanel == TvPlayerPanel.CHANNELS && session.availableChannels.isNotEmpty()) {
+            viewModel.loadEpgForChannels(session.availableChannels)
         }
     }
 
@@ -908,6 +932,7 @@ fun TvPlayerScreen(
                 playerState = playerState,
                 channels = session.availableChannels,
                 currentChannelId = liveChannelSwitch.targetChannelId ?: session.currentChannel?.id ?: contentId,
+                epgPrograms = channelListEpgPrograms,
                 isChannelSwitching = isChannelSwitching,
                 onDismiss = ::closePanel,
                 onSelectChannel = { channel ->
@@ -1375,6 +1400,7 @@ private fun TvPlayerPanelHost(
     playerState: PlayerState,
     channels: List<Channel>,
     currentChannelId: Long,
+    epgPrograms: Map<Long, com.imax.player.data.parser.EpgProgram>,
     isChannelSwitching: Boolean,
     onDismiss: () -> Unit,
     onSelectChannel: (Channel) -> Unit,
@@ -1402,9 +1428,11 @@ private fun TvPlayerPanelHost(
                     title = stringResource(R.string.channel_list),
                     modifier = Modifier.clickable(enabled = false) {},
                     items = channels.map { channel ->
+                        val epgProgram = epgPrograms[channel.id]
                         TvPanelOption(
                             title = channel.name,
-                            subtitle = channel.groupTitle.ifBlank { null },
+                            subtitle = tvChannelPanelSubtitle(epgProgram, channel.groupTitle),
+                            progressFraction = epgProgram?.progressFraction,
                             selected = channel.id == currentChannelId,
                             enabled = channel.id != currentChannelId,
                             onClick = { onSelectChannel(channel) }
@@ -1628,6 +1656,7 @@ private fun TvOptionPanel(
                         TvPanelOptionRow(
                             title = item.title,
                             subtitle = item.subtitle,
+                            progressFraction = item.progressFraction,
                             selected = item.selected,
                             enabled = item.enabled,
                             visuallyFocused = visualFocusIndex == index,
@@ -1941,6 +1970,7 @@ private fun FocusRequester.requestFocusSafely(reason: String) {
 private fun TvPanelOptionRow(
     title: String,
     subtitle: String?,
+    progressFraction: Float?,
     selected: Boolean,
     enabled: Boolean,
     visuallyFocused: Boolean,
@@ -2034,6 +2064,18 @@ private fun TvPanelOptionRow(
                         color = focusState.secondaryContentColor,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
+                    )
+                }
+                progressFraction?.let { progress ->
+                    Spacer(modifier = Modifier.height(6.dp))
+                    LinearProgressIndicator(
+                        progress = { progress.coerceIn(0f, 1f) },
+                        modifier = Modifier
+                            .fillMaxWidth(0.76f)
+                            .height(2.dp)
+                            .clip(RoundedCornerShape(1.dp)),
+                        color = ImaxColors.Primary,
+                        trackColor = Color.White.copy(alpha = 0.14f)
                     )
                 }
             }
