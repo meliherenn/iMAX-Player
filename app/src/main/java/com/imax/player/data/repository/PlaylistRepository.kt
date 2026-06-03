@@ -128,7 +128,7 @@ class PlaylistRepository @Inject constructor(
 
     suspend fun ensureEpgSynced(playlist: Playlist): Boolean = withContext(Dispatchers.IO) {
         val settings = settingsDataStore.settings.first()
-        if (settings.epgUrl.isNotBlank() && settings.epgLastSync > 0L) {
+        if (settings.epgLastSync > 0L) {
             val channels = channelDao.getByPlaylistSnapshot(playlist.id).map { it.toModel() }
             val hasCurrentPrograms = channels.isNotEmpty() &&
                 epgRepository.getCurrentProgramsForChannels(channels).isNotEmpty()
@@ -232,7 +232,7 @@ class PlaylistRepository @Inject constructor(
 
         if (discoveredEpgUrls.isEmpty()) {
             Timber.d("No EPG URL discovered for playlist ${playlist.id}")
-            return false
+            return syncXtreamApiEpg(playlist, channels)
         }
 
         val channelIdMap = epgRepository.buildChannelIdMap(channels)
@@ -266,7 +266,43 @@ class PlaylistRepository @Inject constructor(
             return true
         }
 
-        return false
+        return syncXtreamApiEpg(playlist, channels)
+    }
+
+    private suspend fun syncXtreamApiEpg(
+        playlist: Playlist,
+        channels: List<Channel>
+    ): Boolean {
+        val credentials = resolveXtreamCredentials(
+            playlist = playlist,
+            streamUrls = channels.map { it.streamUrl }
+        ) ?: return false
+
+        val targetChannels = channels
+            .filter { it.streamId > 0 }
+            .take(XTREAM_SHORT_EPG_CHANNEL_LIMIT)
+        if (targetChannels.isEmpty()) return false
+
+        val programs = xtreamClient.loadLiveEpgPrograms(
+            serverUrl = credentials.serverUrl,
+            username = credentials.username,
+            password = credentials.password,
+            channels = targetChannels
+        )
+        val savedProgramCount = epgRepository.savePrograms(programs)
+        if (savedProgramCount <= 0) {
+            Timber.w("Xtream API EPG sync parsed no programs for playlist ${playlist.id}")
+            return false
+        }
+
+        val freshSettings = settingsDataStore.settings.first()
+        if (freshSettings.epgUrl.isNotBlank()) {
+            epgRepository.cancelScheduledSync(freshSettings.epgUrl)
+            settingsDataStore.updateEpgUrl("")
+        }
+        settingsDataStore.updateEpgLastSync(System.currentTimeMillis())
+        Timber.d("Xtream API EPG sync completed for playlist ${playlist.id}: $savedProgramCount programs")
+        return true
     }
 
     private suspend fun saveParseResult(
@@ -434,6 +470,7 @@ class PlaylistRepository @Inject constructor(
 
     private companion object {
         const val INSERT_CHUNK_SIZE = 500
+        const val XTREAM_SHORT_EPG_CHANNEL_LIMIT = 160
     }
 }
 
@@ -514,6 +551,67 @@ internal fun buildXtreamEpgUrlFromStreamUrl(streamUrl: String): String {
         .toString()
 }
 
+internal data class XtreamCredentials(
+    val serverUrl: String,
+    val username: String,
+    val password: String
+)
+
+internal fun resolveXtreamCredentials(
+    playlist: Playlist,
+    streamUrls: List<String>
+): XtreamCredentials? {
+    if (
+        playlist.type == PlaylistType.XTREAM_CODES &&
+        playlist.serverUrl.isNotBlank() &&
+        playlist.username.isNotBlank() &&
+        playlist.password.isNotBlank()
+    ) {
+        return XtreamCredentials(
+            serverUrl = normalizeXtreamServerUrl(playlist.serverUrl),
+            username = playlist.username,
+            password = playlist.password
+        )
+    }
+
+    buildXtreamCredentialsFromM3uPlaylistUrl(playlist.url)?.let { return it }
+    return streamUrls.asSequence()
+        .mapNotNull(::buildXtreamCredentialsFromStreamUrl)
+        .firstOrNull()
+}
+
+internal fun buildXtreamCredentialsFromM3uPlaylistUrl(playlistUrl: String): XtreamCredentials? {
+    val httpUrl = playlistUrl.toHttpUrlOrNull() ?: return null
+    val username = httpUrl.queryParameter("username")?.takeIf(String::isNotBlank) ?: return null
+    val password = httpUrl.queryParameter("password")?.takeIf(String::isNotBlank) ?: return null
+
+    return XtreamCredentials(
+        serverUrl = httpUrl.toXtreamServerUrl(),
+        username = username,
+        password = password
+    )
+}
+
+internal fun buildXtreamCredentialsFromStreamUrl(streamUrl: String): XtreamCredentials? {
+    val httpUrl = streamUrl.toHttpUrlOrNull() ?: return null
+    val pathSegments = httpUrl.pathSegments
+    val credentialsStartIndex = pathSegments.indexOfFirst { segment ->
+        segment.equals("live", ignoreCase = true) ||
+            segment.equals("movie", ignoreCase = true) ||
+            segment.equals("series", ignoreCase = true)
+    } + 1
+    if (credentialsStartIndex <= 0) return null
+
+    val username = pathSegments.getOrNull(credentialsStartIndex)?.takeIf(String::isNotBlank) ?: return null
+    val password = pathSegments.getOrNull(credentialsStartIndex + 1)?.takeIf(String::isNotBlank) ?: return null
+
+    return XtreamCredentials(
+        serverUrl = httpUrl.toXtreamServerUrl(),
+        username = username,
+        password = password
+    )
+}
+
 private fun buildXtreamEpgUrl(playlist: Playlist): String {
     if (playlist.serverUrl.isBlank() || playlist.username.isBlank() || playlist.password.isBlank()) {
         return ""
@@ -575,3 +673,12 @@ private fun normalizeXtreamServerUrl(value: String): String {
         normalized
     }
 }
+
+private fun okhttp3.HttpUrl.toXtreamServerUrl(): String =
+    newBuilder()
+        .encodedPath("/")
+        .query(null)
+        .fragment(null)
+        .build()
+        .toString()
+        .trimEnd('/')

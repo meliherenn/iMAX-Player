@@ -1,6 +1,7 @@
 package com.imax.player.core.network
 
 import com.imax.player.core.network.dto.*
+import kotlinx.serialization.json.JsonElement
 import retrofit2.http.GET
 import retrofit2.http.Query
 import retrofit2.http.Url
@@ -71,4 +72,14 @@ interface XtreamApi {
         @Query("action") action: String = "get_series_info",
         @Query("series_id") seriesId: Int
     ): XtreamSeriesInfo
+
+    @GET
+    suspend fun getLiveEpg(
+        @Url url: String,
+        @Query("username") username: String,
+        @Query("password") password: String,
+        @Query("action") action: String,
+        @Query("stream_id") streamId: Int,
+        @Query("limit") limit: Int? = null
+    ): JsonElement
 }

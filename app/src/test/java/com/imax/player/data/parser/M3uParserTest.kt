@@ -77,6 +77,20 @@ class M3uParserTest {
     }
 
     @Test
+    fun `parse xtream stream id from m3u live url`() {
+        val m3u = """
+            #EXTM3U
+            #EXTINF:-1 tvg-name="TRT 1" group-title="TR",TR • TRT 1 FHD
+            https://provider.example/live/user1/pass1/12345.ts
+        """.trimIndent()
+
+        val result = parser.parseText(m3u, 1L)
+
+        assertThat(result.channels).hasSize(1)
+        assertThat(result.channels[0].streamId).isEqualTo(12345)
+    }
+
+    @Test
     fun `parse M3U with movies`() {
         val m3u = """
             #EXTM3U

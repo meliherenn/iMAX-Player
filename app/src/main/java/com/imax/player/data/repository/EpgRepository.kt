@@ -105,6 +105,15 @@ class EpgRepository @Inject constructor(
             }
         }
 
+    suspend fun savePrograms(programs: List<EpgProgramEntity>): Int =
+        withContext(Dispatchers.IO) {
+            if (programs.isEmpty()) return@withContext 0
+            epgDao.deleteOld(System.currentTimeMillis() - 7_200_000L)
+            programs.chunked(500).forEach { epgDao.insertAll(it) }
+            Timber.d("EpgRepository: saved ${programs.size} Xtream EPG programs")
+            programs.size
+        }
+
     /**
      * Schedule daily background EPG sync via WorkManager.
      */

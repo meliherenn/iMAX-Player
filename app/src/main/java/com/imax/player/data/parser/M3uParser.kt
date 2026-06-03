@@ -144,6 +144,7 @@ class M3uParser @Inject constructor() {
                 ContentType.LIVE -> channels.add(
                     ChannelEntity(
                         playlistId = playlistId,
+                        streamId = extractXtreamStreamId(entry.url),
                         name = entry.name,
                         logoUrl = entry.logoUrl,
                         groupTitle = entry.groupTitle,
@@ -156,6 +157,7 @@ class M3uParser @Inject constructor() {
                 ContentType.MOVIE -> movies.add(
                     MovieEntity(
                         playlistId = playlistId,
+                        streamId = extractXtreamStreamId(entry.url),
                         name = entry.name,
                         posterUrl = entry.logoUrl,
                         streamUrl = entry.url,
@@ -202,6 +204,18 @@ class M3uParser @Inject constructor() {
             if (match != null) return match.groupValues[1].trim()
         }
         return name.trim()
+    }
+
+    private fun extractXtreamStreamId(url: String): Int {
+        return Regex(
+            pattern = """/(?:live|movie|series)/[^/?#]+/[^/?#]+/(\d+)(?:\.[^/?#]+)?(?:[?#].*)?$""",
+            option = RegexOption.IGNORE_CASE
+        )
+            .find(url)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+            ?: 0
     }
 }
 

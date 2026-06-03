@@ -1,6 +1,8 @@
 package com.imax.player.data.repository
 
 import com.google.common.truth.Truth.assertThat
+import com.imax.player.core.model.Playlist
+import com.imax.player.core.model.PlaylistType
 import org.junit.Test
 
 class PlaylistEpgUrlTest {
@@ -47,5 +49,46 @@ class PlaylistEpgUrlTest {
             "https://provider.example/xmltv.php?username=user1&password=pass1",
             "https://backup.example/xmltv.php?username=user2&password=pass2"
         ).inOrder()
+    }
+
+    @Test
+    fun `m3u get php url derives xtream credentials`() {
+        val credentials = buildXtreamCredentialsFromM3uPlaylistUrl(
+            "https://provider.example/get.php?username=user1&password=pass1&type=m3u_plus&output=ts"
+        )
+
+        assertThat(credentials?.serverUrl).isEqualTo("https://provider.example")
+        assertThat(credentials?.username).isEqualTo("user1")
+        assertThat(credentials?.password).isEqualTo("pass1")
+    }
+
+    @Test
+    fun `stream live url derives xtream credentials`() {
+        val credentials = buildXtreamCredentialsFromStreamUrl(
+            "https://provider.example/live/user1/pass1/12345.ts"
+        )
+
+        assertThat(credentials?.serverUrl).isEqualTo("https://provider.example")
+        assertThat(credentials?.username).isEqualTo("user1")
+        assertThat(credentials?.password).isEqualTo("pass1")
+    }
+
+    @Test
+    fun `xtream playlist keeps explicit credentials`() {
+        val credentials = resolveXtreamCredentials(
+            playlist = Playlist(
+                id = 1L,
+                name = "Test",
+                type = PlaylistType.XTREAM_CODES,
+                serverUrl = "https://provider.example/player_api.php",
+                username = "user1",
+                password = "pass1"
+            ),
+            streamUrls = emptyList()
+        )
+
+        assertThat(credentials?.serverUrl).isEqualTo("https://provider.example")
+        assertThat(credentials?.username).isEqualTo("user1")
+        assertThat(credentials?.password).isEqualTo("pass1")
     }
 }

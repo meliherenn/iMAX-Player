@@ -2,6 +2,7 @@ package com.imax.player.data.parser
 
 import com.imax.player.core.common.Constants
 import com.imax.player.core.database.*
+import com.imax.player.core.model.Channel
 import com.imax.player.core.model.ContentType
 import com.imax.player.core.network.XtreamApi
 import com.imax.player.core.network.dto.*
@@ -246,6 +247,68 @@ class XtreamClient @Inject constructor(
             Timber.e(e, "Failed to load series episodes")
             emptyList()
         }
+    }
+
+    suspend fun loadLiveEpgPrograms(
+        serverUrl: String,
+        username: String,
+        password: String,
+        channels: List<Channel>
+    ): List<EpgProgramEntity> {
+        if (serverUrl.isBlank() || username.isBlank() || password.isBlank()) {
+            return emptyList()
+        }
+
+        val url = buildApiUrl(serverUrl)
+        val programs = mutableListOf<EpgProgramEntity>()
+        channels
+            .asSequence()
+            .filter { it.streamId > 0 }
+            .distinctBy { it.streamId }
+            .forEach { channel ->
+                programs += loadLiveEpgProgramsForChannel(url, username, password, channel)
+            }
+        return programs
+    }
+
+    private suspend fun loadLiveEpgProgramsForChannel(
+        url: String,
+        username: String,
+        password: String,
+        channel: Channel
+    ): List<EpgProgramEntity> {
+        val shortEpg = runCatching {
+            api.getLiveEpg(
+                url = url,
+                username = username,
+                password = password,
+                action = "get_short_epg",
+                streamId = channel.streamId,
+                limit = 6
+            )
+        }
+            .map { response -> parseXtreamEpgPrograms(response, channel) }
+            .getOrElse { error ->
+                Timber.w(error, "Failed to load short EPG for stream ${channel.streamId}")
+                emptyList()
+            }
+
+        if (shortEpg.isNotEmpty()) return shortEpg
+
+        return runCatching {
+            api.getLiveEpg(
+                url = url,
+                username = username,
+                password = password,
+                action = "get_simple_data_table",
+                streamId = channel.streamId
+            )
+        }
+            .map { response -> parseXtreamEpgPrograms(response, channel) }
+            .getOrElse { error ->
+                Timber.w(error, "Failed to load simple EPG table for stream ${channel.streamId}")
+                emptyList()
+            }
     }
 
     private fun parseSeriesEpisodes(element: JsonElement?): List<Pair<String, List<XtreamEpisode>>> {
