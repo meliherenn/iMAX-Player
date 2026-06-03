@@ -416,9 +416,11 @@ class PlaylistRepository @Inject constructor(
     }
 }
 
-private fun resolveM3uEpgUrl(epgUrl: String, playlistUrl: String): String {
+internal fun resolveM3uEpgUrl(epgUrl: String, playlistUrl: String): String {
     val trimmed = epgUrl.trim()
-    if (trimmed.isBlank()) return ""
+    if (trimmed.isBlank()) {
+        return buildXtreamEpgUrlFromM3uPlaylistUrl(playlistUrl)
+    }
     if (trimmed.startsWith("http://", ignoreCase = true) ||
         trimmed.startsWith("https://", ignoreCase = true)
     ) {
@@ -430,6 +432,20 @@ private fun resolveM3uEpgUrl(epgUrl: String, playlistUrl: String): String {
         ?.resolve(trimmed)
         ?.toString()
         ?: trimmed
+}
+
+internal fun buildXtreamEpgUrlFromM3uPlaylistUrl(playlistUrl: String): String {
+    val httpUrl = playlistUrl.toHttpUrlOrNull() ?: return ""
+    val username = httpUrl.queryParameter("username")?.takeIf(String::isNotBlank) ?: return ""
+    val password = httpUrl.queryParameter("password")?.takeIf(String::isNotBlank) ?: return ""
+
+    return httpUrl.newBuilder()
+        .encodedPath("/xmltv.php")
+        .query(null)
+        .addQueryParameter("username", username)
+        .addQueryParameter("password", password)
+        .build()
+        .toString()
 }
 
 private fun buildXtreamEpgUrl(playlist: Playlist): String {
