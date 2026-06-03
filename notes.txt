@@ -1,6 +1,6 @@
-1.0.7
+1.0.8
 
-- Xtream JSON EPG desteği eklendi.
-- M3U listelerde stream id eşleştirme düzeltildi.
-- Program bilgisi yok sorunu için EPG fallback sistemi eklendi.
-- Playlist/EPG senkronizasyon iyileştirmeleri yapıldı.
+- Özel EPG URL (XMLTV) elle giriş desteği eklendi.
+- M3U oynatma listelerinde ayrı satırlardaki EPG etiketlerinin algılanması iyileştirildi.
+- Parametre bazlı (user/pass query parameter) stream adreslerinde kimlik doğrulama/EPG çıkarımı desteği eklendi.
+- Veritabanı kararlılık iyileştirmeleri ve şema güncellemesi (v6) yapıldı.

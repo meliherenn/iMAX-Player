@@ -48,7 +48,16 @@ class M3uParser @Inject constructor() {
                         epgUrls = parseHeaderEpgUrls(line)
                     }
                     line.startsWith("#EXTINF:") -> extinf = line
-                    line.startsWith("#") -> continue
+                    line.startsWith("#") -> {
+                        val match = Regex("^#(?:x-tvg-url|url-tvg|tvg-url|epg-url|epg)\\s*[:=]\\s*(.+)$", RegexOption.IGNORE_CASE)
+                            .find(line)
+                        if (match != null) {
+                            val urls = match.groupValues[1].splitEpgUrls()
+                            if (urls.isNotEmpty()) {
+                                epgUrls = (epgUrls + urls).distinct()
+                            }
+                        }
+                    }
                     line.isNotEmpty() && extinf != null -> {
                         val entry = parseEntry(extinf, line)
                         if (entry != null) entries.add(entry)

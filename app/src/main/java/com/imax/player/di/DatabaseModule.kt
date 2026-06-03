@@ -26,7 +26,8 @@ object DatabaseModule {
                 ImaxDatabase.MIGRATION_1_2,
                 ImaxDatabase.MIGRATION_2_3,
                 ImaxDatabase.MIGRATION_3_4,
-                ImaxDatabase.MIGRATION_4_5
+                ImaxDatabase.MIGRATION_4_5,
+                ImaxDatabase.MIGRATION_5_6
             )
             .fallbackToDestructiveMigration()
             .build()

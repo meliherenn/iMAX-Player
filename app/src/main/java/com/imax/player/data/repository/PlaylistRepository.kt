@@ -225,6 +225,7 @@ class PlaylistRepository @Inject constructor(
             )
             is PlaylistSyncContent.Xtream -> listOf(buildXtreamEpgUrl(playlist))
         }
+            .plus(playlist.epgUrl)
             .plus(currentSettings.epgUrl)
             .map(String::trim)
             .filter(String::isNotBlank)
@@ -517,8 +518,10 @@ private fun resolveExplicitM3uEpgUrl(epgUrl: String, playlistUrl: String): Strin
 
 internal fun buildXtreamEpgUrlFromM3uPlaylistUrl(playlistUrl: String): String {
     val httpUrl = playlistUrl.toHttpUrlOrNull() ?: return ""
-    val username = httpUrl.queryParameter("username")?.takeIf(String::isNotBlank) ?: return ""
-    val password = httpUrl.queryParameter("password")?.takeIf(String::isNotBlank) ?: return ""
+    val username = httpUrl.queryParameter("username")?.takeIf(String::isNotBlank)
+        ?: httpUrl.queryParameter("user")?.takeIf(String::isNotBlank) ?: return ""
+    val password = httpUrl.queryParameter("password")?.takeIf(String::isNotBlank)
+        ?: httpUrl.queryParameter("pass")?.takeIf(String::isNotBlank) ?: return ""
 
     return httpUrl.newBuilder()
         .encodedPath("/xmltv.php")
@@ -531,16 +534,23 @@ internal fun buildXtreamEpgUrlFromM3uPlaylistUrl(playlistUrl: String): String {
 
 internal fun buildXtreamEpgUrlFromStreamUrl(streamUrl: String): String {
     val httpUrl = streamUrl.toHttpUrlOrNull() ?: return ""
-    val pathSegments = httpUrl.pathSegments
-    val credentialsStartIndex = pathSegments.indexOfFirst { segment ->
-        segment.equals("live", ignoreCase = true) ||
-            segment.equals("movie", ignoreCase = true) ||
-            segment.equals("series", ignoreCase = true)
-    } + 1
-    if (credentialsStartIndex <= 0) return ""
+    var username = httpUrl.queryParameter("username")?.takeIf(String::isNotBlank)
+        ?: httpUrl.queryParameter("user")?.takeIf(String::isNotBlank)
+    var password = httpUrl.queryParameter("password")?.takeIf(String::isNotBlank)
+        ?: httpUrl.queryParameter("pass")?.takeIf(String::isNotBlank)
 
-    val username = pathSegments.getOrNull(credentialsStartIndex)?.takeIf(String::isNotBlank) ?: return ""
-    val password = pathSegments.getOrNull(credentialsStartIndex + 1)?.takeIf(String::isNotBlank) ?: return ""
+    if (username.isNullOrBlank() || password.isNullOrBlank()) {
+        val pathSegments = httpUrl.pathSegments
+        val credentialsStartIndex = pathSegments.indexOfFirst { segment ->
+            segment.equals("live", ignoreCase = true) ||
+                segment.equals("movie", ignoreCase = true) ||
+                segment.equals("series", ignoreCase = true)
+        } + 1
+        if (credentialsStartIndex <= 0) return ""
+
+        username = pathSegments.getOrNull(credentialsStartIndex)?.takeIf(String::isNotBlank) ?: return ""
+        password = pathSegments.getOrNull(credentialsStartIndex + 1)?.takeIf(String::isNotBlank) ?: return ""
+    }
 
     return httpUrl.newBuilder()
         .encodedPath("/xmltv.php")
@@ -582,8 +592,10 @@ internal fun resolveXtreamCredentials(
 
 internal fun buildXtreamCredentialsFromM3uPlaylistUrl(playlistUrl: String): XtreamCredentials? {
     val httpUrl = playlistUrl.toHttpUrlOrNull() ?: return null
-    val username = httpUrl.queryParameter("username")?.takeIf(String::isNotBlank) ?: return null
-    val password = httpUrl.queryParameter("password")?.takeIf(String::isNotBlank) ?: return null
+    val username = httpUrl.queryParameter("username")?.takeIf(String::isNotBlank)
+        ?: httpUrl.queryParameter("user")?.takeIf(String::isNotBlank) ?: return null
+    val password = httpUrl.queryParameter("password")?.takeIf(String::isNotBlank)
+        ?: httpUrl.queryParameter("pass")?.takeIf(String::isNotBlank) ?: return null
 
     return XtreamCredentials(
         serverUrl = httpUrl.toXtreamServerUrl(),
@@ -594,16 +606,23 @@ internal fun buildXtreamCredentialsFromM3uPlaylistUrl(playlistUrl: String): Xtre
 
 internal fun buildXtreamCredentialsFromStreamUrl(streamUrl: String): XtreamCredentials? {
     val httpUrl = streamUrl.toHttpUrlOrNull() ?: return null
-    val pathSegments = httpUrl.pathSegments
-    val credentialsStartIndex = pathSegments.indexOfFirst { segment ->
-        segment.equals("live", ignoreCase = true) ||
-            segment.equals("movie", ignoreCase = true) ||
-            segment.equals("series", ignoreCase = true)
-    } + 1
-    if (credentialsStartIndex <= 0) return null
+    var username = httpUrl.queryParameter("username")?.takeIf(String::isNotBlank)
+        ?: httpUrl.queryParameter("user")?.takeIf(String::isNotBlank)
+    var password = httpUrl.queryParameter("password")?.takeIf(String::isNotBlank)
+        ?: httpUrl.queryParameter("pass")?.takeIf(String::isNotBlank)
 
-    val username = pathSegments.getOrNull(credentialsStartIndex)?.takeIf(String::isNotBlank) ?: return null
-    val password = pathSegments.getOrNull(credentialsStartIndex + 1)?.takeIf(String::isNotBlank) ?: return null
+    if (username.isNullOrBlank() || password.isNullOrBlank()) {
+        val pathSegments = httpUrl.pathSegments
+        val credentialsStartIndex = pathSegments.indexOfFirst { segment ->
+            segment.equals("live", ignoreCase = true) ||
+                segment.equals("movie", ignoreCase = true) ||
+                segment.equals("series", ignoreCase = true)
+        } + 1
+        if (credentialsStartIndex <= 0) return null
+
+        username = pathSegments.getOrNull(credentialsStartIndex)?.takeIf(String::isNotBlank) ?: return null
+        password = pathSegments.getOrNull(credentialsStartIndex + 1)?.takeIf(String::isNotBlank) ?: return null
+    }
 
     return XtreamCredentials(
         serverUrl = httpUrl.toXtreamServerUrl(),

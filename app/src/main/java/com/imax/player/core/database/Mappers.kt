@@ -6,14 +6,14 @@ import java.util.Locale
 fun PlaylistEntity.toModel() = Playlist(
     id = id, name = name, type = resolvePlaylistType(),
     url = url, serverUrl = serverUrl, username = username, password = password,
-    filePath = filePath, lastUpdated = lastUpdated, lastUsed = lastUsed,
+    filePath = filePath, epgUrl = epgUrl, lastUpdated = lastUpdated, lastUsed = lastUsed,
     isActive = isActive, channelCount = channelCount, movieCount = movieCount, seriesCount = seriesCount
 )
 
 fun Playlist.toEntity() = PlaylistEntity(
     id = id, name = name, type = type.name,
     url = url, serverUrl = serverUrl, username = username, password = password,
-    filePath = filePath, lastUpdated = lastUpdated, lastUsed = lastUsed,
+    filePath = filePath, epgUrl = epgUrl, lastUpdated = lastUpdated, lastUsed = lastUsed,
     isActive = isActive, channelCount = channelCount, movieCount = movieCount, seriesCount = seriesCount
 )
 

@@ -207,4 +207,32 @@ class M3uParserTest {
         assertThat(result.series).hasSize(1)
         assertThat(result.series[0].sourceOrder).isEqualTo(1)
     }
+
+    @Test
+    fun `parse EPG URL from separate lines`() {
+        val m3u = """
+            #EXTM3U
+            #url-tvg:http://example.com/epg.xml.gz
+            #EXTINF:-1 tvg-id="show.tv" group-title="TR",TR • Show Tv RAW
+            http://stream.example.com/live/show.m3u8
+        """.trimIndent()
+
+        val result = parser.parseText(m3u, 1L)
+
+        assertThat(result.epgUrl).isEqualTo("http://example.com/epg.xml.gz")
+    }
+
+    @Test
+    fun `parse EPG URL from separate lines with spaces and equals sign`() {
+        val m3u = """
+            #EXTM3U
+            #x-tvg-url = http://example.com/epg2.xml
+            #EXTINF:-1 tvg-id="show.tv" group-title="TR",TR • Show Tv RAW
+            http://stream.example.com/live/show.m3u8
+        """.trimIndent()
+
+        val result = parser.parseText(m3u, 1L)
+
+        assertThat(result.epgUrl).isEqualTo("http://example.com/epg2.xml")
+    }
 }

@@ -18,7 +18,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         FavoriteEntity::class,
         MetadataCacheEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class ImaxDatabase : RoomDatabase() {
@@ -70,6 +70,12 @@ abstract class ImaxDatabase : RoomDatabase() {
                 db.execSQL("UPDATE series SET sourceOrder = CASE WHEN id > 2147483647 THEN 2147483647 ELSE id END")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_movies_playlistId_addedAt_sourceOrder ON movies (playlistId, addedAt, sourceOrder)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_series_playlistId_addedAt_sourceOrder ON series (playlistId, addedAt, sourceOrder)")
+            }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE playlists ADD COLUMN epgUrl TEXT NOT NULL DEFAULT ''")
             }
         }
     }

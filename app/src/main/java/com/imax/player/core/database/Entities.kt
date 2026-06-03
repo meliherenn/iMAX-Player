@@ -14,6 +14,7 @@ data class PlaylistEntity(
     val username: String = "",
     val password: String = "",
     val filePath: String = "",
+    val epgUrl: String = "",
     val lastUpdated: Long = System.currentTimeMillis(),
     val lastUsed: Long = 0,
     val isActive: Boolean = false,

@@ -350,6 +350,7 @@ class OnboardingViewModel @Inject constructor(
                     type = type,
                     url = if (type == PlaylistType.M3U_URL) remotePlaylist.url else "",
                     filePath = filePath,
+                    epgUrl = remotePlaylist.epgUrl,
                     serverUrl = if (type == PlaylistType.XTREAM_CODES) remotePlaylist.serverUrl else "",
                     username = if (type == PlaylistType.XTREAM_CODES) remotePlaylist.username else "",
                     password = if (type == PlaylistType.XTREAM_CODES) remotePlaylist.password else ""
@@ -381,6 +382,7 @@ class OnboardingViewModel @Inject constructor(
         server: String,
         username: String,
         password: String,
+        epgUrl: String,
         onSuccess: () -> Unit
     ) {
         Timber.d("Adding playlist")
@@ -391,6 +393,7 @@ class OnboardingViewModel @Inject constructor(
                     type = type,
                     url = if (type == PlaylistType.M3U_URL) url else "",
                     filePath = if (type == PlaylistType.M3U_FILE) url else "",
+                    epgUrl = epgUrl,
                     serverUrl = if (type == PlaylistType.XTREAM_CODES) server else "",
                     username = if (type == PlaylistType.XTREAM_CODES) username else "",
                     password = if (type == PlaylistType.XTREAM_CODES) password else ""
@@ -469,6 +472,7 @@ class OnboardingViewModel @Inject constructor(
         server: String,
         username: String,
         password: String,
+        epgUrl: String,
         onSuccess: () -> Unit
     ) {
         viewModelScope.launch {
@@ -479,6 +483,7 @@ class OnboardingViewModel @Inject constructor(
                         type = type,
                         url = if (type == PlaylistType.M3U_URL) url else "",
                         filePath = if (type == PlaylistType.M3U_FILE) url else "",
+                        epgUrl = epgUrl,
                         serverUrl = if (type == PlaylistType.XTREAM_CODES) server else "",
                         username = if (type == PlaylistType.XTREAM_CODES) username else "",
                         password = if (type == PlaylistType.XTREAM_CODES) password else "",
@@ -626,8 +631,8 @@ private fun MobileOnboardingContent(
             AddPlaylistDialog(
                 isTv = false,
                 onDismiss = { viewModel.hideAddDialog() },
-                onAdd = { name, type, url, server, user, pass ->
-                    viewModel.addPlaylist(name, type, url, server, user, pass, onPlaylistSelected)
+                onAdd = { name, type, url, server, user, pass, epgUrl ->
+                    viewModel.addPlaylist(name, type, url, server, user, pass, epgUrl, onPlaylistSelected)
                 },
                 onTest = { name, type, url, server, user, pass, onResult ->
                     viewModel.testDraftConnection(name, type, url, server, user, pass, onResult)
@@ -639,7 +644,7 @@ private fun MobileOnboardingContent(
             MobileEditPlaylistDialog(
                 playlist = playlist,
                 onDismiss = { editingPlaylist = null },
-                onSave = { name, type, url, server, user, pass ->
+                onSave = { name, type, url, server, user, pass, epgUrl ->
                     viewModel.editPlaylist(
                         playlist = playlist,
                         name = name,
@@ -648,6 +653,7 @@ private fun MobileOnboardingContent(
                         server = server,
                         username = user,
                         password = pass,
+                        epgUrl = epgUrl,
                         onSuccess = { editingPlaylist = null }
                     )
                 },
@@ -776,8 +782,8 @@ private fun TvOnboardingContent(
             AddPlaylistDialog(
                 isTv = true,
                 onDismiss = { viewModel.hideAddDialog() },
-                onAdd = { name, type, url, server, user, pass ->
-                    viewModel.addPlaylist(name, type, url, server, user, pass, onPlaylistSelected)
+                onAdd = { name, type, url, server, user, pass, epgUrl ->
+                    viewModel.addPlaylist(name, type, url, server, user, pass, epgUrl, onPlaylistSelected)
                 },
                 onTest = { name, type, url, server, user, pass, onResult ->
                     viewModel.testDraftConnection(name, type, url, server, user, pass, onResult)
@@ -802,7 +808,7 @@ private fun TvOnboardingContent(
             EditPlaylistDialog(
                 playlist = playlist,
                 onDismiss = { editingPlaylist = null },
-                onSave = { name, type, url, server, user, pass ->
+                onSave = { name, type, url, server, user, pass, epgUrl ->
                     viewModel.editPlaylist(
                         playlist = playlist,
                         name = name,
@@ -811,6 +817,7 @@ private fun TvOnboardingContent(
                         server = server,
                         username = user,
                         password = pass,
+                        epgUrl = epgUrl,
                         onSuccess = { editingPlaylist = null }
                     )
                 },
@@ -1660,7 +1667,7 @@ private fun TvAddPlaylistCard(
 private fun AddPlaylistDialog(
     isTv: Boolean,
     onDismiss: () -> Unit,
-    onAdd: (String, PlaylistType, String, String, String, String) -> Unit,
+    onAdd: (String, PlaylistType, String, String, String, String, String) -> Unit,
     onTest: (String, PlaylistType, String, String, String, String, (String) -> Unit) -> Unit,
     onQrClick: (() -> Unit)? = null
 ) {
@@ -1684,7 +1691,7 @@ private fun AddPlaylistDialog(
 private fun EditPlaylistDialog(
     playlist: Playlist,
     onDismiss: () -> Unit,
-    onSave: (String, PlaylistType, String, String, String, String) -> Unit,
+    onSave: (String, PlaylistType, String, String, String, String, String) -> Unit,
     onTest: (String, PlaylistType, String, String, String, String, (String) -> Unit) -> Unit
 ) {
     TvAddPlaylistDialog(
@@ -1704,7 +1711,7 @@ private fun MobileAddPlaylistDialog(
     title: String = "Add Playlist",
     primaryActionText: String = "Add",
     onDismiss: () -> Unit,
-    onAdd: (String, PlaylistType, String, String, String, String) -> Unit,
+    onAdd: (String, PlaylistType, String, String, String, String, String) -> Unit,
     onTest: (String, PlaylistType, String, String, String, String, (String) -> Unit) -> Unit
 ) {
     var selectedType by remember(initialPlaylist?.id) {
@@ -1729,6 +1736,9 @@ private fun MobileAddPlaylistDialog(
     }
     var password by remember(initialPlaylist?.id) {
         mutableStateOf(initialPlaylist?.password.orEmpty())
+    }
+    var epgUrl by remember(initialPlaylist?.id) {
+        mutableStateOf(initialPlaylist?.epgUrl.orEmpty())
     }
     var isTesting by remember { mutableStateOf(false) }
     var testMessage by remember { mutableStateOf<String?>(null) }
@@ -1795,7 +1805,7 @@ private fun MobileAddPlaylistDialog(
                             onValueChange = { url = it },
                             label = "M3U URL",
                             keyboardType = KeyboardType.Uri,
-                            imeAction = ImeAction.Done
+                            imeAction = ImeAction.Next
                         )
                     }
 
@@ -1804,7 +1814,7 @@ private fun MobileAddPlaylistDialog(
                             value = url,
                             onValueChange = { url = it },
                             label = "File Path",
-                            imeAction = ImeAction.Done
+                            imeAction = ImeAction.Next
                         )
                     }
 
@@ -1827,11 +1837,19 @@ private fun MobileAddPlaylistDialog(
                             onValueChange = { password = it },
                             label = "Password",
                             keyboardType = KeyboardType.Password,
-                            imeAction = ImeAction.Done,
+                            imeAction = ImeAction.Next,
                             visualTransformation = PasswordVisualTransformation()
                         )
                     }
                 }
+
+                DialogTextField(
+                    value = epgUrl,
+                    onValueChange = { epgUrl = it },
+                    label = "EPG URL (Optional)",
+                    keyboardType = KeyboardType.Uri,
+                    imeAction = ImeAction.Done
+                )
 
                 testMessage?.let { message ->
                     Surface(
@@ -1878,7 +1896,7 @@ private fun MobileAddPlaylistDialog(
                     enabled = canSave,
                     onClick = {
                         if (canSave) {
-                            onAdd(name, selectedType, url, server, username, password)
+                            onAdd(name, selectedType, url, server, username, password, epgUrl)
                         }
                     }
                 )
@@ -1896,7 +1914,7 @@ private fun MobileAddPlaylistDialog(
 private fun MobileEditPlaylistDialog(
     playlist: Playlist,
     onDismiss: () -> Unit,
-    onSave: (String, PlaylistType, String, String, String, String) -> Unit,
+    onSave: (String, PlaylistType, String, String, String, String, String) -> Unit,
     onTest: (String, PlaylistType, String, String, String, String, (String) -> Unit) -> Unit
 ) {
     MobileAddPlaylistDialog(
@@ -1916,7 +1934,7 @@ private fun TvAddPlaylistDialog(
     subtitle: String = "Step 1: choose a provider type. Step 2: fill only the required fields. Step 3: test and save.",
     primaryActionText: String = "Save and Continue",
     onDismiss: () -> Unit,
-    onAdd: (String, PlaylistType, String, String, String, String) -> Unit,
+    onAdd: (String, PlaylistType, String, String, String, String, String) -> Unit,
     onTest: (String, PlaylistType, String, String, String, String, (String) -> Unit) -> Unit,
     onQrClick: (() -> Unit)? = null
 ) {
@@ -1942,6 +1960,9 @@ private fun TvAddPlaylistDialog(
     }
     var password by remember(initialPlaylist?.id) {
         mutableStateOf(initialPlaylist?.password.orEmpty())
+    }
+    var epgUrl by remember(initialPlaylist?.id) {
+        mutableStateOf(initialPlaylist?.epgUrl.orEmpty())
     }
     var isTesting by remember { mutableStateOf(false) }
     var testMessage by remember { mutableStateOf<String?>(null) }
@@ -2114,6 +2135,17 @@ private fun TvAddPlaylistDialog(
                             )
                         }
                     }
+
+                    TvDialogTextField(
+                        value = epgUrl,
+                        onValueChange = {
+                            epgUrl = it
+                            testMessage = null
+                        },
+                        label = "EPG URL (Optional)",
+                        placeholder = "https://example.com/epg.xml",
+                        keyboardType = KeyboardType.Uri
+                    )
                 }
 
                 Surface(
@@ -2185,7 +2217,7 @@ private fun TvAddPlaylistDialog(
                     TvActionButton(
                         text = primaryActionText,
                         onClick = {
-                            onAdd(name, selectedType, url, server, username, password)
+                            onAdd(name, selectedType, url, server, username, password, epgUrl)
                         },
                         enabled = canSave,
                         modifier = Modifier.weight(1f)
