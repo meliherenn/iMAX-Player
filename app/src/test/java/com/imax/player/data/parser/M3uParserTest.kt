@@ -60,6 +60,23 @@ class M3uParserTest {
     }
 
     @Test
+    fun `parse multiple M3U header epg urls`() {
+        val m3u = """
+            #EXTM3U url-tvg="https://epg.example.test/primary.xml.gz, epg/fallback.xml"
+            #EXTINF:-1 tvg-id="show.tv" group-title="TR",TR • Show Tv RAW
+            http://stream.example.com/live/show.m3u8
+        """.trimIndent()
+
+        val result = parser.parseText(m3u, 1L)
+
+        assertThat(result.epgUrls).containsExactly(
+            "https://epg.example.test/primary.xml.gz",
+            "epg/fallback.xml"
+        ).inOrder()
+        assertThat(result.epgUrl).isEqualTo("https://epg.example.test/primary.xml.gz")
+    }
+
+    @Test
     fun `parse M3U with movies`() {
         val m3u = """
             #EXTM3U

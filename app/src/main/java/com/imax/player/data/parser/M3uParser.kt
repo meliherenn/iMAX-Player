@@ -38,14 +38,14 @@ class M3uParser @Inject constructor() {
         val reader = BufferedReader(InputStreamReader(input))
         var currentLine: String?
         var extinf: String? = null
-        var epgUrl = ""
+        var epgUrls = emptyList<String>()
 
         try {
             while (reader.readLine().also { currentLine = it } != null) {
                 val line = currentLine?.trim() ?: continue
                 when {
                     line.startsWith("#EXTM3U") -> {
-                        epgUrl = parseHeaderEpgUrl(line)
+                        epgUrls = parseHeaderEpgUrls(line)
                     }
                     line.startsWith("#EXTINF:") -> extinf = line
                     line.startsWith("#") -> continue
@@ -63,7 +63,7 @@ class M3uParser @Inject constructor() {
             Timber.e(e, "Error parsing M3U")
         }
 
-        return categorize(entries, playlistId, epgUrl)
+        return categorize(entries, playlistId, epgUrls)
     }
 
     fun parseText(text: String, playlistId: Long): M3uParseResult {
@@ -110,12 +110,17 @@ class M3uParser @Inject constructor() {
         return attrs
     }
 
-    private fun parseHeaderEpgUrl(header: String): String {
+    private fun parseHeaderEpgUrls(header: String): List<String> {
         val attributes = parseAttributes(header)
         return epgUrlAttributeKeys
-            .firstNotNullOfOrNull { key -> attributes[key]?.trim()?.takeIf(String::isNotBlank) }
-            .orEmpty()
+            .flatMap { key -> attributes[key].orEmpty().splitEpgUrls() }
+            .distinct()
     }
+
+    private fun String.splitEpgUrls(): List<String> =
+        split(',', ';')
+            .map(String::trim)
+            .filter(String::isNotBlank)
 
     private fun detectContentType(url: String, group: String): ContentType {
         val lowerUrl = url.lowercase()
@@ -127,7 +132,7 @@ class M3uParser @Inject constructor() {
         }
     }
 
-    private fun categorize(entries: List<M3uEntry>, playlistId: Long, epgUrl: String): M3uParseResult {
+    private fun categorize(entries: List<M3uEntry>, playlistId: Long, epgUrls: List<String>): M3uParseResult {
         val channels = mutableListOf<ChannelEntity>()
         val movies = mutableListOf<MovieEntity>()
         val series = mutableMapOf<String, MutableList<M3uEntry>>()
@@ -182,7 +187,7 @@ class M3uParser @Inject constructor() {
             movies = movies,
             series = seriesEntities,
             seriesEpisodes = series,
-            epgUrl = epgUrl
+            epgUrls = epgUrls
         )
     }
 
@@ -205,5 +210,8 @@ data class M3uParseResult(
     val movies: List<MovieEntity>,
     val series: List<SeriesEntity>,
     val seriesEpisodes: Map<String, List<M3uEntry>>,
-    val epgUrl: String = ""
-)
+    val epgUrls: List<String> = emptyList()
+) {
+    val epgUrl: String
+        get() = epgUrls.firstOrNull().orEmpty()
+}

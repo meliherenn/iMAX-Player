@@ -40,7 +40,6 @@ import com.imax.player.core.player.AspectRatioMode
 import com.imax.player.core.player.LiveLatencyMode
 import com.imax.player.core.player.PlayerManager
 import com.imax.player.core.player.VideoQualityMode
-import com.imax.player.data.repository.EpgRepository
 import com.imax.player.data.repository.PlaylistRepository
 import com.imax.player.ui.components.*
 import com.imax.player.ui.navigation.Routes
@@ -57,7 +56,6 @@ import javax.inject.Inject
 class SettingsViewModel @Inject constructor(
     private val settingsDataStore: SettingsDataStore,
     private val playlistRepository: PlaylistRepository,
-    private val epgRepository: EpgRepository,
     private val playerManager: PlayerManager,
     val parentalControlManager: com.imax.player.core.security.ParentalControlManager
 ) : ViewModel() {
@@ -115,46 +113,6 @@ class SettingsViewModel @Inject constructor(
         playlistRepository.syncPlaylist(active)
     }
 
-    // ━━━ EPG ━━━
-    fun updateEpgUrl(url: String) {
-        viewModelScope.launch {
-            val previousSettings = settingsDataStore.settings.first()
-            val previousUrl = previousSettings.epgUrl.trim()
-            val normalizedUrl = url.trim()
-
-            settingsDataStore.updateEpgUrl(normalizedUrl)
-
-            if (previousUrl.isNotBlank() && previousUrl != normalizedUrl) {
-                epgRepository.cancelScheduledSync(previousUrl)
-            }
-            if (previousSettings.epgAutoSync && normalizedUrl.isNotBlank()) {
-                epgRepository.scheduleDailySync(normalizedUrl)
-            }
-        }
-    }
-
-    fun updateEpgAutoSync(enabled: Boolean) {
-        viewModelScope.launch {
-            val currentSettings = settingsDataStore.settings.first()
-            settingsDataStore.updateEpgAutoSync(enabled)
-
-            val epgUrl = currentSettings.epgUrl.trim()
-            if (epgUrl.isBlank()) return@launch
-
-            if (enabled) {
-                epgRepository.scheduleDailySync(epgUrl)
-            } else {
-                epgRepository.cancelScheduledSync(epgUrl)
-            }
-        }
-    }
-
-    fun syncEpgNow() {
-        viewModelScope.launch {
-            val url = settingsDataStore.settings.first().epgUrl
-            if (url.isNotBlank()) epgRepository.syncNow(url)
-        }
-    }
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -425,56 +383,6 @@ private fun SettingsContent(
                 isTv = isTv,
                 onCheckedChange = { viewModel.updateStartFullscreen(it) }
             )
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // ══════════════════════════════════════════════
-        // D-2) EPG (Program Rehberi)
-        // ══════════════════════════════════════════════
-        SettingsSection(
-            icon = Icons.Filled.Tv,
-            title = stringResource(R.string.settings_epg),
-            isTv = isTv
-        ) {
-            // EPG URL
-            androidx.compose.material3.OutlinedTextField(
-                value = settings.epgUrl,
-                onValueChange = { viewModel.updateEpgUrl(it) },
-                label = { Text(stringResource(R.string.epg_url_hint)) },
-                placeholder = { Text("https://provider.example.com/epg.xml") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = ImaxColors.Primary,
-                    unfocusedBorderColor = ImaxColors.CardBorder,
-                    focusedLabelColor = ImaxColors.Primary,
-                    cursorColor = ImaxColors.Primary,
-                    focusedTextColor = ImaxColors.TextPrimary,
-                    unfocusedTextColor = ImaxColors.TextPrimary
-                )
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Auto sync toggle
-            SettingsSwitch(
-                label = stringResource(R.string.settings_epg_auto_sync),
-                checked = settings.epgAutoSync,
-                isTv = isTv,
-                onCheckedChange = { viewModel.updateEpgAutoSync(it) }
-            )
-
-            // Manual sync button
-            if (settings.epgUrl.isNotBlank()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                SettingsActionButton(
-                    icon = Icons.Filled.Refresh,
-                    label = stringResource(R.string.epg_sync_now),
-                    isTv = isTv,
-                    onClick = { viewModel.syncEpgNow() }
-                )
-            }
         }
 
         Spacer(modifier = Modifier.height(16.dp))

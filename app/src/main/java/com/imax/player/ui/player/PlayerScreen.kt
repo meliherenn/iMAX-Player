@@ -1158,7 +1158,6 @@ fun EpgMiniStrip(
 @Composable
 private fun ChannelSwitchEpgDetails(
     epgProgram: com.imax.player.data.parser.EpgProgram?,
-    fallback: String,
     primaryColor: Color,
     showProgress: Boolean
 ) {
@@ -1209,10 +1208,10 @@ private fun ChannelSwitchEpgDetails(
             }
         }
 
-        fallback.isNotBlank() -> {
+        else -> {
             Spacer(modifier = Modifier.height(2.dp))
             Text(
-                text = fallback,
+                text = stringResource(R.string.epg_no_data),
                 style = MaterialTheme.typography.bodySmall,
                 color = primaryColor,
                 maxLines = 1,
@@ -1757,7 +1756,6 @@ private fun ChannelSwitchSheet(
                                             )
                                             ChannelSwitchEpgDetails(
                                                 epgProgram = epgProgram,
-                                                fallback = channel.groupTitle,
                                                 primaryColor = if (isFocused) ImaxColors.TextSecondary else ImaxColors.TextTertiary,
                                                 showProgress = true
                                             )
@@ -1844,7 +1842,6 @@ private fun ChannelSwitchSheet(
                                 )
                                 ChannelSwitchEpgDetails(
                                     epgProgram = epgProgram,
-                                    fallback = channel.groupTitle,
                                     primaryColor = ImaxColors.TextTertiary,
                                     showProgress = true
                                 )

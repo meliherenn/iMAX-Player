@@ -517,22 +517,16 @@ private fun ChannelListItem(
                 fontWeight = if (isTv && isFocused) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis)
-            if (channel.groupTitle.isNotBlank()) {
-                Text(channel.groupTitle, style = MaterialTheme.typography.bodySmall,
-                    color = secondaryContentColor,
-                    maxLines = 1)
-            }
-            // EPG program info
-            if (epgProgram != null) {
-                Text(
-                    text = epgProgram.title,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (isTv && isFocused) ImaxColors.TextSecondary else ImaxColors.TextSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+            Text(
+                text = epgProgram?.title ?: stringResource(R.string.epg_no_data),
+                style = MaterialTheme.typography.bodySmall,
+                color = secondaryContentColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            epgProgram?.let { program ->
                 LinearProgressIndicator(
-                    progress = { epgProgram.progressFraction },
+                    progress = { program.progressFraction },
                     modifier = Modifier.fillMaxWidth().height(2.dp).padding(top = 2.dp),
                     color = ImaxColors.Primary,
                     trackColor = if (isTv && isFocused) ImaxColors.CardBorder else ImaxColors.Surface

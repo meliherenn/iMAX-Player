@@ -162,11 +162,10 @@ private fun nextAspectRatioMode(current: AspectRatioMode): AspectRatioMode {
 }
 
 private fun tvChannelPanelSubtitle(
-    epgProgram: com.imax.player.data.parser.EpgProgram?,
-    fallback: String
+    epgProgram: com.imax.player.data.parser.EpgProgram?
 ): String? {
     if (epgProgram == null) {
-        return fallback.ifBlank { null }
+        return null
     }
 
     val timeFormatter = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
@@ -1431,7 +1430,7 @@ private fun TvPlayerPanelHost(
                         val epgProgram = epgPrograms[channel.id]
                         TvPanelOption(
                             title = channel.name,
-                            subtitle = tvChannelPanelSubtitle(epgProgram, channel.groupTitle),
+                            subtitle = tvChannelPanelSubtitle(epgProgram),
                             progressFraction = epgProgram?.progressFraction,
                             selected = channel.id == currentChannelId,
                             enabled = channel.id != currentChannelId,

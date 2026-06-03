@@ -129,7 +129,13 @@ class PlaylistRepository @Inject constructor(
     suspend fun ensureEpgSynced(playlist: Playlist): Boolean = withContext(Dispatchers.IO) {
         val settings = settingsDataStore.settings.first()
         if (settings.epgUrl.isNotBlank() && settings.epgLastSync > 0L) {
-            return@withContext false
+            val channels = channelDao.getByPlaylistSnapshot(playlist.id).map { it.toModel() }
+            val hasCurrentPrograms = channels.isNotEmpty() &&
+                epgRepository.getCurrentProgramsForChannels(channels).isNotEmpty()
+            if (hasCurrentPrograms) {
+                return@withContext false
+            }
+            Timber.d("EPG URL exists but no current programs matched; rediscovering for playlist ${playlist.id}")
         }
 
         runCatching {
@@ -204,48 +210,63 @@ class PlaylistRepository @Inject constructor(
         playlist: Playlist,
         content: PlaylistSyncContent
     ): Boolean {
-        val discoveredEpgUrl = when (content) {
-            is PlaylistSyncContent.M3u -> resolveM3uEpgUrl(content.result.epgUrl, playlist.url)
-            is PlaylistSyncContent.Xtream -> buildXtreamEpgUrl(playlist)
-        }
-
-        if (discoveredEpgUrl.isBlank()) {
-            Timber.d("No EPG URL discovered for playlist ${playlist.id}")
-            return false
-        }
-
         val currentSettings = settingsDataStore.settings.first()
-        if (currentSettings.epgUrl != discoveredEpgUrl) {
-            settingsDataStore.updateEpgUrl(discoveredEpgUrl)
-        }
-
         val channels = when (content) {
             is PlaylistSyncContent.M3u -> content.result.channels.map { it.toModel() }
             is PlaylistSyncContent.Xtream -> content.result.channels.map { it.toModel() }
         }
-
         if (channels.isEmpty()) return false
 
+        val discoveredEpgUrls = when (content) {
+            is PlaylistSyncContent.M3u -> resolveM3uEpgUrls(
+                epgUrls = content.result.epgUrls,
+                playlistUrl = playlist.url,
+                streamUrls = content.result.channels.map { it.streamUrl }
+            )
+            is PlaylistSyncContent.Xtream -> listOf(buildXtreamEpgUrl(playlist))
+        }
+            .plus(currentSettings.epgUrl)
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .distinct()
+
+        if (discoveredEpgUrls.isEmpty()) {
+            Timber.d("No EPG URL discovered for playlist ${playlist.id}")
+            return false
+        }
+
         val channelIdMap = epgRepository.buildChannelIdMap(channels)
-        val result = epgRepository.fetchAndSave(discoveredEpgUrl, channelIdMap)
-        val savedProgramCount = result.getOrNull() ?: 0
-        val error = result.exceptionOrNull()
-        if (error != null) {
-            Timber.w(error, "Auto EPG sync failed for playlist ${playlist.id}")
-            return false
+
+        for (discoveredEpgUrl in discoveredEpgUrls) {
+            val result = epgRepository.fetchAndSave(discoveredEpgUrl, channelIdMap)
+            val savedProgramCount = result.getOrNull() ?: 0
+            val error = result.exceptionOrNull()
+            if (error != null) {
+                Timber.w(error, "Auto EPG sync failed for playlist ${playlist.id}")
+                continue
+            }
+
+            if (savedProgramCount <= 0) {
+                Timber.w("Auto EPG sync parsed no programs for playlist ${playlist.id}")
+                continue
+            }
+
+            val freshSettings = settingsDataStore.settings.first()
+            if (freshSettings.epgUrl != discoveredEpgUrl) {
+                if (freshSettings.epgUrl.isNotBlank()) {
+                    epgRepository.cancelScheduledSync(freshSettings.epgUrl)
+                }
+                settingsDataStore.updateEpgUrl(discoveredEpgUrl)
+            }
+            settingsDataStore.updateEpgLastSync(System.currentTimeMillis())
+            if (freshSettings.epgAutoSync) {
+                epgRepository.scheduleDailySync(discoveredEpgUrl)
+            }
+            Timber.d("Auto EPG sync completed for playlist ${playlist.id}: $savedProgramCount programs")
+            return true
         }
 
-        if (savedProgramCount <= 0) {
-            Timber.w("Auto EPG sync parsed no programs for playlist ${playlist.id}")
-            return false
-        }
-
-        settingsDataStore.updateEpgLastSync(System.currentTimeMillis())
-        if (currentSettings.epgAutoSync) {
-            epgRepository.scheduleDailySync(discoveredEpgUrl)
-        }
-        Timber.d("Auto EPG sync completed for playlist ${playlist.id}: $savedProgramCount programs")
-        return true
+        return false
     }
 
     private suspend fun saveParseResult(
@@ -421,6 +442,29 @@ internal fun resolveM3uEpgUrl(epgUrl: String, playlistUrl: String): String {
     if (trimmed.isBlank()) {
         return buildXtreamEpgUrlFromM3uPlaylistUrl(playlistUrl)
     }
+    return resolveExplicitM3uEpgUrl(trimmed, playlistUrl)
+}
+
+internal fun resolveM3uEpgUrls(
+    epgUrls: List<String>,
+    playlistUrl: String,
+    streamUrls: List<String>
+): List<String> =
+    buildList {
+        epgUrls.forEach { epgUrl ->
+            add(resolveExplicitM3uEpgUrl(epgUrl, playlistUrl))
+        }
+        add(buildXtreamEpgUrlFromM3uPlaylistUrl(playlistUrl))
+        streamUrls.forEach { streamUrl ->
+            add(buildXtreamEpgUrlFromStreamUrl(streamUrl))
+        }
+    }
+        .map(String::trim)
+        .filter(String::isNotBlank)
+        .distinct()
+
+private fun resolveExplicitM3uEpgUrl(epgUrl: String, playlistUrl: String): String {
+    val trimmed = epgUrl.trim()
     if (trimmed.startsWith("http://", ignoreCase = true) ||
         trimmed.startsWith("https://", ignoreCase = true)
     ) {
@@ -438,6 +482,28 @@ internal fun buildXtreamEpgUrlFromM3uPlaylistUrl(playlistUrl: String): String {
     val httpUrl = playlistUrl.toHttpUrlOrNull() ?: return ""
     val username = httpUrl.queryParameter("username")?.takeIf(String::isNotBlank) ?: return ""
     val password = httpUrl.queryParameter("password")?.takeIf(String::isNotBlank) ?: return ""
+
+    return httpUrl.newBuilder()
+        .encodedPath("/xmltv.php")
+        .query(null)
+        .addQueryParameter("username", username)
+        .addQueryParameter("password", password)
+        .build()
+        .toString()
+}
+
+internal fun buildXtreamEpgUrlFromStreamUrl(streamUrl: String): String {
+    val httpUrl = streamUrl.toHttpUrlOrNull() ?: return ""
+    val pathSegments = httpUrl.pathSegments
+    val credentialsStartIndex = pathSegments.indexOfFirst { segment ->
+        segment.equals("live", ignoreCase = true) ||
+            segment.equals("movie", ignoreCase = true) ||
+            segment.equals("series", ignoreCase = true)
+    } + 1
+    if (credentialsStartIndex <= 0) return ""
+
+    val username = pathSegments.getOrNull(credentialsStartIndex)?.takeIf(String::isNotBlank) ?: return ""
+    val password = pathSegments.getOrNull(credentialsStartIndex + 1)?.takeIf(String::isNotBlank) ?: return ""
 
     return httpUrl.newBuilder()
         .encodedPath("/xmltv.php")
