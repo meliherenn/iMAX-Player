@@ -33,6 +33,33 @@ class M3uParserTest {
     }
 
     @Test
+    fun `parse M3U header epg url`() {
+        val m3u = """
+            #EXTM3U x-tvg-url="https://epg.example.test/xmltv.xml.gz"
+            #EXTINF:-1 tvg-id="show.tv" group-title="TR",TR • Show Tv RAW
+            http://stream.example.com/live/show.m3u8
+        """.trimIndent()
+
+        val result = parser.parseText(m3u, 1L)
+
+        assertThat(result.epgUrl).isEqualTo("https://epg.example.test/xmltv.xml.gz")
+        assertThat(result.channels).hasSize(1)
+    }
+
+    @Test
+    fun `parse M3U header epg url from url tvg alias with single quotes`() {
+        val m3u = """
+            #EXTM3U url-tvg='https://epg.example.test/xmltv.xml'
+            #EXTINF:-1 tvg-id="show.tv" group-title="TR",TR • Show Tv RAW
+            http://stream.example.com/live/show.m3u8
+        """.trimIndent()
+
+        val result = parser.parseText(m3u, 1L)
+
+        assertThat(result.epgUrl).isEqualTo("https://epg.example.test/xmltv.xml")
+    }
+
+    @Test
     fun `parse M3U with movies`() {
         val m3u = """
             #EXTM3U

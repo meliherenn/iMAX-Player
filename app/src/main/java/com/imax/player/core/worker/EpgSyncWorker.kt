@@ -8,6 +8,7 @@ import com.imax.player.core.common.SensitiveLog
 import com.imax.player.core.database.EpgDao
 import com.imax.player.core.database.PlaylistDao
 import com.imax.player.core.database.toModel
+import com.imax.player.data.parser.asXmltvInputStream
 import com.imax.player.data.parser.buildEpgChannelIdMap
 import com.imax.player.data.parser.XmltvParser
 import dagger.assisted.Assisted
@@ -62,7 +63,10 @@ class EpgSyncWorker @AssistedInject constructor(
             }
 
             val channelIdMap = buildActiveChannelIdMap()
-            val programs = xmltvParser.parse(body.byteStream(), channelIdMap.takeIf { it.isNotEmpty() })
+            val programs = xmltvParser.parse(
+                body.byteStream().asXmltvInputStream(epgUrl, body.contentType()?.toString()),
+                channelIdMap.takeIf { it.isNotEmpty() }
+            )
             if (programs.isEmpty()) {
                 Timber.w("EpgSyncWorker: no programs parsed")
                 return Result.success() // Not a failure — might be empty EPG

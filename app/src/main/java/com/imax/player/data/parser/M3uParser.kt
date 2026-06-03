@@ -25,18 +25,28 @@ data class M3uEntry(
 
 @Singleton
 class M3uParser @Inject constructor() {
+    private val epgUrlAttributeKeys = listOf(
+        "x-tvg-url",
+        "url-tvg",
+        "tvg-url",
+        "epg-url",
+        "epg"
+    )
 
     fun parse(input: InputStream, playlistId: Long): M3uParseResult {
         val entries = mutableListOf<M3uEntry>()
         val reader = BufferedReader(InputStreamReader(input))
         var currentLine: String?
         var extinf: String? = null
+        var epgUrl = ""
 
         try {
             while (reader.readLine().also { currentLine = it } != null) {
                 val line = currentLine?.trim() ?: continue
                 when {
-                    line.startsWith("#EXTM3U") -> continue
+                    line.startsWith("#EXTM3U") -> {
+                        epgUrl = parseHeaderEpgUrl(line)
+                    }
                     line.startsWith("#EXTINF:") -> extinf = line
                     line.startsWith("#") -> continue
                     line.isNotEmpty() && extinf != null -> {
@@ -53,7 +63,7 @@ class M3uParser @Inject constructor() {
             Timber.e(e, "Error parsing M3U")
         }
 
-        return categorize(entries, playlistId)
+        return categorize(entries, playlistId, epgUrl)
     }
 
     fun parseText(text: String, playlistId: Long): M3uParseResult {
@@ -90,11 +100,21 @@ class M3uParser @Inject constructor() {
 
     private fun parseAttributes(extinf: String): Map<String, String> {
         val attrs = mutableMapOf<String, String>()
-        val regex = Regex("""([\w-]+)="([^"]*?)"""")
+        val regex = Regex("""([\w-]+)\s*=\s*(?:"([^"]*?)"|'([^']*?)'|([^\s]+))""")
         regex.findAll(extinf).forEach { match ->
-            attrs[match.groupValues[1].lowercase()] = match.groupValues[2]
+            attrs[match.groupValues[1].lowercase()] = match.groupValues
+                .drop(2)
+                .firstOrNull(String::isNotBlank)
+                .orEmpty()
         }
         return attrs
+    }
+
+    private fun parseHeaderEpgUrl(header: String): String {
+        val attributes = parseAttributes(header)
+        return epgUrlAttributeKeys
+            .firstNotNullOfOrNull { key -> attributes[key]?.trim()?.takeIf(String::isNotBlank) }
+            .orEmpty()
     }
 
     private fun detectContentType(url: String, group: String): ContentType {
@@ -107,7 +127,7 @@ class M3uParser @Inject constructor() {
         }
     }
 
-    private fun categorize(entries: List<M3uEntry>, playlistId: Long): M3uParseResult {
+    private fun categorize(entries: List<M3uEntry>, playlistId: Long, epgUrl: String): M3uParseResult {
         val channels = mutableListOf<ChannelEntity>()
         val movies = mutableListOf<MovieEntity>()
         val series = mutableMapOf<String, MutableList<M3uEntry>>()
@@ -161,7 +181,8 @@ class M3uParser @Inject constructor() {
             channels = channels,
             movies = movies,
             series = seriesEntities,
-            seriesEpisodes = series
+            seriesEpisodes = series,
+            epgUrl = epgUrl
         )
     }
 
@@ -183,5 +204,6 @@ data class M3uParseResult(
     val channels: List<ChannelEntity>,
     val movies: List<MovieEntity>,
     val series: List<SeriesEntity>,
-    val seriesEpisodes: Map<String, List<M3uEntry>>
+    val seriesEpisodes: Map<String, List<M3uEntry>>,
+    val epgUrl: String = ""
 )

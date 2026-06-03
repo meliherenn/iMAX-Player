@@ -8,6 +8,7 @@ import com.imax.player.core.model.Channel
 import com.imax.player.core.worker.EpgSyncWorker
 import com.imax.player.data.parser.EpgProgram
 import com.imax.player.data.parser.XmltvParser
+import com.imax.player.data.parser.asXmltvInputStream
 import com.imax.player.data.parser.buildEpgChannelIdMap
 import com.imax.player.data.parser.epgLookupKeysForChannel
 import com.imax.player.data.parser.toUiModel
@@ -88,7 +89,10 @@ class EpgRepository @Inject constructor(
                     return@withContext Result.failure(Exception("HTTP ${response.code}"))
                 }
                 val body = response.body ?: return@withContext Result.failure(Exception("Empty body"))
-                val programs = xmltvParser.parse(body.byteStream(), channelIdMap)
+                val programs = xmltvParser.parse(
+                    body.byteStream().asXmltvInputStream(url, body.contentType()?.toString()),
+                    channelIdMap
+                )
                 if (programs.isNotEmpty()) {
                     epgDao.deleteOld(System.currentTimeMillis() - 7_200_000L) // 2h past
                     programs.chunked(500).forEach { epgDao.insertAll(it) }

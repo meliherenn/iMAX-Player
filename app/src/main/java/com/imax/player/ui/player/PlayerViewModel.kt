@@ -112,6 +112,7 @@ class PlayerViewModel @Inject constructor(
     private var currentPlaybackCandidates: List<String> = emptyList()
     private var liveChannelSwitchJob: kotlinx.coroutines.Job? = null
     private var pendingLiveChannel: Channel? = null
+    private var liveEpgAutoDiscoveryPlaylistId: Long? = null
 
     private var httpRetryCount = 0
     private val maxHttpRetries = 3
@@ -254,6 +255,20 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+    private fun ensureLiveEpgSynced() {
+        viewModelScope.launch {
+            val playlist = playlistRepository.getActivePlaylist().first() ?: return@launch
+            if (liveEpgAutoDiscoveryPlaylistId == playlist.id) return@launch
+
+            liveEpgAutoDiscoveryPlaylistId = playlist.id
+            val synced = playlistRepository.ensureEpgSynced(playlist)
+            if (synced) {
+                loadEpgForChannel(session.value.currentChannel)
+                loadEpgForChannels(session.value.availableChannels)
+            }
+        }
+    }
+
     fun init(
         url: String,
         title: String,
@@ -307,6 +322,7 @@ class PlayerViewModel @Inject constructor(
 
             if (playbackStarted && contentType == ContentType.LIVE.name && contentId > 0L) {
                 contentRepository.updateChannelLastWatched(contentId)
+                ensureLiveEpgSynced()
             } else if (!playbackStarted) {
                 _liveChannelSwitch.value = LiveChannelSwitchState(
                     errorMessage = state.value.errorMessage

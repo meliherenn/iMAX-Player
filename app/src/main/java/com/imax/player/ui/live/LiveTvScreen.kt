@@ -70,11 +70,13 @@ class LiveTvViewModel @Inject constructor(
 ) : ViewModel() {
     private val _state = MutableStateFlow(LiveTvState())
     val state: StateFlow<LiveTvState> = _state.asStateFlow()
+    private var epgAutoDiscoveryPlaylistId: Long? = null
 
     init {
         viewModelScope.launch {
             playlistRepository.getActivePlaylist().collectLatest { playlist ->
                 if (playlist == null) {
+                    epgAutoDiscoveryPlaylistId = null
                     _state.value = LiveTvState()
                 } else {
                     _state.update {
@@ -122,6 +124,23 @@ class LiveTvViewModel @Inject constructor(
                                     selectedGroup = selectedGroup,
                                     isLoading = false
                                 )
+                            }
+
+                            if (
+                                orderedChannels.isNotEmpty() &&
+                                epgAutoDiscoveryPlaylistId != playlist.id
+                            ) {
+                                epgAutoDiscoveryPlaylistId = playlist.id
+                                viewModelScope.launch {
+                                    val synced = playlistRepository.ensureEpgSynced(playlist)
+                                    if (synced) {
+                                        val channelsForEpg = _state.value.channels
+                                        if (channelsForEpg.isNotEmpty()) {
+                                            val programs = epgRepository.getCurrentProgramsForChannels(channelsForEpg)
+                                            _state.update { it.copy(epgPrograms = programs) }
+                                        }
+                                    }
+                                }
                             }
                         }
                 }

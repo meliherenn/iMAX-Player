@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import timber.log.Timber
 import java.util.Locale
@@ -29,6 +30,7 @@ class PlaylistRepository @Inject constructor(
     private val database: ImaxDatabase,
     private val m3uParser: M3uParser,
     private val xtreamClient: XtreamClient,
+    private val epgRepository: EpgRepository,
     private val okHttpClient: OkHttpClient,
     private val settingsDataStore: SettingsDataStore
 ) {
@@ -115,10 +117,43 @@ class PlaylistRepository @Inject constructor(
                 playlistDao.updateCounts(playlist.id, channelCount, movieCount, seriesCount)
             }
 
+            syncDiscoveredEpg(normalizedPlaylist, content)
+
             Resource.Success(Unit)
         } catch (e: Exception) {
             Timber.e(e, "Sync failed for playlist ${playlist.id}")
             Resource.Error(e.message ?: "Sync failed", e)
+        }
+    }
+
+    suspend fun ensureEpgSynced(playlist: Playlist): Boolean = withContext(Dispatchers.IO) {
+        val settings = settingsDataStore.settings.first()
+        if (settings.epgUrl.isNotBlank() && settings.epgLastSync > 0L) {
+            return@withContext false
+        }
+
+        runCatching {
+            val normalizedPlaylist = playlist.normalizedForSync()
+            val content = when (normalizedPlaylist.type) {
+                PlaylistType.M3U_URL -> PlaylistSyncContent.M3u(loadM3uUrl(normalizedPlaylist))
+                PlaylistType.M3U_FILE -> PlaylistSyncContent.M3u(loadM3uFile(normalizedPlaylist))
+                PlaylistType.XTREAM_CODES -> {
+                    val channels = channelDao.getByPlaylistSnapshot(normalizedPlaylist.id)
+                    PlaylistSyncContent.Xtream(
+                        XtreamContentResult(
+                            channels = channels,
+                            movies = emptyList(),
+                            series = emptyList(),
+                            categories = emptyList()
+                        )
+                    )
+                }
+            }
+
+            syncDiscoveredEpg(normalizedPlaylist, content)
+        }.getOrElse { error ->
+            Timber.w(error, "EPG auto discovery failed for playlist ${playlist.id}")
+            false
         }
     }
 
@@ -163,6 +198,54 @@ class PlaylistRepository @Inject constructor(
         insertChunked(result.movies.withMovieAddedAt(existingContent.movieAddedAtByKey, syncTime)) { movieDao.insertAll(it) }
         insertChunked(result.series.withSeriesAddedAt(existingContent.seriesAddedAtByKey, syncTime)) { seriesDao.insertAll(it) }
         insertChunked(result.categories) { categoryDao.insertAll(it) }
+    }
+
+    private suspend fun syncDiscoveredEpg(
+        playlist: Playlist,
+        content: PlaylistSyncContent
+    ): Boolean {
+        val discoveredEpgUrl = when (content) {
+            is PlaylistSyncContent.M3u -> resolveM3uEpgUrl(content.result.epgUrl, playlist.url)
+            is PlaylistSyncContent.Xtream -> buildXtreamEpgUrl(playlist)
+        }
+
+        if (discoveredEpgUrl.isBlank()) {
+            Timber.d("No EPG URL discovered for playlist ${playlist.id}")
+            return false
+        }
+
+        val currentSettings = settingsDataStore.settings.first()
+        if (currentSettings.epgUrl != discoveredEpgUrl) {
+            settingsDataStore.updateEpgUrl(discoveredEpgUrl)
+        }
+
+        val channels = when (content) {
+            is PlaylistSyncContent.M3u -> content.result.channels.map { it.toModel() }
+            is PlaylistSyncContent.Xtream -> content.result.channels.map { it.toModel() }
+        }
+
+        if (channels.isEmpty()) return false
+
+        val channelIdMap = epgRepository.buildChannelIdMap(channels)
+        val result = epgRepository.fetchAndSave(discoveredEpgUrl, channelIdMap)
+        val savedProgramCount = result.getOrNull() ?: 0
+        val error = result.exceptionOrNull()
+        if (error != null) {
+            Timber.w(error, "Auto EPG sync failed for playlist ${playlist.id}")
+            return false
+        }
+
+        if (savedProgramCount <= 0) {
+            Timber.w("Auto EPG sync parsed no programs for playlist ${playlist.id}")
+            return false
+        }
+
+        settingsDataStore.updateEpgLastSync(System.currentTimeMillis())
+        if (currentSettings.epgAutoSync) {
+            epgRepository.scheduleDailySync(discoveredEpgUrl)
+        }
+        Timber.d("Auto EPG sync completed for playlist ${playlist.id}: $savedProgramCount programs")
+        return true
     }
 
     private suspend fun saveParseResult(
@@ -331,6 +414,38 @@ class PlaylistRepository @Inject constructor(
     private companion object {
         const val INSERT_CHUNK_SIZE = 500
     }
+}
+
+private fun resolveM3uEpgUrl(epgUrl: String, playlistUrl: String): String {
+    val trimmed = epgUrl.trim()
+    if (trimmed.isBlank()) return ""
+    if (trimmed.startsWith("http://", ignoreCase = true) ||
+        trimmed.startsWith("https://", ignoreCase = true)
+    ) {
+        return trimmed
+    }
+
+    return playlistUrl
+        .toHttpUrlOrNull()
+        ?.resolve(trimmed)
+        ?.toString()
+        ?: trimmed
+}
+
+private fun buildXtreamEpgUrl(playlist: Playlist): String {
+    if (playlist.serverUrl.isBlank() || playlist.username.isBlank() || playlist.password.isBlank()) {
+        return ""
+    }
+
+    val base = playlist.serverUrl.trimEnd('/')
+    return base.toHttpUrlOrNull()
+        ?.newBuilder()
+        ?.addPathSegment("xmltv.php")
+        ?.addQueryParameter("username", playlist.username)
+        ?.addQueryParameter("password", playlist.password)
+        ?.build()
+        ?.toString()
+        ?: "$base/xmltv.php?username=${playlist.username}&password=${playlist.password}"
 }
 
 private sealed interface PlaylistSyncContent {
