@@ -116,4 +116,37 @@ class M3uParserTest {
         assertThat(result.series).hasSize(1)
         assertThat(result.series[0].name).isEqualTo("Breaking Bad")
     }
+
+    @Test
+    fun `movies keep playlist source order`() {
+        val m3u = """
+            #EXTM3U
+            #EXTINF:-1 group-title="Movies",Newest Synthetic Movie
+            http://stream.example.com/movie/newest.mkv
+            #EXTINF:-1 group-title="Movies",Older Synthetic Movie
+            http://stream.example.com/movie/older.mkv
+        """.trimIndent()
+
+        val result = parser.parseText(m3u, 1L)
+
+        assertThat(result.movies.map { it.sourceOrder }).containsExactly(0, 1).inOrder()
+    }
+
+    @Test
+    fun `series source order uses first episode position`() {
+        val m3u = """
+            #EXTM3U
+            #EXTINF:-1 group-title="News",Synthetic News
+            http://stream.example.com/live/news.m3u8
+            #EXTINF:-1 group-title="Series",Example Show S01E01
+            http://stream.example.com/series/example-s01e01.mp4
+            #EXTINF:-1 group-title="Series",Example Show S01E02
+            http://stream.example.com/series/example-s01e02.mp4
+        """.trimIndent()
+
+        val result = parser.parseText(m3u, 1L)
+
+        assertThat(result.series).hasSize(1)
+        assertThat(result.series[0].sourceOrder).isEqualTo(1)
+    }
 }

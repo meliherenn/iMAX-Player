@@ -242,10 +242,19 @@ fun PlayerScreen(
     }
 
     // Load EPG when channel changes
-    val epgChannelId = session.currentChannel?.epgChannelId ?: ""
-    LaunchedEffect(epgChannelId) {
-        if (epgChannelId.isNotBlank()) {
-            viewModel.loadEpg(epgChannelId)
+    val currentChannel = session.currentChannel
+    LaunchedEffect(currentChannel?.id, currentChannel?.epgChannelId, currentChannel?.name) {
+        viewModel.loadEpgForChannel(currentChannel)
+    }
+
+    LaunchedEffect(liveChannelSwitch.errorMessage, isLivePlayback, session.availableChannels) {
+        if (
+            !liveChannelSwitch.errorMessage.isNullOrBlank() &&
+            isLivePlayback &&
+            session.availableChannels.isNotEmpty()
+        ) {
+            showChannelSheet = true
+            controlsVisible = true
         }
     }
 

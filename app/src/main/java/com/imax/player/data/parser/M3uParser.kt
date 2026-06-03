@@ -111,6 +111,8 @@ class M3uParser @Inject constructor() {
         val channels = mutableListOf<ChannelEntity>()
         val movies = mutableListOf<MovieEntity>()
         val series = mutableMapOf<String, MutableList<M3uEntry>>()
+        val seriesSourceOrder = mutableMapOf<String, Int>()
+        val seriesCategory = mutableMapOf<String, String>()
 
         entries.forEachIndexed { index, entry ->
             when (entry.contentType) {
@@ -133,11 +135,14 @@ class M3uParser @Inject constructor() {
                         posterUrl = entry.logoUrl,
                         streamUrl = entry.url,
                         categoryName = entry.groupTitle,
-                        genre = entry.groupTitle
+                        genre = entry.groupTitle,
+                        sourceOrder = index
                     )
                 )
                 ContentType.SERIES -> {
                     val seriesKey = extractSeriesName(entry.name)
+                    seriesSourceOrder.putIfAbsent(seriesKey, index)
+                    seriesCategory.putIfAbsent(seriesKey, entry.groupTitle)
                     series.getOrPut(seriesKey) { mutableListOf() }.add(entry)
                 }
             }
@@ -147,7 +152,8 @@ class M3uParser @Inject constructor() {
             SeriesEntity(
                 playlistId = playlistId,
                 name = name,
-                categoryName = entries.firstOrNull { extractSeriesName(it.name) == name }?.groupTitle ?: ""
+                categoryName = seriesCategory[name] ?: "",
+                sourceOrder = seriesSourceOrder[name] ?: 0
             )
         }
 

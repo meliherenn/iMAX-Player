@@ -44,7 +44,11 @@ data class ChannelEntity(
 
 @Entity(
     tableName = "movies",
-    indices = [Index(value = ["playlistId"]), Index(value = ["categoryId"])]
+    indices = [
+        Index(value = ["playlistId"]),
+        Index(value = ["categoryId"]),
+        Index(value = ["playlistId", "addedAt", "sourceOrder"])
+    ]
 )
 data class MovieEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -70,12 +74,18 @@ data class MovieEntity(
     val isFavorite: Boolean = false,
     val lastPosition: Long = 0,
     val lastWatched: Long = 0,
-    val totalDuration: Long = 0
+    val totalDuration: Long = 0,
+    val addedAt: Long = 0,
+    val sourceOrder: Int = 0
 )
 
 @Entity(
     tableName = "series",
-    indices = [Index(value = ["playlistId"]), Index(value = ["categoryId"])]
+    indices = [
+        Index(value = ["playlistId"]),
+        Index(value = ["categoryId"]),
+        Index(value = ["playlistId", "addedAt", "sourceOrder"])
+    ]
 )
 data class SeriesEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -98,7 +108,9 @@ data class SeriesEntity(
     val isFavorite: Boolean = false,
     val lastWatchedEpisodeId: Long = 0,
     val seasonCount: Int = 0,
-    val episodeCount: Int = 0
+    val episodeCount: Int = 0,
+    val addedAt: Long = 0,
+    val sourceOrder: Int = 0
 )
 
 @Entity(

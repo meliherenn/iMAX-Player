@@ -14,6 +14,51 @@ val localProperties = Properties().apply {
     if (file.exists()) load(file.inputStream())
 }
 
+val defaultUpdateManifestUrl = "https://github.com/meliherenn/iMAX-Player/releases/latest/download/latest.json"
+
+val versionProperties = Properties().apply {
+    val file = rootProject.file("version.properties")
+    if (file.exists()) load(file.inputStream())
+}
+
+fun buildConfigString(value: String): String =
+    "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+
+val appVersionCode = providers.gradleProperty("VERSION_CODE").orNull
+    ?: System.getenv("VERSION_CODE")
+    ?: versionProperties.getProperty("VERSION_CODE", "1")
+
+val appVersionName = providers.gradleProperty("VERSION_NAME").orNull
+    ?: System.getenv("VERSION_NAME")
+    ?: versionProperties.getProperty("VERSION_NAME", "1.0.0")
+
+val updateManifestUrl = providers.gradleProperty("UPDATE_MANIFEST_URL").orNull
+    ?: System.getenv("UPDATE_MANIFEST_URL")
+    ?: localProperties.getProperty("UPDATE_MANIFEST_URL", defaultUpdateManifestUrl)
+
+val releaseStoreFile = providers.gradleProperty("IMAX_RELEASE_STORE_FILE").orNull
+    ?: System.getenv("IMAX_RELEASE_STORE_FILE")
+    ?: localProperties.getProperty("IMAX_RELEASE_STORE_FILE")
+
+val releaseStorePassword = providers.gradleProperty("IMAX_RELEASE_STORE_PASSWORD").orNull
+    ?: System.getenv("IMAX_RELEASE_STORE_PASSWORD")
+    ?: localProperties.getProperty("IMAX_RELEASE_STORE_PASSWORD")
+
+val releaseKeyAlias = providers.gradleProperty("IMAX_RELEASE_KEY_ALIAS").orNull
+    ?: System.getenv("IMAX_RELEASE_KEY_ALIAS")
+    ?: localProperties.getProperty("IMAX_RELEASE_KEY_ALIAS")
+
+val releaseKeyPassword = providers.gradleProperty("IMAX_RELEASE_KEY_PASSWORD").orNull
+    ?: System.getenv("IMAX_RELEASE_KEY_PASSWORD")
+    ?: localProperties.getProperty("IMAX_RELEASE_KEY_PASSWORD")
+
+val hasReleaseSigning = listOf(
+    releaseStoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword
+).all { !it.isNullOrBlank() }
+
 android {
     namespace = "com.imax.player"
     compileSdk = 35
@@ -22,30 +67,16 @@ android {
         applicationId = "com.imax.player"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = appVersionCode.toInt()
+        versionName = appVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        buildConfigField("String", "TMDB_API_KEY", "\"${localProperties.getProperty("TMDB_API_KEY", "")}\"")
+        buildConfigField("String", "TMDB_API_KEY", buildConfigString(localProperties.getProperty("TMDB_API_KEY", "")))
+        buildConfigField("String", "UPDATE_MANIFEST_URL", buildConfigString(updateManifestUrl))
 
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64")
-        }
-    }
-
-    buildTypes {
-        debug {
-            isDebuggable = true
-            applicationIdSuffix = ".debug"
-        }
-        release {
-            isMinifyEnabled = true
-            isShrinkResources = true
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
         }
     }
 
@@ -71,6 +102,35 @@ android {
             useLegacyPackaging = true
             pickFirsts += setOf(
                 "lib/*/libc++_shared.so"
+            )
+        }
+    }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = rootProject.file(releaseStoreFile!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            isDebuggable = true
+            applicationIdSuffix = ".debug"
+        }
+        release {
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
             )
         }
     }

@@ -28,6 +28,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.imax.player.BuildConfig
 import com.imax.player.R
 import com.imax.player.core.datastore.AppSettings
 import com.imax.player.core.datastore.SettingsDataStore
@@ -593,7 +594,7 @@ private fun SettingsContent(
                 }
             )
             Spacer(modifier = Modifier.height(8.dp))
-            SettingsInfoRow(stringResource(R.string.app_version), "iMAX Player v1.0.0")
+            SettingsInfoRow(stringResource(R.string.app_version), "iMAX Player v${BuildConfig.VERSION_NAME}")
 
             Spacer(modifier = Modifier.height(8.dp))
             Text(stringResource(R.string.disclaimer), style = MaterialTheme.typography.labelSmall, color = ImaxColors.TextTertiary)

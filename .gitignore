@@ -17,6 +17,9 @@ app/build/
 local.properties
 *.hprof
 *.log
+keystores/
+*.jks
+*.keystore
 # AI agent / local workflow files
 agents.md
 AGENTS.md

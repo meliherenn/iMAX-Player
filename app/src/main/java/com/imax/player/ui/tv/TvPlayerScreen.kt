@@ -258,6 +258,8 @@ fun TvPlayerScreen(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val session by viewModel.session.collectAsStateWithLifecycle()
     val liveChannelSwitch by viewModel.liveChannelSwitch.collectAsStateWithLifecycle()
+    val currentEpgProgram by viewModel.currentEpgProgram.collectAsStateWithLifecycle()
+    val nextEpgProgram by viewModel.nextEpgProgram.collectAsStateWithLifecycle()
 
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
@@ -469,6 +471,11 @@ fun TvPlayerScreen(
         viewModel.init(url, title, startPosition, contentId, contentType, groupContext)
     }
 
+    val currentChannel = session.currentChannel
+    LaunchedEffect(currentChannel?.id, currentChannel?.epgChannelId, currentChannel?.name) {
+        viewModel.loadEpgForChannel(currentChannel)
+    }
+
     LaunchedEffect(overlayVisible, activePanel, requestedOverlayAction) {
         val targetAction = resolvedOverlayAction(requestedOverlayAction)
         if (requestedOverlayAction != targetAction) {
@@ -520,7 +527,15 @@ fun TvPlayerScreen(
 
     LaunchedEffect(liveChannelSwitch.errorMessage) {
         if (!liveChannelSwitch.errorMessage.isNullOrBlank()) {
-            showOverlay(TvOverlayAction.CHANNELS)
+            if (isLivePlayback && session.availableChannels.isNotEmpty()) {
+                clearTransientZapFeedback()
+                requestedOverlayAction = TvOverlayAction.CHANNELS
+                overlayVisible = true
+                activePanel = TvPlayerPanel.CHANNELS
+                registerInteraction()
+            } else {
+                showOverlay(TvOverlayAction.CHANNELS)
+            }
         }
     }
 
@@ -782,7 +797,8 @@ fun TvPlayerScreen(
 
         if (
             (playerState.playbackState == PlaybackState.ERROR || !liveChannelSwitch.errorMessage.isNullOrBlank()) &&
-            !isChannelSwitching
+            !isChannelSwitching &&
+            !(isLivePlayback && activePanel == TvPlayerPanel.CHANNELS && session.availableChannels.isNotEmpty())
         ) {
             TvErrorState(
                 message = liveChannelSwitch.errorMessage
@@ -816,6 +832,8 @@ fun TvPlayerScreen(
                 isLivePlayback = isLivePlayback,
                 isSeriesPlayback = isSeriesPlayback,
                 isChannelSwitching = isChannelSwitching,
+                currentEpgProgram = currentEpgProgram,
+                nextEpgProgram = nextEpgProgram,
                 hasPreviousChannel = session.previousChannel != null,
                 hasNextChannel = session.nextChannel != null,
                 hasPreviousEpisode = session.previousEpisode != null,
@@ -1016,6 +1034,8 @@ private fun TvPlaybackOverlay(
     isLivePlayback: Boolean,
     isSeriesPlayback: Boolean,
     isChannelSwitching: Boolean,
+    currentEpgProgram: com.imax.player.data.parser.EpgProgram?,
+    nextEpgProgram: com.imax.player.data.parser.EpgProgram?,
     hasPreviousChannel: Boolean,
     hasNextChannel: Boolean,
     hasPreviousEpisode: Boolean,
@@ -1150,6 +1170,13 @@ private fun TvPlaybackOverlay(
                     .navigationBarsPadding(),
                 verticalArrangement = Arrangement.spacedBy(22.dp)
             ) {
+                if (isLivePlayback && currentEpgProgram != null) {
+                    TvEpgStrip(
+                        currentProgram = currentEpgProgram,
+                        nextProgram = nextEpgProgram
+                    )
+                }
+
                 if (shouldShowProgress) {
                     TvSeekBar(
                         currentPosition = playerState.currentPosition,
@@ -1257,6 +1284,85 @@ private fun TvPlaybackOverlay(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvEpgStrip(
+    currentProgram: com.imax.player.data.parser.EpgProgram,
+    nextProgram: com.imax.player.data.parser.EpgProgram?
+) {
+    val nowMs = System.currentTimeMillis()
+    val duration = (currentProgram.endTime - currentProgram.startTime).coerceAtLeast(1L)
+    val progress = ((nowMs - currentProgram.startTime).toFloat() / duration.toFloat())
+        .coerceIn(0f, 1f)
+    val timeFormatter = remember { java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()) }
+    val startTime = remember(currentProgram.startTime) {
+        timeFormatter.format(java.util.Date(currentProgram.startTime))
+    }
+    val endTime = remember(currentProgram.endTime) {
+        timeFormatter.format(java.util.Date(currentProgram.endTime))
+    }
+
+    Surface(
+        color = Color.Black.copy(alpha = 0.48f),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = ImaxColors.Primary.copy(alpha = 0.9f)
+                ) {
+                    Text(
+                        text = "CANLI",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = currentProgram.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "$startTime - $endTime",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = ImaxColors.TextSecondary
+                )
+            }
+
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(2.dp)),
+                color = ImaxColors.Primary,
+                trackColor = Color.White.copy(alpha = 0.2f)
+            )
+
+            nextProgram?.let { next ->
+                Text(
+                    text = "Sonraki: ${next.title}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = ImaxColors.TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }

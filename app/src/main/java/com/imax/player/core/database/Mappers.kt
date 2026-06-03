@@ -63,7 +63,8 @@ fun MovieEntity.toModel() = Movie(
     imdbId = imdbId, tmdbId = tmdbId, containerExtension = containerExtension,
     categoryId = categoryId, categoryName = categoryName,
     isFavorite = isFavorite, lastPosition = lastPosition,
-    lastWatched = lastWatched, totalDuration = totalDuration
+    lastWatched = lastWatched, totalDuration = totalDuration,
+    addedAt = addedAt, sourceOrder = sourceOrder
 )
 
 fun Movie.toEntity() = MovieEntity(
@@ -74,7 +75,8 @@ fun Movie.toEntity() = MovieEntity(
     imdbId = imdbId, tmdbId = tmdbId, containerExtension = containerExtension,
     categoryId = categoryId, categoryName = categoryName,
     isFavorite = isFavorite, lastPosition = lastPosition,
-    lastWatched = lastWatched, totalDuration = totalDuration
+    lastWatched = lastWatched, totalDuration = totalDuration,
+    addedAt = addedAt, sourceOrder = sourceOrder
 )
 
 fun SeriesEntity.toModel() = Series(
@@ -84,7 +86,8 @@ fun SeriesEntity.toModel() = Series(
     year = year, rating = rating, imdbId = imdbId, tmdbId = tmdbId,
     categoryId = categoryId, categoryName = categoryName,
     isFavorite = isFavorite, lastWatchedEpisodeId = lastWatchedEpisodeId,
-    seasonCount = seasonCount, episodeCount = episodeCount
+    seasonCount = seasonCount, episodeCount = episodeCount,
+    addedAt = addedAt, sourceOrder = sourceOrder
 )
 
 fun Series.toEntity() = SeriesEntity(
@@ -94,7 +97,8 @@ fun Series.toEntity() = SeriesEntity(
     year = year, rating = rating, imdbId = imdbId, tmdbId = tmdbId,
     categoryId = categoryId, categoryName = categoryName,
     isFavorite = isFavorite, lastWatchedEpisodeId = lastWatchedEpisodeId,
-    seasonCount = seasonCount, episodeCount = episodeCount
+    seasonCount = seasonCount, episodeCount = episodeCount,
+    addedAt = addedAt, sourceOrder = sourceOrder
 )
 
 fun EpisodeEntity.toModel() = Episode(

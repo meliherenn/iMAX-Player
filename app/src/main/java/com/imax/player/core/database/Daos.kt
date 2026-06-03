@@ -41,6 +41,9 @@ interface ChannelDao {
     @Query("SELECT * FROM channels WHERE playlistId = :playlistId ORDER BY sortOrder, name")
     fun getByPlaylist(playlistId: Long): Flow<List<ChannelEntity>>
 
+    @Query("SELECT * FROM channels WHERE playlistId = :playlistId ORDER BY sortOrder, name")
+    suspend fun getByPlaylistSnapshot(playlistId: Long): List<ChannelEntity>
+
     @Query("SELECT * FROM channels WHERE playlistId = :playlistId ORDER BY sortOrder, name LIMIT :limit OFFSET :offset")
     suspend fun getByPlaylistPaged(playlistId: Long, limit: Int, offset: Int): List<ChannelEntity>
 
@@ -98,7 +101,7 @@ interface MovieDao {
     @Query("SELECT * FROM movies WHERE playlistId = :playlistId ORDER BY lastWatched DESC LIMIT 20")
     fun getRecentlyWatched(playlistId: Long): Flow<List<MovieEntity>>
 
-    @Query("SELECT * FROM movies WHERE playlistId = :playlistId ORDER BY id DESC LIMIT :limit")
+    @Query("SELECT * FROM movies WHERE playlistId = :playlistId ORDER BY addedAt DESC, sourceOrder ASC, id DESC LIMIT :limit")
     fun getLatestAdded(playlistId: Long, limit: Int = 30): Flow<List<MovieEntity>>
 
     @Query("SELECT * FROM movies WHERE playlistId = :playlistId AND name LIKE '%' || :query || '%' ORDER BY name")
@@ -106,6 +109,9 @@ interface MovieDao {
 
     @Query("SELECT * FROM movies WHERE id = :id")
     suspend fun getById(id: Long): MovieEntity?
+
+    @Query("SELECT * FROM movies WHERE playlistId = :playlistId")
+    suspend fun getByPlaylistSnapshot(playlistId: Long): List<MovieEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(movies: List<MovieEntity>)
@@ -143,7 +149,7 @@ interface SeriesDao {
     @Query("SELECT * FROM series WHERE playlistId = :playlistId AND isFavorite = 1 ORDER BY name")
     fun getFavorites(playlistId: Long): Flow<List<SeriesEntity>>
 
-    @Query("SELECT * FROM series WHERE playlistId = :playlistId ORDER BY id DESC LIMIT :limit")
+    @Query("SELECT * FROM series WHERE playlistId = :playlistId ORDER BY addedAt DESC, sourceOrder ASC, id DESC LIMIT :limit")
     fun getLatestAdded(playlistId: Long, limit: Int = 30): Flow<List<SeriesEntity>>
 
     @Query("SELECT * FROM series WHERE playlistId = :playlistId AND name LIKE '%' || :query || '%' ORDER BY name")
@@ -151,6 +157,9 @@ interface SeriesDao {
 
     @Query("SELECT * FROM series WHERE id = :id")
     suspend fun getById(id: Long): SeriesEntity?
+
+    @Query("SELECT * FROM series WHERE playlistId = :playlistId")
+    suspend fun getByPlaylistSnapshot(playlistId: Long): List<SeriesEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(series: List<SeriesEntity>)
@@ -217,6 +226,12 @@ interface EpgDao {
 
     @Query("SELECT * FROM epg_programs WHERE channelId = :channelId AND startTime <= :now AND endTime > :now LIMIT 1")
     suspend fun getCurrentProgram(channelId: String, now: Long = System.currentTimeMillis()): EpgProgramEntity?
+
+    @Query("SELECT * FROM epg_programs WHERE channelId IN (:channelIds) AND startTime <= :now AND endTime > :now ORDER BY startTime")
+    suspend fun getCurrentProgramsForIds(channelIds: List<String>, now: Long = System.currentTimeMillis()): List<EpgProgramEntity>
+
+    @Query("SELECT * FROM epg_programs WHERE channelId IN (:channelIds) AND endTime > :now ORDER BY startTime LIMIT 10")
+    suspend fun getUpcomingProgramsForIds(channelIds: List<String>, now: Long = System.currentTimeMillis()): List<EpgProgramEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(programs: List<EpgProgramEntity>)

@@ -133,6 +133,24 @@ class XmltvParserTest {
         assertThat(programs[0].channelId).isEqualTo("internal-channel-42")
     }
 
+    @Test
+    fun `channel display name map is applied when XMLTV id differs`() = runTest {
+        val xml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <tv>
+                <channel id="xml-random-id">
+                    <display-name>TRT 1 HD</display-name>
+                </channel>
+                <programme start="20260419090000 +0000" stop="20260419100000 +0000" channel="xml-random-id">
+                    <title>Test</title>
+                </programme>
+            </tv>
+        """.trimIndent()
+        val idMap = mapOf("trt-1-hd" to "trt.1")
+        val programs = parser.parse(xmlStream(xml), idMap)
+        assertThat(programs[0].channelId).isEqualTo("trt.1")
+    }
+
     // ─── Edge cases ──────────────────────────────────────────────────────────
 
     @Test

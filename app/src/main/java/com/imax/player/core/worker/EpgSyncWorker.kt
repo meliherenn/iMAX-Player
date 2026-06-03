@@ -3,9 +3,12 @@ package com.imax.player.core.worker
 import android.content.Context
 import androidx.hilt.work.HiltWorker
 import androidx.work.*
+import com.imax.player.core.database.ChannelDao
 import com.imax.player.core.common.SensitiveLog
 import com.imax.player.core.database.EpgDao
 import com.imax.player.core.database.PlaylistDao
+import com.imax.player.core.database.toModel
+import com.imax.player.data.parser.buildEpgChannelIdMap
 import com.imax.player.data.parser.XmltvParser
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -27,6 +30,8 @@ class EpgSyncWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted params: WorkerParameters,
     private val epgDao: EpgDao,
+    private val playlistDao: PlaylistDao,
+    private val channelDao: ChannelDao,
     private val xmltvParser: XmltvParser,
     private val okHttpClient: OkHttpClient
 ) : CoroutineWorker(appContext, params) {
@@ -56,7 +61,8 @@ class EpgSyncWorker @AssistedInject constructor(
                 return Result.failure()
             }
 
-            val programs = xmltvParser.parse(body.byteStream())
+            val channelIdMap = buildActiveChannelIdMap()
+            val programs = xmltvParser.parse(body.byteStream(), channelIdMap.takeIf { it.isNotEmpty() })
             if (programs.isEmpty()) {
                 Timber.w("EpgSyncWorker: no programs parsed")
                 return Result.success() // Not a failure — might be empty EPG
@@ -77,6 +83,12 @@ class EpgSyncWorker @AssistedInject constructor(
             Timber.e(e, "EpgSyncWorker failed")
             if (runAttemptCount < 2) Result.retry() else Result.failure()
         }
+    }
+
+    private suspend fun buildActiveChannelIdMap(): Map<String, String> {
+        val activePlaylist = playlistDao.getActive() ?: return emptyMap()
+        val channels = channelDao.getByPlaylistSnapshot(activePlaylist.id).map { it.toModel() }
+        return buildEpgChannelIdMap(channels)
     }
 
     companion object {

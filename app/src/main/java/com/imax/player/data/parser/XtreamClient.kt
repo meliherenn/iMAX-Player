@@ -120,7 +120,7 @@ class XtreamClient @Inject constructor(
             })
 
             val vodStreams = api.getVodStreams(url, username, password)
-            movies.addAll(vodStreams.map { stream ->
+            movies.addAll(vodStreams.mapIndexed { index, stream ->
                 val categoryName = vodCategories.find { it.categoryId == stream.categoryId }?.categoryName ?: ""
                 MovieEntity(
                     playlistId = playlistId,
@@ -146,7 +146,8 @@ class XtreamClient @Inject constructor(
                     categoryId = stream.categoryId.toIntOrNull() ?: 0,
                     categoryName = categoryName,
                     tmdbId = stream.tmdbId?.toIntOrNull() ?: 0,
-                    duration = stream.episodeRunTime.toIntOrNull() ?: 0
+                    duration = stream.episodeRunTime.toIntOrNull() ?: 0,
+                    sourceOrder = index
                 )
             })
         } catch (e: Exception) {
@@ -166,7 +167,7 @@ class XtreamClient @Inject constructor(
             })
 
             val seriesStreams = api.getSeriesStreams(url, username, password)
-            series.addAll(seriesStreams.map { stream ->
+            series.addAll(seriesStreams.mapIndexed { index, stream ->
                 val categoryName = seriesCategories.find { it.categoryId == stream.categoryId }?.categoryName ?: ""
                 SeriesEntity(
                     playlistId = playlistId,
@@ -183,7 +184,8 @@ class XtreamClient @Inject constructor(
                     rating = stream.rating.toDoubleOrNull() ?: (stream.rating5based * 2),
                     categoryId = stream.categoryId.toIntOrNull() ?: 0,
                     categoryName = categoryName,
-                    tmdbId = stream.tmdbId?.toIntOrNull() ?: 0
+                    tmdbId = stream.tmdbId?.toIntOrNull() ?: 0,
+                    sourceOrder = index
                 )
             })
         } catch (e: Exception) {

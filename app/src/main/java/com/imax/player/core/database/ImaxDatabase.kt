@@ -18,7 +18,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         FavoriteEntity::class,
         MetadataCacheEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class ImaxDatabase : RoomDatabase() {
@@ -57,6 +57,19 @@ abstract class ImaxDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_epg_programs_channelId_endTime ON epg_programs (channelId, endTime)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_epg_programs_channelId_startTime ON epg_programs (channelId, startTime)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS index_epg_programs_endTime ON epg_programs (endTime)")
+            }
+        }
+
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE movies ADD COLUMN addedAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE movies ADD COLUMN sourceOrder INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE series ADD COLUMN addedAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE series ADD COLUMN sourceOrder INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE movies SET sourceOrder = CASE WHEN id > 2147483647 THEN 2147483647 ELSE id END")
+                db.execSQL("UPDATE series SET sourceOrder = CASE WHEN id > 2147483647 THEN 2147483647 ELSE id END")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_movies_playlistId_addedAt_sourceOrder ON movies (playlistId, addedAt, sourceOrder)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS index_series_playlistId_addedAt_sourceOrder ON series (playlistId, addedAt, sourceOrder)")
             }
         }
     }

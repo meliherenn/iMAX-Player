@@ -64,6 +64,16 @@
     <string name="auto_play_next">Sonraki Bölümü Otomatik Oynat</string>
     <string name="open_last_playlist">Başlangıçta Son Listeyi Aç</string>
     <string name="app_version">Uygulama Sürümü</string>
+    <string name="update_available_title">Yeni sürüm var</string>
+    <string name="update_required_title">Güncelleme gerekli</string>
+    <string name="update_default_message">iMAX Player için yeni bir sürüm hazır.</string>
+    <string name="update_current_version">Mevcut: %1$s</string>
+    <string name="update_target_version">Yeni: %1$s</string>
+    <string name="update_now">Güncelle</string>
+    <string name="update_later">Daha Sonra</string>
+    <string name="update_downloading">İndiriliyor: %1$d%%</string>
+    <string name="update_install_permission_message">Kuruluma devam etmek için açılan sistem ekranında bu uygulamaya APK kurma izni verin, sonra buraya dönün.</string>
+    <string name="update_retry_install">Kurulumu Aç</string>
     <string name="resume_playback">Kaldığınız yerden devam edilsin mi?</string>
     <string name="resume">Devam Et</string>
     <string name="start_over">Baştan Başla</string>

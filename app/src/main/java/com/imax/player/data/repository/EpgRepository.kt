@@ -4,9 +4,12 @@ import android.content.Context
 import com.imax.player.core.common.SensitiveLog
 import com.imax.player.core.database.EpgDao
 import com.imax.player.core.database.EpgProgramEntity
+import com.imax.player.core.model.Channel
 import com.imax.player.core.worker.EpgSyncWorker
 import com.imax.player.data.parser.EpgProgram
 import com.imax.player.data.parser.XmltvParser
+import com.imax.player.data.parser.buildEpgChannelIdMap
+import com.imax.player.data.parser.epgLookupKeysForChannel
 import com.imax.player.data.parser.toUiModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -25,6 +28,9 @@ class EpgRepository @Inject constructor(
     private val okHttpClient: OkHttpClient,
     @ApplicationContext private val context: Context
 ) {
+    private companion object {
+        private const val MAX_SQL_BIND_ARGS = 800
+    }
 
     /**
      * Returns a live flow of current and upcoming programs for [channelId].
@@ -40,6 +46,12 @@ class EpgRepository @Inject constructor(
     suspend fun getCurrentProgram(channelId: String): EpgProgram? =
         epgDao.getCurrentProgram(channelId, System.currentTimeMillis())?.toUiModel()
 
+    suspend fun getCurrentProgram(channel: Channel): EpgProgram? =
+        withContext(Dispatchers.IO) {
+            val candidates = epgLookupKeysForChannel(channel)
+            queryCurrentProgramForCandidates(candidates, System.currentTimeMillis())?.toUiModel()
+        }
+
     /**
      * Returns the next program after [nowMs] for [channelId], or null.
      */
@@ -47,6 +59,15 @@ class EpgRepository @Inject constructor(
         withContext(Dispatchers.IO) {
             epgDao.getPrograms(channelId, nowMs).first()
                 .firstOrNull { it.startTime > nowMs }
+                ?.toUiModel()
+        }
+
+    suspend fun getNextProgram(channel: Channel, nowMs: Long = System.currentTimeMillis()): EpgProgram? =
+        withContext(Dispatchers.IO) {
+            val candidates = epgLookupKeysForChannel(channel)
+            queryUpcomingProgramsForCandidates(candidates, nowMs)
+                .filter { it.startTime > nowMs }
+                .firstProgramForCandidates(candidates)
                 ?.toUiModel()
         }
 
@@ -106,45 +127,75 @@ class EpgRepository @Inject constructor(
     }
 
     /**
-     * Returns a map of channelId → current program for a list of channels.
-     * Efficient batch lookup for EPG grid screens.
+     * Returns a map of app channel id to the currently-airing program.
+     * The lookup accepts tvg-id, XMLTV id variants, channel names, and stream ids.
      */
     suspend fun getCurrentProgramsForChannels(
-        channelIds: List<String>
-    ): Map<String, EpgProgram> = withContext(Dispatchers.IO) {
+        channels: List<Channel>
+    ): Map<Long, EpgProgram> = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
-        val result = mutableMapOf<String, EpgProgram>()
-        channelIds.forEach { channelId ->
-            epgDao.getCurrentProgram(channelId, now)?.let { entity ->
-                result[channelId] = entity.toUiModel()
-            }
+        val candidatesByChannelId = channels
+            .distinctBy(Channel::id)
+            .associate { channel -> channel.id to epgLookupKeysForChannel(channel) }
+            .filterValues { it.isNotEmpty() }
+
+        if (candidatesByChannelId.isEmpty()) {
+            return@withContext emptyMap()
         }
-        result
+
+        val programsByLookupId = candidatesByChannelId.values
+            .flatten()
+            .distinct()
+            .chunked(MAX_SQL_BIND_ARGS)
+            .flatMap { ids -> epgDao.getCurrentProgramsForIds(ids, now) }
+            .groupBy(EpgProgramEntity::channelId)
+
+        candidatesByChannelId.mapNotNull { (channelId, candidates) ->
+            val program = candidates
+                .firstNotNullOfOrNull { candidate -> programsByLookupId[candidate]?.firstOrNull() }
+                ?.toUiModel()
+            program?.let { channelId to it }
+        }.toMap()
     }
 
     /**
      * M3U/Xtream channel id'lerini XMLTV channel id'leriyle eşleştiren map oluşturur.
      * Önce tam eşleşme, sonra normalize edilmiş fuzzy eşleşme dener.
      */
-    suspend fun buildChannelIdMap(channels: List<com.imax.player.core.model.Channel>): Map<String, String> {
-        val map = mutableMapOf<String, String>()
-        channels.forEach { channel ->
-            val epgId = channel.epgChannelId
-            if (epgId.isNotBlank()) {
-                map[epgId] = epgId
-                // Normalize: küçük harf, boşluk → tire
-                val normalized = epgId.lowercase().replace(" ", "-").replace("_", "-")
-                map[normalized] = epgId
-            }
-        }
-        return map
+    suspend fun buildChannelIdMap(channels: List<Channel>): Map<String, String> {
+        return buildEpgChannelIdMap(channels)
+    }
+
+    private suspend fun queryCurrentProgramForCandidates(
+        candidates: List<String>,
+        nowMs: Long
+    ): EpgProgramEntity? {
+        if (candidates.isEmpty()) return null
+        return candidates
+            .chunked(MAX_SQL_BIND_ARGS)
+            .flatMap { ids -> epgDao.getCurrentProgramsForIds(ids, nowMs) }
+            .firstProgramForCandidates(candidates)
+    }
+
+    private suspend fun queryUpcomingProgramsForCandidates(
+        candidates: List<String>,
+        nowMs: Long
+    ): List<EpgProgramEntity> {
+        if (candidates.isEmpty()) return emptyList()
+        return candidates
+            .chunked(MAX_SQL_BIND_ARGS)
+            .flatMap { ids -> epgDao.getUpcomingProgramsForIds(ids, nowMs) }
     }
 }
 
-private fun <T, K, V> Iterable<T>.associateNotNull(transform: (T) -> Pair<K, V>?): Map<K, V> {
-    val result = mutableMapOf<K, V>()
-    for (item in this) {
-        transform(item)?.let { (k, v) -> result[k] = v }
+private fun List<EpgProgramEntity>.firstProgramForCandidates(
+    candidates: List<String>
+): EpgProgramEntity? {
+    if (isEmpty()) return null
+
+    val programsByLookupId = groupBy(EpgProgramEntity::channelId)
+    candidates.forEach { candidate ->
+        programsByLookupId[candidate]?.firstOrNull()?.let { return it }
     }
-    return result
+    return null
 }

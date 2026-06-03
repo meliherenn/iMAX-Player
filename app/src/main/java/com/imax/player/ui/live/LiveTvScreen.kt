@@ -59,7 +59,7 @@ data class LiveTvState(
     val groupCounts: Map<String, Int> = emptyMap(),
     val selectedGroup: String? = null,
     val isLoading: Boolean = true,
-    val epgPrograms: Map<String, com.imax.player.data.parser.EpgProgram> = emptyMap()
+    val epgPrograms: Map<Long, com.imax.player.data.parser.EpgProgram> = emptyMap()
 )
 
 @HiltViewModel
@@ -137,9 +137,9 @@ class LiveTvViewModel @Inject constructor(
         }
     }
 
-    fun loadEpgForVisibleChannels(channelIds: List<String>) {
+    fun loadEpgForVisibleChannels(channels: List<Channel>) {
         viewModelScope.launch {
-            val programs = epgRepository.getCurrentProgramsForChannels(channelIds)
+            val programs = epgRepository.getCurrentProgramsForChannels(channels)
             _state.update { it.copy(epgPrograms = programs) }
         }
     }
@@ -201,6 +201,13 @@ private fun TvLiveTvContent(
         val display = if (state.selectedGroup != null)
             state.channels.filter { it.groupTitle == state.selectedGroup }
         else state.channels
+
+        LaunchedEffect(display.map(Channel::id)) {
+            if (display.isNotEmpty()) {
+                viewModel.loadEpgForVisibleChannels(display)
+            }
+        }
+
         val channelFocusRequesters = remember(display.map(Channel::id)) {
             display.associate { it.id to FocusRequester() }
         }
@@ -250,7 +257,7 @@ private fun TvLiveTvContent(
                     ChannelListItem(
                         channel = channel,
                         isTv = true,
-                        epgProgram = state.epgPrograms[channel.epgChannelId],
+                        epgProgram = state.epgPrograms[channel.id],
                         modifier = Modifier
                             .focusRequester(channelFocusRequesters.getValue(channel.id))
                             .focusProperties {
@@ -312,6 +319,12 @@ private fun MobileLiveTvContent(
             rankedChannels
         }
 
+        LaunchedEffect(display.map(Channel::id)) {
+            if (display.isNotEmpty()) {
+                viewModel.loadEpgForVisibleChannels(display)
+            }
+        }
+
         if (state.isLoading && display.isEmpty()) {
             ChannelListLoadingPlaceholder()
         } else if (display.isEmpty()) {
@@ -326,7 +339,7 @@ private fun MobileLiveTvContent(
                     ChannelListItem(
                         channel = channel,
                         isTv = false,
-                        epgProgram = state.epgPrograms[channel.epgChannelId],
+                        epgProgram = state.epgPrograms[channel.id],
                         onClick = { onPlayChannel(channel.streamUrl, channel.name, channel.id, state.selectedGroup) },
                         onFavoriteToggle = { viewModel.toggleFavorite(channel) }
                     )

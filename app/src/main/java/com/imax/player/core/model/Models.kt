@@ -73,7 +73,9 @@ data class Movie(
     val isFavorite: Boolean = false,
     val lastPosition: Long = 0,
     val lastWatched: Long = 0,
-    val totalDuration: Long = 0
+    val totalDuration: Long = 0,
+    val addedAt: Long = 0,
+    val sourceOrder: Int = 0
 )
 
 data class Series(
@@ -97,7 +99,9 @@ data class Series(
     val isFavorite: Boolean = false,
     val lastWatchedEpisodeId: Long = 0,
     val seasonCount: Int = 0,
-    val episodeCount: Int = 0
+    val episodeCount: Int = 0,
+    val addedAt: Long = 0,
+    val sourceOrder: Int = 0
 )
 
 data class Season(

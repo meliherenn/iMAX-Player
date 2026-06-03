@@ -14,6 +14,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import timber.log.Timber
+import java.util.Locale
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -97,13 +98,15 @@ class PlaylistRepository @Inject constructor(
                 PlaylistType.XTREAM_CODES -> PlaylistSyncContent.Xtream(loadXtream(normalizedPlaylist))
             }
             content.requireNonEmpty()
+            val syncTime = System.currentTimeMillis()
 
             database.withTransaction {
+                val existingContent = loadExistingContentState(playlist.id)
                 replacePlaylistContent(playlist.id)
 
                 when (content) {
-                    is PlaylistSyncContent.M3u -> saveParseResult(content.result)
-                    is PlaylistSyncContent.Xtream -> saveXtreamResult(content.result)
+                    is PlaylistSyncContent.M3u -> saveParseResult(content.result, existingContent, syncTime)
+                    is PlaylistSyncContent.Xtream -> saveXtreamResult(content.result, existingContent, syncTime)
                 }
 
                 val channelCount = channelDao.countByPlaylist(playlist.id)
@@ -151,30 +154,40 @@ class PlaylistRepository @Inject constructor(
         categoryDao.deleteByPlaylist(playlistId)
     }
 
-    private suspend fun saveXtreamResult(result: XtreamContentResult) {
-        channelDao.insertAll(result.channels)
-        movieDao.insertAll(result.movies)
-        seriesDao.insertAll(result.series)
-        categoryDao.insertAll(result.categories)
+    private suspend fun saveXtreamResult(
+        result: XtreamContentResult,
+        existingContent: ExistingContentState,
+        syncTime: Long
+    ) {
+        insertChunked(result.channels) { channelDao.insertAll(it) }
+        insertChunked(result.movies.withMovieAddedAt(existingContent.movieAddedAtByKey, syncTime)) { movieDao.insertAll(it) }
+        insertChunked(result.series.withSeriesAddedAt(existingContent.seriesAddedAtByKey, syncTime)) { seriesDao.insertAll(it) }
+        insertChunked(result.categories) { categoryDao.insertAll(it) }
     }
 
-    private suspend fun saveParseResult(result: com.imax.player.data.parser.M3uParseResult) {
-        channelDao.insertAll(result.channels)
-        movieDao.insertAll(result.movies)
-        if (result.series.isEmpty()) return
+    private suspend fun saveParseResult(
+        result: com.imax.player.data.parser.M3uParseResult,
+        existingContent: ExistingContentState,
+        syncTime: Long
+    ) {
+        insertChunked(result.channels) { channelDao.insertAll(it) }
+        insertChunked(result.movies.withMovieAddedAt(existingContent.movieAddedAtByKey, syncTime)) { movieDao.insertAll(it) }
 
-        seriesDao.insertAll(result.series)
+        val series = result.series.withSeriesAddedAt(existingContent.seriesAddedAtByKey, syncTime)
+        if (series.isEmpty()) return
+
+        insertChunked(series) { seriesDao.insertAll(it) }
 
         val playlistId = result.series.firstOrNull()?.playlistId
             ?: result.channels.firstOrNull()?.playlistId
             ?: result.movies.firstOrNull()?.playlistId
             ?: return
 
-        val storedSeries = seriesDao.getByPlaylist(playlistId).first().associateBy { it.name }
+        val storedSeries = seriesDao.getByPlaylistSnapshot(playlistId).associateBy { it.name }
         val episodeEntities = buildM3uEpisodes(result.seriesEpisodes, storedSeries)
 
         if (episodeEntities.isNotEmpty()) {
-            episodeDao.insertAll(episodeEntities)
+            insertChunked(episodeEntities) { episodeDao.insertAll(it) }
 
             val countsBySeriesId = episodeEntities.groupBy { it.seriesId }
             val updatedSeries = storedSeries.values.mapNotNull { series ->
@@ -187,10 +200,63 @@ class PlaylistRepository @Inject constructor(
             }
 
             if (updatedSeries.isNotEmpty()) {
-                seriesDao.insertAll(updatedSeries)
+                insertChunked(updatedSeries) { seriesDao.insertAll(it) }
             }
         }
     }
+
+    private suspend fun loadExistingContentState(playlistId: Long): ExistingContentState {
+        val movies = movieDao.getByPlaylistSnapshot(playlistId)
+        val series = seriesDao.getByPlaylistSnapshot(playlistId)
+
+        return ExistingContentState(
+            movieAddedAtByKey = movies.associate { it.stableContentKey() to it.addedAt },
+            seriesAddedAtByKey = series.associate { it.stableContentKey() to it.addedAt }
+        )
+    }
+
+    private fun List<MovieEntity>.withMovieAddedAt(
+        existingAddedAtByKey: Map<String, Long>,
+        syncTime: Long
+    ): List<MovieEntity> = map { movie ->
+        movie.copy(addedAt = existingAddedAtByKey[movie.stableContentKey()] ?: syncTime)
+    }
+
+    private fun List<SeriesEntity>.withSeriesAddedAt(
+        existingAddedAtByKey: Map<String, Long>,
+        syncTime: Long
+    ): List<SeriesEntity> = map { series ->
+        series.copy(addedAt = existingAddedAtByKey[series.stableContentKey()] ?: syncTime)
+    }
+
+    private suspend fun <T> insertChunked(items: List<T>, insert: suspend (List<T>) -> Unit) {
+        items.chunked(INSERT_CHUNK_SIZE).forEach { chunk ->
+            insert(chunk)
+        }
+    }
+
+    private fun MovieEntity.stableContentKey(): String {
+        return when {
+            streamId > 0 -> "stream:$streamId"
+            streamUrl.isNotBlank() -> "url:${streamUrl.trim()}"
+            else -> "name:${name.normalizedKeyPart()}:${categoryName.normalizedKeyPart()}"
+        }
+    }
+
+    private fun SeriesEntity.stableContentKey(): String {
+        return when {
+            seriesId > 0 -> "series:$seriesId"
+            else -> "name:${name.normalizedKeyPart()}:${categoryName.normalizedKeyPart()}"
+        }
+    }
+
+    private fun String.normalizedKeyPart(): String =
+        trim().lowercase(Locale.ROOT)
+
+    private data class ExistingContentState(
+        val movieAddedAtByKey: Map<String, Long>,
+        val seriesAddedAtByKey: Map<String, Long>
+    )
 
     private fun buildM3uEpisodes(
         seriesEpisodes: Map<String, List<com.imax.player.data.parser.M3uEntry>>,
@@ -261,6 +327,10 @@ class PlaylistRepository @Inject constructor(
         val episodeNumber: Int,
         val displayName: String
     )
+
+    private companion object {
+        const val INSERT_CHUNK_SIZE = 500
+    }
 }
 
 private sealed interface PlaylistSyncContent {

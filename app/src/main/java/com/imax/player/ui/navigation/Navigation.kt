@@ -1,11 +1,15 @@
 package com.imax.player.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
 import com.imax.player.core.common.DeviceUiMode
 import com.imax.player.ui.navigation.mobile.MobileNavGraph
 import com.imax.player.ui.navigation.tv.TvNavGraph
+import com.imax.player.ui.update.AppUpdateHost
 
 object Routes {
     const val PLAYLISTS = "playlists"
@@ -57,9 +61,12 @@ fun ImaxNavHost(
     deviceUiMode: DeviceUiMode,
     navController: NavHostController = rememberNavController()
 ) {
-    if (deviceUiMode.isTv) {
-        TvNavGraph(navController = navController)
-    } else {
-        MobileNavGraph(navController = navController)
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (deviceUiMode.isTv) {
+            TvNavGraph(navController = navController)
+        } else {
+            MobileNavGraph(navController = navController)
+        }
+        AppUpdateHost(isTv = deviceUiMode.isTv)
     }
 }

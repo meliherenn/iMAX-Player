@@ -64,6 +64,16 @@
     <string name="auto_play_next">Auto-play Next Episode</string>
     <string name="open_last_playlist">Open Last Playlist on Start</string>
     <string name="app_version">App Version</string>
+    <string name="update_available_title">New version available</string>
+    <string name="update_required_title">Update required</string>
+    <string name="update_default_message">A new iMAX Player version is ready.</string>
+    <string name="update_current_version">Current: %1$s</string>
+    <string name="update_target_version">New: %1$s</string>
+    <string name="update_now">Update</string>
+    <string name="update_later">Later</string>
+    <string name="update_downloading">Downloading: %1$d%%</string>
+    <string name="update_install_permission_message">To continue, allow this app to install APKs in the system screen that opened, then return here.</string>
+    <string name="update_retry_install">Open Installer</string>
     <string name="resume_playback">Resume from where you left off?</string>
     <string name="resume">Resume</string>
     <string name="start_over">Start Over</string>

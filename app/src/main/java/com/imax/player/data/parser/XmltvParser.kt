@@ -60,7 +60,8 @@ class XmltvParser @Inject constructor() {
         inputStream: InputStream,
         channelIdMap: Map<String, String>?
     ): List<EpgProgramEntity> {
-        val programs = mutableListOf<EpgProgramEntity>()
+        val programBuilders = mutableListOf<ProgramBuilder>()
+        val channelDisplayNames = linkedMapOf<String, MutableList<String>>()
         val factory = SAXParserFactory.newInstance().apply {
             isNamespaceAware = false
             disableFeature("http://xml.org/sax/features/external-general-entities")
@@ -71,6 +72,7 @@ class XmltvParser @Inject constructor() {
         var currentProgram: ProgramBuilder? = null
         var currentTag: String? = null
         var currentLang: String = ""
+        var currentChannelId: String? = null
         val textBuffer = StringBuilder()
 
         factory.newSAXParser().parse(inputStream, object : DefaultHandler() {
@@ -81,19 +83,22 @@ class XmltvParser @Inject constructor() {
                 attributes: Attributes
             ) {
                 when (qName) {
+                    "channel" -> {
+                        currentChannelId = attributes.getValue("id").orEmpty()
+                    }
+
                     "programme" -> {
                         val channelXmlId = attributes.getValue("channel").orEmpty()
                         val startMs = parseXmltvTime(attributes.getValue("start").orEmpty())
                         val stopMs = parseXmltvTime(attributes.getValue("stop").orEmpty())
-                        val resolvedChannelId = channelIdMap?.get(channelXmlId) ?: channelXmlId
 
                         currentProgram = if (
-                            resolvedChannelId.isNotBlank() &&
+                            channelXmlId.isNotBlank() &&
                             startMs > 0 &&
                             stopMs > startMs
                         ) {
                             ProgramBuilder(
-                                channelId = resolvedChannelId,
+                                channelId = channelXmlId,
                                 startTime = startMs,
                                 endTime = stopMs
                             )
@@ -102,7 +107,7 @@ class XmltvParser @Inject constructor() {
                         }
                     }
 
-                    "title", "desc", "category", "sub-title" -> {
+                    "title", "desc", "category", "sub-title", "display-name" -> {
                         currentTag = qName
                         currentLang = attributes.getValue("lang").orEmpty()
                         textBuffer.setLength(0)
@@ -121,12 +126,21 @@ class XmltvParser @Inject constructor() {
             override fun endElement(uri: String?, localName: String?, qName: String) {
                 val text = textBuffer.toString().trim()
                 when (qName) {
+                    "channel" -> currentChannelId = null
+                    "display-name" -> {
+                        if (text.isNotBlank()) {
+                            currentChannelId
+                                ?.takeIf(String::isNotBlank)
+                                ?.let { id -> channelDisplayNames.getOrPut(id) { mutableListOf() }.add(text) }
+                        }
+                    }
+
                     "title" -> currentProgram?.consumeTitle(text, currentLang)
                     "desc" -> currentProgram?.consumeDescription(text, currentLang)
                     "category" -> currentProgram?.consumeCategory(text)
                     "sub-title" -> currentProgram?.consumeSubTitle(text)
                     "programme" -> {
-                        currentProgram?.takeIf(ProgramBuilder::isValid)?.let { programs.add(it.build()) }
+                        currentProgram?.takeIf(ProgramBuilder::isValid)?.let { programBuilders.add(it) }
                         currentProgram = null
                     }
                 }
@@ -138,6 +152,18 @@ class XmltvParser @Inject constructor() {
                 }
             }
         })
+
+        val programs = programBuilders.mapNotNull { builder ->
+            val resolvedChannelId = resolveEpgChannelId(
+                xmlChannelId = builder.channelId,
+                displayNames = channelDisplayNames[builder.channelId].orEmpty(),
+                channelIdMap = channelIdMap
+            )
+
+            resolvedChannelId
+                .takeIf(String::isNotBlank)
+                ?.let { builder.build(it) }
+        }
 
         Timber.d("XMLTV parsed ${programs.size} programs")
         return programs
@@ -219,8 +245,8 @@ class XmltvParser @Inject constructor() {
 
         fun isValid() = title.isNotBlank() && startTime > 0 && endTime > startTime
 
-        fun build() = EpgProgramEntity(
-            channelId = channelId,
+        fun build(resolvedChannelId: String = channelId) = EpgProgramEntity(
+            channelId = resolvedChannelId,
             title = buildFullTitle(),
             description = description,
             startTime = startTime,

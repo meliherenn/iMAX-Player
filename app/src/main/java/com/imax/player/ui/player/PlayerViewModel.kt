@@ -226,6 +226,19 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+    fun loadEpgForChannel(channel: Channel?) {
+        if (channel == null) {
+            _currentEpgProgram.value = null
+            _nextEpgProgram.value = null
+            return
+        }
+
+        viewModelScope.launch {
+            _currentEpgProgram.value = epgRepository.getCurrentProgram(channel)
+            _nextEpgProgram.value = epgRepository.getNextProgram(channel)
+        }
+    }
+
     fun init(
         url: String,
         title: String,
