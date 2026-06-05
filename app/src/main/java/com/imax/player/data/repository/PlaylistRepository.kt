@@ -225,20 +225,35 @@ class PlaylistRepository @Inject constructor(
             )
             is PlaylistSyncContent.Xtream -> listOf(buildXtreamEpgUrl(playlist))
         }
-            .plus(playlist.epgUrl)
-            .plus(currentSettings.epgUrl)
+            .plus(playlist.epgUrl.splitEpgSourceUrls())
+            .plus(currentSettings.epgUrl.splitEpgSourceUrls())
             .map(String::trim)
             .filter(String::isNotBlank)
             .distinct()
 
-        if (discoveredEpgUrls.isEmpty()) {
-            Timber.d("No EPG URL discovered for playlist ${playlist.id}")
-            return syncXtreamApiEpg(playlist, channels)
+        if (discoveredEpgUrls.isNotEmpty() && syncXmltvEpgUrls(playlist, channels, discoveredEpgUrls)) {
+            return true
         }
 
+        if (discoveredEpgUrls.isEmpty()) {
+            Timber.d("No EPG URL discovered for playlist ${playlist.id}")
+        }
+
+        if (syncXtreamApiEpg(playlist, channels)) {
+            return true
+        }
+
+        return syncTurkishPublicEpgFallback(playlist, channels)
+    }
+
+    private suspend fun syncXmltvEpgUrls(
+        playlist: Playlist,
+        channels: List<Channel>,
+        epgUrls: List<String>
+    ): Boolean {
         val channelIdMap = epgRepository.buildChannelIdMap(channels)
 
-        for (discoveredEpgUrl in discoveredEpgUrls) {
+        for (discoveredEpgUrl in epgUrls) {
             val result = epgRepository.fetchAndSave(discoveredEpgUrl, channelIdMap)
             val savedProgramCount = result.getOrNull() ?: 0
             val error = result.exceptionOrNull()
@@ -249,6 +264,11 @@ class PlaylistRepository @Inject constructor(
 
             if (savedProgramCount <= 0) {
                 Timber.w("Auto EPG sync parsed no programs for playlist ${playlist.id}")
+                continue
+            }
+
+            if (!hasCurrentEpgMatches(channels)) {
+                Timber.w("Auto EPG sync parsed programs but matched no current channels for playlist ${playlist.id}")
                 continue
             }
 
@@ -267,7 +287,7 @@ class PlaylistRepository @Inject constructor(
             return true
         }
 
-        return syncXtreamApiEpg(playlist, channels)
+        return false
     }
 
     private suspend fun syncXtreamApiEpg(
@@ -305,6 +325,44 @@ class PlaylistRepository @Inject constructor(
         Timber.d("Xtream API EPG sync completed for playlist ${playlist.id}: $savedProgramCount programs")
         return true
     }
+
+    private suspend fun syncTurkishPublicEpgFallback(
+        playlist: Playlist,
+        channels: List<Channel>
+    ): Boolean {
+        if (!shouldUseTurkishPublicEpgFallback(channels)) {
+            return false
+        }
+
+        val channelIdMap = epgRepository.buildChannelIdMap(channels)
+        var savedProgramCount = 0
+
+        TURKISH_PUBLIC_EPG_URLS.forEach { epgUrl ->
+            val result = epgRepository.fetchAndSave(epgUrl, channelIdMap)
+            val count = result.getOrNull() ?: 0
+            if (result.isFailure || count <= 0) {
+                result.exceptionOrNull()?.let { error ->
+                    Timber.w(error, "Turkish public EPG fallback failed for playlist ${playlist.id}")
+                }
+                return@forEach
+            }
+
+            savedProgramCount += count
+            if (hasCurrentEpgMatches(channels)) {
+                settingsDataStore.updateEpgLastSync(System.currentTimeMillis())
+                Timber.d("Turkish public EPG fallback completed for playlist ${playlist.id}: $savedProgramCount programs")
+                return true
+            }
+        }
+
+        if (savedProgramCount > 0) {
+            Timber.w("Turkish public EPG fallback parsed programs but matched no current channels for playlist ${playlist.id}")
+        }
+        return false
+    }
+
+    private suspend fun hasCurrentEpgMatches(channels: List<Channel>): Boolean =
+        epgRepository.getCurrentProgramsForChannels(channels).isNotEmpty()
 
     private suspend fun saveParseResult(
         result: com.imax.player.data.parser.M3uParseResult,
@@ -500,6 +558,69 @@ internal fun resolveM3uEpgUrls(
         .map(String::trim)
         .filter(String::isNotBlank)
         .distinct()
+
+internal val TURKISH_PUBLIC_EPG_URLS = listOf(
+    "https://www.open-epg.com/files/turkey1.xml",
+    "https://www.open-epg.com/files/turkey2.xml",
+    "https://www.open-epg.com/files/turkey3.xml",
+    "https://www.open-epg.com/files/turkey4.xml",
+    "https://www.open-epg.com/files/turkey5.xml",
+    "https://epgshare01.online/epgshare01/epg_ripper_TR1.xml.gz",
+    "https://epgshare01.online/epgshare01/epg_ripper_TR3.xml.gz"
+)
+
+internal fun shouldUseTurkishPublicEpgFallback(channels: List<Channel>): Boolean {
+    if (channels.isEmpty()) return false
+
+    val strongMatch = channels.any { channel ->
+        val fields = listOf(channel.name, channel.groupTitle, channel.epgChannelId)
+            .map { it.trim().lowercase(Locale.ROOT) }
+        fields.any { value ->
+            value.startsWith("tr ") ||
+                value.startsWith("tr.") ||
+                value.startsWith("tr-") ||
+                value.contains(" tr ") ||
+                value.endsWith(".tr") ||
+                value.endsWith("-tr") ||
+                value.contains("turkey") ||
+                value.contains("turkiye") ||
+                value.contains("türkiye")
+        }
+    }
+    if (strongMatch) return true
+
+    val knownTurkishChannelMatches = channels.count { channel ->
+        val normalized = listOf(channel.name, channel.groupTitle, channel.epgChannelId)
+            .joinToString(" ")
+            .lowercase(Locale.ROOT)
+        knownTurkishChannelTokens.any { token -> normalized.contains(token) }
+    }
+    return knownTurkishChannelMatches >= 3
+}
+
+private val knownTurkishChannelTokens = listOf(
+    "trt",
+    "kanal d",
+    "show tv",
+    "show hd",
+    "atv",
+    "star tv",
+    "now tv",
+    "tv8",
+    "a haber",
+    "haberturk",
+    "haber turk",
+    "kanal 7",
+    "beyaz tv",
+    "teve2"
+)
+
+private fun String.splitEpgSourceUrls(): List<String> =
+    lineSequence()
+        .flatMap { line -> line.split(',', ';').asSequence() }
+        .map(String::trim)
+        .filter(String::isNotBlank)
+        .toList()
 
 private fun resolveExplicitM3uEpgUrl(epgUrl: String, playlistUrl: String): String {
     val trimmed = epgUrl.trim()

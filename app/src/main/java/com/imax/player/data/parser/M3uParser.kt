@@ -4,6 +4,7 @@ import com.imax.player.core.database.ChannelEntity
 import com.imax.player.core.database.MovieEntity
 import com.imax.player.core.database.SeriesEntity
 import com.imax.player.core.model.ContentType
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import timber.log.Timber
 import java.io.BufferedReader
 import java.io.InputStream
@@ -216,6 +217,12 @@ class M3uParser @Inject constructor() {
     }
 
     private fun extractXtreamStreamId(url: String): Int {
+        url.toHttpUrlOrNull()?.let { httpUrl ->
+            listOf("stream_id", "streamId", "stream").forEach { key ->
+                httpUrl.queryParameter(key)?.toIntOrNull()?.let { return it }
+            }
+        }
+
         return Regex(
             pattern = """/(?:live|movie|series)/[^/?#]+/[^/?#]+/(\d+)(?:\.[^/?#]+)?(?:[?#].*)?$""",
             option = RegexOption.IGNORE_CASE
