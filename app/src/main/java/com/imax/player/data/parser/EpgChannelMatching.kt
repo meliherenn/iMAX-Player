@@ -24,18 +24,19 @@ private val trailingDescriptorTokens = setOf(
     "x265",
     "vip",
     "backup",
-    "yedek"
+    "yedek",
+    "tv"
 )
 
 fun buildEpgChannelIdMap(channels: List<Channel>): Map<String, String> {
     val map = linkedMapOf<String, String>()
     channels.forEach { channel ->
-        val canonicalId = canonicalEpgChannelId(channel)
-        if (canonicalId.isBlank()) return@forEach
+        val storageId = epgStorageChannelId(channel)
+        if (storageId.isBlank()) return@forEach
 
         epgLookupKeysForChannel(channel).forEach { key ->
             if (key !in map) {
-                map[key] = canonicalId
+                map[key] = storageId
             }
         }
     }
@@ -54,6 +55,15 @@ fun canonicalEpgChannelId(channel: Channel): String =
     channel.epgChannelId.trim()
         .ifBlank { channel.name.trim() }
         .ifBlank { channel.streamId.takeIf { it > 0 }?.toString().orEmpty() }
+
+private fun epgStorageChannelId(channel: Channel): String {
+    val source = channel.epgChannelId.trim()
+        .ifBlank { channel.name.trim() }
+        .ifBlank { channel.streamId.takeIf { it > 0 }?.toString().orEmpty() }
+
+    return reducedTokenLookupKey(source)
+        .ifBlank { canonicalEpgChannelId(channel) }
+}
 
 internal fun resolveEpgChannelId(
     xmlChannelId: String,
@@ -101,28 +111,28 @@ private fun MutableList<String>.addTokenLookupVariants(tokens: List<String>) {
     if (tokens.isEmpty()) return
 
     val variants = linkedSetOf<List<String>>()
-    variants += tokens
+    val pending = ArrayDeque<List<String>>()
 
-    val withoutLeadingRegion = tokens.dropWhile { it in leadingRegionTokens }
-    if (withoutLeadingRegion.isNotEmpty()) {
-        variants += withoutLeadingRegion
+    fun enqueue(variant: List<String>) {
+        if (variant.isNotEmpty() && variants.add(variant)) {
+            pending.addLast(variant)
+        }
     }
 
-    variants.toList().forEach { variant ->
-        val withoutTrailingDescriptors = variant.dropLastWhile { it in trailingDescriptorTokens }
-        if (withoutTrailingDescriptors.isNotEmpty()) {
-            variants += withoutTrailingDescriptors
-        }
+    enqueue(tokens)
 
-        val withoutTrailingRegion = variant.dropLastWhile { it in trailingRegionTokens }
-        if (withoutTrailingRegion.isNotEmpty()) {
-            variants += withoutTrailingRegion
-        }
+    while (pending.isNotEmpty()) {
+        val variant = pending.removeFirst()
 
-        val compacted = withoutTrailingDescriptors.dropLastWhile { it in trailingRegionTokens }
-        if (compacted.isNotEmpty()) {
-            variants += compacted
+        enqueue(variant.dropWhile { it in leadingRegionTokens })
+        if (variant.lastOrNull() in trailingDescriptorTokens) {
+            enqueue(variant.dropLast(1))
         }
+        enqueue(variant.dropLastWhile { it in trailingDescriptorTokens })
+        if (variant.lastOrNull() in trailingRegionTokens) {
+            enqueue(variant.dropLast(1))
+        }
+        enqueue(variant.dropLastWhile { it in trailingRegionTokens })
     }
 
     variants.forEach { variant ->
@@ -136,6 +146,26 @@ private fun MutableList<String>.addUnique(value: String) {
     if (value.isNotBlank() && value !in this) {
         add(value)
     }
+}
+
+private fun reducedTokenLookupKey(value: String): String {
+    val tokens = normalizeForEpgLookup(value)
+        .split(separatorRegex)
+        .filter(String::isNotBlank)
+        .toMutableList()
+    if (tokens.isEmpty()) return ""
+
+    while (tokens.isNotEmpty() && tokens.first() in leadingRegionTokens) {
+        tokens.removeAt(0)
+    }
+    while (
+        tokens.isNotEmpty() &&
+        (tokens.last() in trailingDescriptorTokens || tokens.last() in trailingRegionTokens)
+    ) {
+        tokens.removeAt(tokens.lastIndex)
+    }
+
+    return tokens.joinToString("-")
 }
 
 private fun normalizeForEpgLookup(value: String): String {

@@ -8,14 +8,19 @@ import com.imax.player.core.model.*
 import com.imax.player.data.parser.M3uParser
 import com.imax.player.data.parser.XtreamClient
 import com.imax.player.data.parser.XtreamContentResult
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import timber.log.Timber
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -34,6 +39,9 @@ class PlaylistRepository @Inject constructor(
     private val okHttpClient: OkHttpClient,
     private val settingsDataStore: SettingsDataStore
 ) {
+    private val epgDiscoveryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val epgDiscoveryJobs = ConcurrentHashMap<Long, Job>()
+
     fun getAllPlaylists(): Flow<List<Playlist>> =
         playlistDao.getAll().map { list -> list.map { it.toModel() } }
 
@@ -100,6 +108,7 @@ class PlaylistRepository @Inject constructor(
                 PlaylistType.XTREAM_CODES -> PlaylistSyncContent.Xtream(loadXtream(normalizedPlaylist))
             }
             content.requireNonEmpty()
+            val epgDiscoverySeed = content.toEpgDiscoverySeed()
             val syncTime = System.currentTimeMillis()
 
             database.withTransaction {
@@ -117,7 +126,7 @@ class PlaylistRepository @Inject constructor(
                 playlistDao.updateCounts(playlist.id, channelCount, movieCount, seriesCount)
             }
 
-            syncDiscoveredEpg(normalizedPlaylist, content)
+            syncDiscoveredEpgInBackground(normalizedPlaylist, epgDiscoverySeed)
 
             Resource.Success(Unit)
         } catch (e: Exception) {
@@ -127,6 +136,15 @@ class PlaylistRepository @Inject constructor(
     }
 
     suspend fun ensureEpgSynced(playlist: Playlist): Boolean = withContext(Dispatchers.IO) {
+        epgDiscoveryJobs[playlist.id]
+            ?.takeIf(Job::isActive)
+            ?.let { runningJob ->
+                runningJob.join()
+                val channels = channelDao.getByPlaylistSnapshot(playlist.id).map { it.toModel() }
+                return@withContext channels.isNotEmpty() &&
+                    epgRepository.getCurrentProgramsForChannels(channels).isNotEmpty()
+            }
+
         val settings = settingsDataStore.settings.first()
         if (settings.epgLastSync > 0L) {
             val channels = channelDao.getByPlaylistSnapshot(playlist.id).map { it.toModel() }
@@ -156,7 +174,7 @@ class PlaylistRepository @Inject constructor(
                 }
             }
 
-            syncDiscoveredEpg(normalizedPlaylist, content)
+            syncDiscoveredEpg(normalizedPlaylist, content.toEpgDiscoverySeed())
         }.getOrElse { error ->
             Timber.w(error, "EPG auto discovery failed for playlist ${playlist.id}")
             false
@@ -208,22 +226,21 @@ class PlaylistRepository @Inject constructor(
 
     private suspend fun syncDiscoveredEpg(
         playlist: Playlist,
-        content: PlaylistSyncContent
+        seed: EpgDiscoverySeed
     ): Boolean {
         val currentSettings = settingsDataStore.settings.first()
-        val channels = when (content) {
-            is PlaylistSyncContent.M3u -> content.result.channels.map { it.toModel() }
-            is PlaylistSyncContent.Xtream -> content.result.channels.map { it.toModel() }
-        }
+        val storedChannels = channelDao.getByPlaylistSnapshot(playlist.id).map { it.toModel() }
+        val channels = storedChannels.ifEmpty { seed.channels }
         if (channels.isEmpty()) return false
 
-        val discoveredEpgUrls = when (content) {
-            is PlaylistSyncContent.M3u -> resolveM3uEpgUrls(
-                epgUrls = content.result.epgUrls,
+        val streamUrls = seed.streamUrls.ifEmpty { channels.map { it.streamUrl } }
+        val discoveredEpgUrls = when (seed.type) {
+            EpgDiscoveryType.M3U -> resolveM3uEpgUrls(
+                epgUrls = seed.epgUrls,
                 playlistUrl = playlist.url,
-                streamUrls = content.result.channels.map { it.streamUrl }
+                streamUrls = streamUrls
             )
-            is PlaylistSyncContent.Xtream -> listOf(buildXtreamEpgUrl(playlist))
+            EpgDiscoveryType.XTREAM -> listOf(buildXtreamEpgUrl(playlist))
         }
             .plus(playlist.epgUrl.splitEpgSourceUrls())
             .plus(currentSettings.epgUrl.splitEpgSourceUrls())
@@ -239,11 +256,32 @@ class PlaylistRepository @Inject constructor(
             Timber.d("No EPG URL discovered for playlist ${playlist.id}")
         }
 
-        if (syncXtreamApiEpg(playlist, channels)) {
+        if (syncTurkishPublicEpgFallback(playlist, channels)) {
             return true
         }
 
-        return syncTurkishPublicEpgFallback(playlist, channels)
+        return syncXtreamApiEpg(playlist, channels)
+    }
+
+    private fun syncDiscoveredEpgInBackground(
+        playlist: Playlist,
+        seed: EpgDiscoverySeed
+    ) {
+        if (seed.channels.isEmpty()) return
+        if (epgDiscoveryJobs[playlist.id]?.isActive == true) {
+            Timber.d("EPG discovery already running for playlist ${playlist.id}")
+            return
+        }
+
+        epgDiscoveryJobs[playlist.id] = epgDiscoveryScope.launch {
+            try {
+                syncDiscoveredEpg(playlist, seed)
+            } catch (error: Exception) {
+                Timber.w(error, "Background EPG discovery failed for playlist ${playlist.id}")
+            } finally {
+                epgDiscoveryJobs.remove(playlist.id)
+            }
+        }
     }
 
     private suspend fun syncXmltvEpgUrls(
@@ -771,6 +809,36 @@ private fun buildXtreamEpgUrl(playlist: Playlist): String {
 private sealed interface PlaylistSyncContent {
     data class M3u(val result: com.imax.player.data.parser.M3uParseResult) : PlaylistSyncContent
     data class Xtream(val result: XtreamContentResult) : PlaylistSyncContent
+}
+
+private enum class EpgDiscoveryType {
+    M3U,
+    XTREAM
+}
+
+private data class EpgDiscoverySeed(
+    val type: EpgDiscoveryType,
+    val channels: List<Channel>,
+    val epgUrls: List<String>,
+    val streamUrls: List<String>
+)
+
+private fun PlaylistSyncContent.toEpgDiscoverySeed(): EpgDiscoverySeed {
+    return when (this) {
+        is PlaylistSyncContent.M3u -> EpgDiscoverySeed(
+            type = EpgDiscoveryType.M3U,
+            channels = result.channels.map { it.toModel() },
+            epgUrls = result.epgUrls,
+            streamUrls = result.channels.map { it.streamUrl }
+        )
+
+        is PlaylistSyncContent.Xtream -> EpgDiscoverySeed(
+            type = EpgDiscoveryType.XTREAM,
+            channels = result.channels.map { it.toModel() },
+            epgUrls = emptyList(),
+            streamUrls = result.channels.map { it.streamUrl }
+        )
+    }
 }
 
 private fun PlaylistSyncContent.requireNonEmpty() {
