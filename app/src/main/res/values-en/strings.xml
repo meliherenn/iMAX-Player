@@ -132,6 +132,8 @@
     <string name="disclaimer_text">iMAX Player does not host or provide any content. Users are responsible for the content they access.</string>
     <string name="action_refresh_playlist">Refresh Playlist</string>
     <string name="action_switch_playlist">Switch Playlist</string>
+    <string name="action_clear_watch_history">Clear Watch History</string>
+    <string name="clear_watch_history_confirm_message">Watch history, continue-watching entries, and saved playback positions will be cleared. Do you want to continue?</string>
 
     <string name="setting_display_mode">Display Mode</string>
     <string name="setting_video_quality">Video Quality</string>

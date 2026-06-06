@@ -71,6 +71,9 @@ interface ChannelDao {
     @Query("UPDATE channels SET lastWatched = :time WHERE id = :id")
     suspend fun updateLastWatched(id: Long, time: Long = System.currentTimeMillis())
 
+    @Query("UPDATE channels SET lastWatched = 0")
+    suspend fun clearWatchState()
+
     @Query("UPDATE channels SET isOnline = :isOnline WHERE id = :id")
     suspend fun setStreamOnline(id: Long, isOnline: Boolean)
 
@@ -122,6 +125,9 @@ interface MovieDao {
     @Query("UPDATE movies SET lastPosition = :position, totalDuration = :total, lastWatched = :time WHERE id = :id")
     suspend fun updateProgress(id: Long, position: Long, total: Long, time: Long = System.currentTimeMillis())
 
+    @Query("UPDATE movies SET lastPosition = 0, totalDuration = 0, lastWatched = 0")
+    suspend fun clearWatchProgress()
+
     @Query("DELETE FROM movies WHERE playlistId = :playlistId")
     suspend fun deleteByPlaylist(playlistId: Long)
 
@@ -167,6 +173,9 @@ interface SeriesDao {
     @Query("UPDATE series SET isFavorite = :favorite WHERE id = :id")
     suspend fun setFavorite(id: Long, favorite: Boolean)
 
+    @Query("UPDATE series SET lastWatchedEpisodeId = 0")
+    suspend fun clearWatchProgress()
+
     @Query("DELETE FROM series WHERE playlistId = :playlistId")
     suspend fun deleteByPlaylist(playlistId: Long)
 
@@ -193,6 +202,9 @@ interface EpisodeDao {
 
     @Query("UPDATE episodes SET lastPosition = :position, totalDuration = :total, lastWatched = :time WHERE id = :id")
     suspend fun updateProgress(id: Long, position: Long, total: Long, time: Long = System.currentTimeMillis())
+
+    @Query("UPDATE episodes SET lastPosition = 0, totalDuration = 0, lastWatched = 0")
+    suspend fun clearWatchProgress()
 
     @Query("DELETE FROM episodes WHERE seriesId = :seriesId")
     suspend fun deleteBySeries(seriesId: Long)

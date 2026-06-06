@@ -281,6 +281,16 @@ class ContentRepository @Inject constructor(
         watchHistoryDao.insert(entity)
     }
 
+    suspend fun clearWatchHistory() {
+        withContext(Dispatchers.IO) {
+            watchHistoryDao.deleteAll()
+            movieDao.clearWatchProgress()
+            episodeDao.clearWatchProgress()
+            seriesDao.clearWatchProgress()
+            channelDao.clearWatchState()
+        }
+    }
+
     // Favorites
     fun getAllFavorites(): Flow<List<FavoriteEntity>> = favoriteDao.getAll()
 
@@ -308,6 +318,16 @@ class ContentRepository @Inject constructor(
             }
             .flowOn(Dispatchers.Default)
 
+    suspend fun searchChannelsNow(playlistId: Long, query: String): List<Channel> =
+        rankSearchSnapshot(
+            load = { channelDao.getByPlaylistSnapshot(playlistId) },
+            query = query,
+            primary = { it.name },
+            secondary = { listOf(it.groupTitle, it.epgChannelId, it.streamId.takeIf { id -> id > 0 }?.toString().orEmpty()) },
+            year = { 0 },
+            mapper = { it.toModel() }
+        )
+
     fun searchMovies(playlistId: Long, query: String): Flow<List<Movie>> =
         movieDao.getByPlaylist(playlistId)
             .map { list ->
@@ -321,6 +341,23 @@ class ContentRepository @Inject constructor(
             }
             .flowOn(Dispatchers.Default)
 
+    suspend fun searchMoviesNow(playlistId: Long, query: String): List<Movie> =
+        rankSearchSnapshot(
+            load = { movieDao.getByPlaylistSnapshot(playlistId) },
+            query = query,
+            primary = { it.name },
+            secondary = {
+                listOf(
+                    it.categoryName,
+                    it.genre,
+                    it.releaseDate,
+                    it.streamId.takeIf { id -> id > 0 }?.toString().orEmpty()
+                )
+            },
+            year = { it.year },
+            mapper = { it.toModel() }
+        )
+
     fun searchSeries(playlistId: Long, query: String): Flow<List<Series>> =
         seriesDao.getByPlaylist(playlistId)
             .map { list ->
@@ -333,6 +370,23 @@ class ContentRepository @Inject constructor(
                 ).map { it.toModel() }
             }
             .flowOn(Dispatchers.Default)
+
+    suspend fun searchSeriesNow(playlistId: Long, query: String): List<Series> =
+        rankSearchSnapshot(
+            load = { seriesDao.getByPlaylistSnapshot(playlistId) },
+            query = query,
+            primary = { it.name },
+            secondary = {
+                listOf(
+                    it.categoryName,
+                    it.genre,
+                    it.releaseDate,
+                    it.seriesId.takeIf { id -> id > 0 }?.toString().orEmpty()
+                )
+            },
+            year = { it.year },
+            mapper = { it.toModel() }
+        )
 
     private fun dedupeContinueWatching(items: List<WatchHistoryItem>): List<WatchHistoryItem> {
         val seenKeys = LinkedHashSet<String>()
@@ -348,6 +402,26 @@ class ContentRepository @Inject constructor(
             }
 
             seenKeys.add(key)
+        }
+    }
+
+    private suspend fun <Entity, Model> rankSearchSnapshot(
+        load: suspend () -> List<Entity>,
+        query: String,
+        primary: (Entity) -> String,
+        secondary: (Entity) -> List<String>,
+        year: (Entity) -> Int,
+        mapper: (Entity) -> Model
+    ): List<Model> {
+        val items = withContext(Dispatchers.IO) { load() }
+        return withContext(Dispatchers.Default) {
+            SearchMatcher.rank(
+                query = query,
+                items = items,
+                primary = primary,
+                secondary = secondary,
+                year = year
+            ).map(mapper)
         }
     }
 }

@@ -44,7 +44,7 @@ import javax.inject.Inject
 import androidx.compose.ui.res.stringResource
 import com.imax.player.R
 
-private const val MIN_SEARCH_QUERY_LENGTH = 2
+private const val MIN_SEARCH_QUERY_LENGTH = 1
 
 private data class RankedSearchResult(
     val result: SearchResult,
@@ -122,7 +122,7 @@ class SearchViewModel @Inject constructor(
         val results = mutableListOf<RankedSearchResult>()
 
         if (filter == null || filter == ContentType.LIVE) {
-            contentRepository.searchChannels(playlist.id, query).first().mapTo(results) {
+            contentRepository.searchChannelsNow(playlist.id, query).mapTo(results) {
                 RankedSearchResult(
                     result = SearchResult(it.id, it.name, it.logoUrl, ContentType.LIVE, it.groupTitle, streamUrl = it.streamUrl),
                     score = SearchMatcher.score(query, it.name, listOf(it.groupTitle, it.epgChannelId))
@@ -130,7 +130,7 @@ class SearchViewModel @Inject constructor(
             }
         }
         if (filter == null || filter == ContentType.MOVIE) {
-            contentRepository.searchMovies(playlist.id, query).first().mapTo(results) {
+            contentRepository.searchMoviesNow(playlist.id, query).mapTo(results) {
                 RankedSearchResult(
                     result = SearchResult(it.id, it.name, it.posterUrl, ContentType.MOVIE, it.genre, it.year, it.rating, it.streamUrl),
                     score = SearchMatcher.score(query, it.name, listOf(it.categoryName, it.genre, it.releaseDate), it.year)
@@ -138,7 +138,7 @@ class SearchViewModel @Inject constructor(
             }
         }
         if (filter == null || filter == ContentType.SERIES) {
-            contentRepository.searchSeries(playlist.id, query).first().mapTo(results) {
+            contentRepository.searchSeriesNow(playlist.id, query).mapTo(results) {
                 RankedSearchResult(
                     result = SearchResult(it.id, it.name, it.posterUrl, ContentType.SERIES, it.genre, it.year, it.rating),
                     score = SearchMatcher.score(query, it.name, listOf(it.categoryName, it.genre, it.releaseDate), it.year)

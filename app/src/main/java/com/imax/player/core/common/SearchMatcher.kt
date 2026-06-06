@@ -21,7 +21,7 @@ object SearchMatcher {
         year: Int = 0
     ): Double {
         val normalizedQuery = normalizeSearchText(query)
-        if (normalizedQuery.length < 2) return 0.0
+        if (normalizedQuery.isBlank()) return 0.0
 
         return scoreNormalized(
             normalizedQuery = normalizedQuery,
@@ -57,7 +57,7 @@ object SearchMatcher {
         year: (T) -> Int = { 0 }
     ): List<Match<T>> {
         val normalizedQuery = normalizeSearchText(query)
-        if (normalizedQuery.length < 2) return emptyList()
+        if (normalizedQuery.isBlank()) return emptyList()
 
         val queryTerms = terms(normalizedQuery)
         val threshold = thresholdFor(normalizedQuery, queryTerms)
@@ -141,9 +141,15 @@ object SearchMatcher {
             return 0.89 + lengthRatio(compactQuery, acronym) * 0.07
         }
 
+        val fuzzyScore = if (normalizedQuery.length >= 4 || queryTerms.size > 1) {
+            StringUtils.fuzzyMatchScore(normalizedQuery, normalizedTarget) * 0.96
+        } else {
+            0.0
+        }
+
         return maxOf(
             tokenCoverageScore(queryTerms, targetTerms, normalizedTarget),
-            StringUtils.fuzzyMatchScore(normalizedQuery, normalizedTarget) * 0.96
+            fuzzyScore
         )
     }
 

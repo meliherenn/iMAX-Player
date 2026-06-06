@@ -31,17 +31,21 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -99,7 +103,7 @@ data class TvContinueWatchingState(
 
 @HiltViewModel
 class TvContinueWatchingViewModel @Inject constructor(
-    contentRepository: ContentRepository
+    private val contentRepository: ContentRepository
 ) : ViewModel() {
     private val _state = MutableStateFlow(TvContinueWatchingState())
     val state: StateFlow<TvContinueWatchingState> = _state.asStateFlow()
@@ -113,6 +117,10 @@ class TvContinueWatchingViewModel @Inject constructor(
                 )
             }
         }
+    }
+
+    fun clearWatchHistory() = viewModelScope.launch {
+        contentRepository.clearWatchHistory()
     }
 }
 
@@ -176,6 +184,7 @@ fun TvContinueWatchingScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var isDrawerExpanded by remember { mutableStateOf(false) }
+    var showClearHistoryDialog by remember { mutableStateOf(false) }
 
     ImaxDrawer(
         isExpanded = isDrawerExpanded,
@@ -190,9 +199,43 @@ fun TvContinueWatchingScreen(
             else -> TvContinueWatchingContent(
                 state = state,
                 onResume = onResume,
-                onOpenDetail = onOpenDetail
+                onOpenDetail = onOpenDetail,
+                onClearHistory = { showClearHistoryDialog = true }
             )
         }
+    }
+
+    if (showClearHistoryDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearHistoryDialog = false },
+            title = { Text(stringResource(R.string.action_clear_watch_history)) },
+            text = {
+                Text(
+                    text = stringResource(R.string.clear_watch_history_confirm_message),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = ImaxColors.TextSecondary
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showClearHistoryDialog = false
+                        viewModel.clearWatchHistory()
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = ImaxColors.Error)
+                ) {
+                    Text(stringResource(R.string.confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearHistoryDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+            containerColor = ImaxColors.Surface,
+            titleContentColor = ImaxColors.TextPrimary,
+            textContentColor = ImaxColors.TextSecondary
+        )
     }
 }
 
@@ -200,7 +243,8 @@ fun TvContinueWatchingScreen(
 private fun TvContinueWatchingContent(
     state: TvContinueWatchingState,
     onResume: (WatchHistoryItem) -> Unit,
-    onOpenDetail: (Long, String) -> Unit
+    onOpenDetail: (Long, String) -> Unit,
+    onClearHistory: () -> Unit
 ) {
     val dimens = LocalImaxDimens.current
     val featured = state.items.firstOrNull()
@@ -214,6 +258,27 @@ private fun TvContinueWatchingContent(
             .verticalScroll(rememberScrollState())
             .padding(vertical = dimens.screenPadding)
     ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = dimens.screenPadding),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = stringResource(R.string.nav_continue_watching),
+                style = MaterialTheme.typography.headlineMedium,
+                color = ImaxColors.TextPrimary
+            )
+            ImaxOutlinedButton(
+                text = stringResource(R.string.action_clear_watch_history),
+                icon = Icons.Filled.Delete,
+                isTv = true,
+                onClick = onClearHistory
+            )
+        }
+        Spacer(modifier = Modifier.height(20.dp))
+
         if (featured != null) {
             TvContinueWatchingHero(
                 item = featured,

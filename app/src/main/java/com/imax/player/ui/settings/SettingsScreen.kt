@@ -40,6 +40,7 @@ import com.imax.player.core.player.AspectRatioMode
 import com.imax.player.core.player.LiveLatencyMode
 import com.imax.player.core.player.PlayerManager
 import com.imax.player.core.player.VideoQualityMode
+import com.imax.player.data.repository.ContentRepository
 import com.imax.player.data.repository.PlaylistRepository
 import com.imax.player.ui.components.*
 import com.imax.player.ui.navigation.Routes
@@ -56,6 +57,7 @@ import javax.inject.Inject
 class SettingsViewModel @Inject constructor(
     private val settingsDataStore: SettingsDataStore,
     private val playlistRepository: PlaylistRepository,
+    private val contentRepository: ContentRepository,
     private val playerManager: PlayerManager,
     val parentalControlManager: com.imax.player.core.security.ParentalControlManager
 ) : ViewModel() {
@@ -82,6 +84,7 @@ class SettingsViewModel @Inject constructor(
     fun updateAutoResume(v: Boolean) = viewModelScope.launch { settingsDataStore.updateAutoResume(v) }
     fun updateContinueWatching(v: Boolean) = viewModelScope.launch { settingsDataStore.updateContinueWatching(v) }
     fun updateAutoPlayNext(v: Boolean) = viewModelScope.launch { settingsDataStore.updateAutoPlayNext(v) }
+    fun clearWatchHistory() = viewModelScope.launch { contentRepository.clearWatchHistory() }
 
     // ━━━ Audio & Subtitle ━━━
     fun updateSubtitleLang(lang: String) = viewModelScope.launch { settingsDataStore.updateSubtitleLanguage(lang) }
@@ -192,6 +195,7 @@ private fun SettingsContent(
     val scrollState = rememberScrollState()
     val activePlaylist by viewModel.activePlaylist.collectAsStateWithLifecycle()
     var showExitDialog by remember { mutableStateOf(false) }
+    var showClearHistoryDialog by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -268,6 +272,16 @@ private fun SettingsContent(
                 checked = settings.autoPlayNextEpisode,
                 isTv = isTv,
                 onCheckedChange = { viewModel.updateAutoPlayNext(it) }
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            SettingsActionButton(
+                icon = Icons.Filled.Delete,
+                label = stringResource(R.string.action_clear_watch_history),
+                isDanger = true,
+                isTv = isTv,
+                onClick = { showClearHistoryDialog = true }
             )
         }
 
@@ -539,6 +553,35 @@ private fun SettingsContent(
             },
             dismissButton = {
                 TextButton(onClick = { showExitDialog = false }) { Text(stringResource(R.string.cancel)) }
+            },
+            containerColor = ImaxColors.Surface,
+            titleContentColor = ImaxColors.TextPrimary,
+            textContentColor = ImaxColors.TextSecondary
+        )
+    }
+
+    if (showClearHistoryDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearHistoryDialog = false },
+            title = { Text(stringResource(R.string.action_clear_watch_history)) },
+            text = {
+                Text(
+                    stringResource(R.string.clear_watch_history_confirm_message),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = ImaxColors.TextSecondary
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showClearHistoryDialog = false
+                        viewModel.clearWatchHistory()
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = ImaxColors.Error)
+                ) { Text(stringResource(R.string.confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearHistoryDialog = false }) { Text(stringResource(R.string.cancel)) }
             },
             containerColor = ImaxColors.Surface,
             titleContentColor = ImaxColors.TextPrimary,

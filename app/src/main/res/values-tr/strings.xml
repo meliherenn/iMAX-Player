@@ -132,6 +132,8 @@
     <string name="disclaimer_text">iMAX Player herhangi bir içerik barındırmaz veya sağlamaz. Kullanıcılar eriştikleri içeriklerden bizzat sorumludur.</string>
     <string name="action_refresh_playlist">Listeyi Yenile</string>
     <string name="action_switch_playlist">Liste Değiştir</string>
+    <string name="action_clear_watch_history">İzleme Geçmişini Temizle</string>
+    <string name="clear_watch_history_confirm_message">İzleme geçmişi, devam et kayıtları ve kaydedilmiş oynatma pozisyonları temizlenecek. Devam etmek istiyor musunuz?</string>
 
     <string name="setting_display_mode">Ekran Modu</string>
     <string name="setting_video_quality">Video Kalitesi</string>

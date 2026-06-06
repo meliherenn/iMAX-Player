@@ -84,6 +84,38 @@ class SearchMatcherTest {
     }
 
     @Test
+    fun `rank supports single character prefixes`() {
+        val titles = listOf("ATV", "Show TV", "TRT 1")
+
+        val results = SearchMatcher.rank(
+            query = "a",
+            items = titles,
+            primary = { it }
+        )
+
+        assertThat(results).containsExactly("ATV")
+    }
+
+    @Test
+    fun `rank matches iptv channel names with country prefixes and quality suffixes`() {
+        val titles = listOf("TR • TRT 1 FHD", "TR : ATV HD", "TR • Show FHD")
+
+        val trtResults = SearchMatcher.rank(
+            query = "trt",
+            items = titles,
+            primary = { it }
+        )
+        val atvResults = SearchMatcher.rank(
+            query = "atv",
+            items = titles,
+            primary = { it }
+        )
+
+        assertThat(trtResults).containsExactly("TR • TRT 1 FHD")
+        assertThat(atvResults).containsExactly("TR : ATV HD")
+    }
+
+    @Test
     fun `rank uses category and year as secondary search fields`() {
         data class Item(val title: String, val category: String, val year: Int)
         val items = listOf(
