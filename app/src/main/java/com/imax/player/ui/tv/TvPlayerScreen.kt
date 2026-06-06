@@ -91,6 +91,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -121,6 +122,7 @@ import timber.log.Timber
 private enum class TvPlayerPanel {
     NONE,
     CHANNELS,
+    EPG,
     AUDIO,
     SUBTITLE,
     SCREEN_MODE,
@@ -129,12 +131,18 @@ private enum class TvPlayerPanel {
     STREAM_INFO
 }
 
+private enum class TvPanelSide {
+    START,
+    END
+}
+
 private enum class TvOverlayAction {
     BACK,
     MAIN_PREVIOUS,
     PLAY_PAUSE,
     MAIN_NEXT,
     CHANNELS,
+    EPG,
     PREVIOUS_EPISODE,
     NEXT_EPISODE,
     AUDIO,
@@ -153,6 +161,24 @@ private data class TvPanelOption(
     val enabled: Boolean = true,
     val onClick: () -> Unit
 )
+
+private fun TvPanelSide.edgeShape(cornerRadius: Dp): RoundedCornerShape {
+    return when (this) {
+        TvPanelSide.START -> RoundedCornerShape(
+            topStart = 0.dp,
+            topEnd = cornerRadius,
+            bottomEnd = cornerRadius,
+            bottomStart = 0.dp
+        )
+
+        TvPanelSide.END -> RoundedCornerShape(
+            topStart = cornerRadius,
+            topEnd = 0.dp,
+            bottomEnd = 0.dp,
+            bottomStart = cornerRadius
+        )
+    }
+}
 
 
 private fun nextAspectRatioMode(current: AspectRatioMode): AspectRatioMode {
@@ -173,6 +199,23 @@ private fun tvChannelPanelSubtitle(
     val endTime = timeFormatter.format(java.util.Date(epgProgram.endTime))
     val progressPercent = (epgProgram.progressFraction * 100f).roundToInt().coerceIn(0, 100)
     return "${epgProgram.title} • $startTime - $endTime • $progressPercent%"
+}
+
+private fun tvEpgPanelSubtitle(
+    epgProgram: com.imax.player.data.parser.EpgProgram
+): String {
+    val timeFormatter = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+    val startTime = timeFormatter.format(java.util.Date(epgProgram.startTime))
+    val endTime = timeFormatter.format(java.util.Date(epgProgram.endTime))
+    return buildString {
+        append(startTime)
+        append(" - ")
+        append(endTime)
+        if (epgProgram.genre.isNotBlank()) {
+            append(" • ")
+            append(epgProgram.genre)
+        }
+    }
 }
 
 private fun KeyEvent.isTvBackKey(): Boolean {
@@ -277,6 +320,7 @@ fun TvPlayerScreen(
     val currentEpgProgram by viewModel.currentEpgProgram.collectAsStateWithLifecycle()
     val nextEpgProgram by viewModel.nextEpgProgram.collectAsStateWithLifecycle()
     val channelListEpgPrograms by viewModel.channelListEpgPrograms.collectAsStateWithLifecycle()
+    val currentChannelEpgPrograms by viewModel.currentChannelEpgPrograms.collectAsStateWithLifecycle()
 
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
@@ -311,6 +355,7 @@ fun TvPlayerScreen(
             add(TvOverlayAction.MAIN_NEXT)
             if (isLivePlayback) {
                 add(TvOverlayAction.CHANNELS)
+                add(TvOverlayAction.EPG)
             }
             if (isSeriesPlayback && session.previousEpisode != null) {
                 add(TvOverlayAction.PREVIOUS_EPISODE)
@@ -332,8 +377,12 @@ fun TvPlayerScreen(
 
     var overlayVisible by rememberSaveable { mutableStateOf(true) }
     var activePanel by rememberSaveable { mutableStateOf(TvPlayerPanel.NONE) }
-    var lastOverlayAction by rememberSaveable { mutableStateOf(TvOverlayAction.PLAY_PAUSE) }
-    var requestedOverlayAction by rememberSaveable { mutableStateOf(TvOverlayAction.PLAY_PAUSE) }
+    var lastOverlayAction by rememberSaveable {
+        mutableStateOf(if (isLivePlayback) TvOverlayAction.CHANNELS else TvOverlayAction.PLAY_PAUSE)
+    }
+    var requestedOverlayAction by rememberSaveable {
+        mutableStateOf(if (isLivePlayback) TvOverlayAction.CHANNELS else TvOverlayAction.PLAY_PAUSE)
+    }
     var interactionVersion by remember { mutableIntStateOf(0) }
     var isExiting by rememberSaveable { mutableStateOf(false) }
     var channelNumberInput by remember { mutableStateOf("") }
@@ -347,6 +396,9 @@ fun TvPlayerScreen(
 
     LaunchedEffect(url, contentId, isLivePlayback, settings.startFullscreenLive) {
         overlayVisible = !(isLivePlayback && settings.startFullscreenLive)
+        val defaultAction = if (isLivePlayback) TvOverlayAction.CHANNELS else TvOverlayAction.PLAY_PAUSE
+        lastOverlayAction = defaultAction
+        requestedOverlayAction = defaultAction
         if (!overlayVisible) {
             activePanel = TvPlayerPanel.NONE
         }
@@ -398,6 +450,7 @@ fun TvPlayerScreen(
         return when {
             action in availableOverlayActions -> action
             lastOverlayAction in availableOverlayActions -> lastOverlayAction
+            isLivePlayback && TvOverlayAction.CHANNELS in availableOverlayActions -> TvOverlayAction.CHANNELS
             else -> TvOverlayAction.PLAY_PAUSE
         }
     }
@@ -562,6 +615,12 @@ fun TvPlayerScreen(
         }
     }
 
+    LaunchedEffect(activePanel, currentChannel?.id, currentChannel?.epgChannelId, currentChannel?.name) {
+        if (activePanel == TvPlayerPanel.EPG) {
+            viewModel.loadEpgProgramsForChannel(currentChannel)
+        }
+    }
+
     LaunchedEffect(transientZapVersion) {
         if (transientZapAction == null) return@LaunchedEffect
         val version = transientZapVersion
@@ -596,6 +655,17 @@ fun TvPlayerScreen(
         activePanel = panel
         registerInteraction()
         return true
+    }
+
+    fun openLiveChannelPanel(): Boolean {
+        if (!isLivePlayback || session.availableChannels.isEmpty()) return false
+        return openRemotePanel(TvPlayerPanel.CHANNELS, TvOverlayAction.CHANNELS)
+    }
+
+    fun openLiveEpgPanel(): Boolean {
+        if (!isLivePlayback) return false
+        viewModel.loadEpgProgramsForChannel(session.currentChannel)
+        return openRemotePanel(TvPlayerPanel.EPG, TvOverlayAction.EPG)
     }
 
     fun handleRemotePlayPause(forcePlay: Boolean? = null): Boolean {
@@ -719,7 +789,13 @@ fun TvPlayerScreen(
                         if (!overlayVisible && activePanel == TvPlayerPanel.NONE) {
                             clearTransientZapFeedback()
                             Timber.tag(TV_PLAYER_LOG_TAG).d("remote center opens overlay")
-                            showOverlay(TvOverlayAction.PLAY_PAUSE)
+                            showOverlay(
+                                if (isLivePlayback) {
+                                    TvOverlayAction.CHANNELS
+                                } else {
+                                    TvOverlayAction.PLAY_PAUSE
+                                }
+                            )
                             true
                         } else {
                             false
@@ -729,9 +805,18 @@ fun TvPlayerScreen(
                     event.key == Key.DirectionUp || event.key == Key.DirectionDown -> {
                         if (!overlayVisible && activePanel == TvPlayerPanel.NONE) {
                             clearTransientZapFeedback()
-                            Timber.tag(TV_PLAYER_LOG_TAG).d("remote %s opens overlay", event.key)
-                            showOverlay(TvOverlayAction.PLAY_PAUSE)
-                            true
+                            if (isLivePlayback) {
+                                Timber.tag(TV_PLAYER_LOG_TAG).d("remote %s switches live channel", event.key)
+                                if (event.key == Key.DirectionUp) {
+                                    handleRemotePrevious()
+                                } else {
+                                    handleRemoteNext()
+                                }
+                            } else {
+                                Timber.tag(TV_PLAYER_LOG_TAG).d("remote %s opens overlay", event.key)
+                                showOverlay(TvOverlayAction.PLAY_PAUSE)
+                                true
+                            }
                         } else {
                             false
                         }
@@ -739,7 +824,11 @@ fun TvPlayerScreen(
 
                     event.key == Key.DirectionLeft -> {
                         if (!overlayVisible && activePanel == TvPlayerPanel.NONE) {
-                            handleRemotePrevious()
+                            if (isLivePlayback) {
+                                openLiveChannelPanel()
+                            } else {
+                                handleRemotePrevious()
+                            }
                         } else {
                             false
                         }
@@ -747,7 +836,11 @@ fun TvPlayerScreen(
 
                     event.key == Key.DirectionRight -> {
                         if (!overlayVisible && activePanel == TvPlayerPanel.NONE) {
-                            handleRemoteNext()
+                            if (isLivePlayback) {
+                                openLiveEpgPanel()
+                            } else {
+                                handleRemoteNext()
+                            }
                         } else {
                             false
                         }
@@ -893,6 +986,12 @@ fun TvPlayerScreen(
                     activePanel = TvPlayerPanel.CHANNELS
                     overlayVisible = true
                 },
+                onOpenEpg = {
+                    registerInteraction()
+                    viewModel.loadEpgProgramsForChannel(session.currentChannel)
+                    activePanel = TvPlayerPanel.EPG
+                    overlayVisible = true
+                },
                 onOpenAudio = {
                     registerInteraction()
                     activePanel = TvPlayerPanel.AUDIO
@@ -932,6 +1031,10 @@ fun TvPlayerScreen(
                 channels = session.availableChannels,
                 currentChannelId = liveChannelSwitch.targetChannelId ?: session.currentChannel?.id ?: contentId,
                 epgPrograms = channelListEpgPrograms,
+                currentChannelTitle = session.currentChannel?.name ?: displayTitle,
+                currentChannelEpgPrograms = currentChannelEpgPrograms.ifEmpty {
+                    listOfNotNull(currentEpgProgram, nextEpgProgram)
+                },
                 isChannelSwitching = isChannelSwitching,
                 onDismiss = ::closePanel,
                 onSelectChannel = { channel ->
@@ -1071,6 +1174,7 @@ private fun TvPlaybackOverlay(
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onOpenChannels: () -> Unit,
+    onOpenEpg: () -> Unit,
     onOpenAudio: () -> Unit,
     onOpenSubtitle: () -> Unit,
     onOpenScreenMode: () -> Unit,
@@ -1088,6 +1192,7 @@ private fun TvPlaybackOverlay(
         buildList {
             if (isLivePlayback) {
                 add(TvOverlayAction.CHANNELS)
+                add(TvOverlayAction.EPG)
             }
             if (isSeriesPlayback && hasPreviousEpisode) {
                 add(TvOverlayAction.PREVIOUS_EPISODE)
@@ -1256,6 +1361,14 @@ private fun TvPlaybackOverlay(
                                 onClick = onOpenChannels
                             )
 
+                            TvOverlayAction.EPG -> TvActionChip(
+                                icon = Icons.Filled.Info,
+                                label = stringResource(R.string.epg),
+                                focusRequester = overlayActionRequesters.getValue(action),
+                                onFocused = { onActionFocused(action) },
+                                onClick = onOpenEpg
+                            )
+
                             TvOverlayAction.PREVIOUS_EPISODE -> TvActionChip(
                                 icon = Icons.Filled.SkipPrevious,
                                 label = stringResource(R.string.previous_episode),
@@ -1400,6 +1513,8 @@ private fun TvPlayerPanelHost(
     channels: List<Channel>,
     currentChannelId: Long,
     epgPrograms: Map<Long, com.imax.player.data.parser.EpgProgram>,
+    currentChannelTitle: String,
+    currentChannelEpgPrograms: List<com.imax.player.data.parser.EpgProgram>,
     isChannelSwitching: Boolean,
     onDismiss: () -> Unit,
     onSelectChannel: (Channel) -> Unit,
@@ -1417,7 +1532,10 @@ private fun TvPlayerPanelHost(
     Box(
         modifier = modifier
             .background(Color.Black.copy(alpha = 0.44f)),
-        contentAlignment = Alignment.CenterEnd
+        contentAlignment = when (activePanel) {
+            TvPlayerPanel.CHANNELS -> Alignment.CenterStart
+            else -> Alignment.CenterEnd
+        }
     ) {
         when (activePanel) {
             TvPlayerPanel.NONE -> Unit
@@ -1426,6 +1544,9 @@ private fun TvPlayerPanelHost(
                 TvOptionPanel(
                     title = stringResource(R.string.channel_list),
                     modifier = Modifier.clickable(enabled = false) {},
+                    edgeToEdge = true,
+                    panelSide = TvPanelSide.START,
+                    width = 420.dp,
                     items = channels.map { channel ->
                         val epgProgram = epgPrograms[channel.id]
                         TvPanelOption(
@@ -1435,6 +1556,41 @@ private fun TvPlayerPanelHost(
                             selected = channel.id == currentChannelId,
                             enabled = channel.id != currentChannelId,
                             onClick = { onSelectChannel(channel) }
+                        )
+                    }
+                )
+            }
+
+            TvPlayerPanel.EPG -> {
+                val nowMs = System.currentTimeMillis()
+                TvOptionPanel(
+                    title = "${stringResource(R.string.epg)} • $currentChannelTitle",
+                    modifier = Modifier.clickable(enabled = false) {},
+                    edgeToEdge = true,
+                    panelSide = TvPanelSide.END,
+                    width = 520.dp,
+                    items = if (currentChannelEpgPrograms.isNotEmpty()) {
+                        currentChannelEpgPrograms.map { program ->
+                            val isCurrent = program.startTime <= nowMs && program.endTime > nowMs
+                            TvPanelOption(
+                                title = if (isCurrent) {
+                                    "Şu an • ${program.title}"
+                                } else {
+                                    program.title
+                                },
+                                subtitle = tvEpgPanelSubtitle(program),
+                                progressFraction = program.progressFraction.takeIf { isCurrent },
+                                selected = isCurrent,
+                                onClick = {}
+                            )
+                        }
+                    } else {
+                        listOf(
+                            TvPanelOption(
+                                title = stringResource(R.string.epg_no_data),
+                                enabled = false,
+                                onClick = {}
+                            )
                         )
                     }
                 )
@@ -1584,7 +1740,10 @@ private fun TvPlayerPanelHost(
 private fun TvOptionPanel(
     title: String,
     items: List<TvPanelOption>,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    edgeToEdge: Boolean = false,
+    panelSide: TvPanelSide = TvPanelSide.END,
+    width: Dp = 460.dp
 ) {
     val optionKeys = remember(title, items) {
         items.mapIndexed { index, item ->
@@ -1616,12 +1775,20 @@ private fun TvOptionPanel(
         }
     }
 
-    Surface(
-        modifier = modifier
+    val panelModifier = if (edgeToEdge) {
+        modifier
+            .fillMaxHeight()
+            .width(width)
+    } else {
+        modifier
             .padding(horizontal = 54.dp, vertical = 44.dp)
-            .width(460.dp)
-            .fillMaxHeight(0.78f),
-        shape = RoundedCornerShape(26.dp),
+            .width(width)
+            .fillMaxHeight(0.78f)
+    }
+
+    Surface(
+        modifier = panelModifier,
+        shape = if (edgeToEdge) panelSide.edgeShape(28.dp) else RoundedCornerShape(26.dp),
         color = ImaxColors.Surface.copy(alpha = 0.98f),
         tonalElevation = 8.dp,
         border = BorderStroke(1.dp, ImaxColors.CardBorder)
@@ -1631,12 +1798,20 @@ private fun TvOptionPanel(
                 text = title,
                 style = MaterialTheme.typography.headlineSmall,
                 color = Color.White,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 20.dp)
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(
+                    horizontal = if (edgeToEdge) 32.dp else 24.dp,
+                    vertical = if (edgeToEdge) 30.dp else 20.dp
+                )
             )
             HorizontalDivider(color = ImaxColors.DividerColor)
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(vertical = 10.dp)
+                contentPadding = PaddingValues(
+                    top = if (edgeToEdge) 14.dp else 10.dp,
+                    bottom = if (edgeToEdge) 30.dp else 10.dp
+                )
             ) {
                 if (items.isEmpty()) {
                     item {

@@ -59,6 +59,40 @@ interface ChannelDao {
     @Query("SELECT * FROM channels WHERE playlistId = :playlistId AND name LIKE '%' || :query || '%' ORDER BY name")
     fun search(playlistId: Long, query: String): Flow<List<ChannelEntity>>
 
+    @Query("""
+        SELECT * FROM channels
+        WHERE playlistId = :playlistId
+        AND (
+            name LIKE '%' || :query || '%'
+            OR groupTitle LIKE '%' || :query || '%'
+            OR epgChannelId LIKE '%' || :query || '%'
+            OR CAST(streamId AS TEXT) LIKE '%' || :query || '%'
+            OR (
+                :token != ''
+                AND (
+                    name LIKE '%' || :token || '%'
+                    OR groupTitle LIKE '%' || :token || '%'
+                    OR epgChannelId LIKE '%' || :token || '%'
+                )
+            )
+        )
+        ORDER BY
+            CASE
+                WHEN name LIKE :query || '%' THEN 0
+                WHEN name LIKE '%' || :query || '%' THEN 1
+                ELSE 3
+            END,
+            sortOrder,
+            name
+        LIMIT :limit
+    """)
+    suspend fun searchCandidates(
+        playlistId: Long,
+        query: String,
+        token: String,
+        limit: Int
+    ): List<ChannelEntity>
+
     @Query("SELECT * FROM channels WHERE id = :id")
     suspend fun getById(id: Long): ChannelEntity?
 
@@ -110,6 +144,43 @@ interface MovieDao {
     @Query("SELECT * FROM movies WHERE playlistId = :playlistId AND name LIKE '%' || :query || '%' ORDER BY name")
     fun search(playlistId: Long, query: String): Flow<List<MovieEntity>>
 
+    @Query("""
+        SELECT * FROM movies
+        WHERE playlistId = :playlistId
+        AND (
+            name LIKE '%' || :query || '%'
+            OR categoryName LIKE '%' || :query || '%'
+            OR genre LIKE '%' || :query || '%'
+            OR releaseDate LIKE '%' || :query || '%'
+            OR imdbId LIKE '%' || :query || '%'
+            OR CAST(streamId AS TEXT) LIKE '%' || :query || '%'
+            OR CAST(year AS TEXT) LIKE '%' || :query || '%'
+            OR (
+                :token != ''
+                AND (
+                    name LIKE '%' || :token || '%'
+                    OR categoryName LIKE '%' || :token || '%'
+                    OR genre LIKE '%' || :token || '%'
+                    OR releaseDate LIKE '%' || :token || '%'
+                )
+            )
+        )
+        ORDER BY
+            CASE
+                WHEN name LIKE :query || '%' THEN 0
+                WHEN name LIKE '%' || :query || '%' THEN 1
+                ELSE 3
+            END,
+            name
+        LIMIT :limit
+    """)
+    suspend fun searchCandidates(
+        playlistId: Long,
+        query: String,
+        token: String,
+        limit: Int
+    ): List<MovieEntity>
+
     @Query("SELECT * FROM movies WHERE id = :id")
     suspend fun getById(id: Long): MovieEntity?
 
@@ -160,6 +231,43 @@ interface SeriesDao {
 
     @Query("SELECT * FROM series WHERE playlistId = :playlistId AND name LIKE '%' || :query || '%' ORDER BY name")
     fun search(playlistId: Long, query: String): Flow<List<SeriesEntity>>
+
+    @Query("""
+        SELECT * FROM series
+        WHERE playlistId = :playlistId
+        AND (
+            name LIKE '%' || :query || '%'
+            OR categoryName LIKE '%' || :query || '%'
+            OR genre LIKE '%' || :query || '%'
+            OR releaseDate LIKE '%' || :query || '%'
+            OR imdbId LIKE '%' || :query || '%'
+            OR CAST(seriesId AS TEXT) LIKE '%' || :query || '%'
+            OR CAST(year AS TEXT) LIKE '%' || :query || '%'
+            OR (
+                :token != ''
+                AND (
+                    name LIKE '%' || :token || '%'
+                    OR categoryName LIKE '%' || :token || '%'
+                    OR genre LIKE '%' || :token || '%'
+                    OR releaseDate LIKE '%' || :token || '%'
+                )
+            )
+        )
+        ORDER BY
+            CASE
+                WHEN name LIKE :query || '%' THEN 0
+                WHEN name LIKE '%' || :query || '%' THEN 1
+                ELSE 3
+            END,
+            name
+        LIMIT :limit
+    """)
+    suspend fun searchCandidates(
+        playlistId: Long,
+        query: String,
+        token: String,
+        limit: Int
+    ): List<SeriesEntity>
 
     @Query("SELECT * FROM series WHERE id = :id")
     suspend fun getById(id: Long): SeriesEntity?
@@ -242,8 +350,12 @@ interface EpgDao {
     @Query("SELECT * FROM epg_programs WHERE channelId IN (:channelIds) AND startTime <= :now AND endTime > :now ORDER BY startTime")
     suspend fun getCurrentProgramsForIds(channelIds: List<String>, now: Long = System.currentTimeMillis()): List<EpgProgramEntity>
 
-    @Query("SELECT * FROM epg_programs WHERE channelId IN (:channelIds) AND endTime > :now ORDER BY startTime LIMIT 10")
-    suspend fun getUpcomingProgramsForIds(channelIds: List<String>, now: Long = System.currentTimeMillis()): List<EpgProgramEntity>
+    @Query("SELECT * FROM epg_programs WHERE channelId IN (:channelIds) AND endTime > :now ORDER BY startTime LIMIT :limit")
+    suspend fun getUpcomingProgramsForIds(
+        channelIds: List<String>,
+        now: Long = System.currentTimeMillis(),
+        limit: Int = 10
+    ): List<EpgProgramEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(programs: List<EpgProgramEntity>)

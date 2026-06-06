@@ -72,6 +72,26 @@ class EpgRepository @Inject constructor(
                 ?.toUiModel()
         }
 
+    suspend fun getProgramsForChannel(
+        channel: Channel,
+        nowMs: Long = System.currentTimeMillis(),
+        limit: Int = 24
+    ): List<EpgProgram> = withContext(Dispatchers.IO) {
+        val candidates = epgLookupKeysForChannel(channel)
+        val programsByLookupId = queryUpcomingProgramsForCandidates(candidates, nowMs, limit)
+            .groupBy(EpgProgramEntity::channelId)
+
+        candidates
+            .firstNotNullOfOrNull { candidate ->
+                programsByLookupId[candidate]?.takeIf { it.isNotEmpty() }
+            }
+            .orEmpty()
+            .distinctBy { program -> "${program.channelId}|${program.startTime}|${program.title}" }
+            .sortedBy(EpgProgramEntity::startTime)
+            .take(limit)
+            .map(EpgProgramEntity::toUiModel)
+    }
+
     /**
      * Fetch and parse XMLTV from [url], insert into DB.
      * Called manually or from [EpgSyncWorker].
@@ -192,12 +212,13 @@ class EpgRepository @Inject constructor(
 
     private suspend fun queryUpcomingProgramsForCandidates(
         candidates: List<String>,
-        nowMs: Long
+        nowMs: Long,
+        limit: Int = 10
     ): List<EpgProgramEntity> {
         if (candidates.isEmpty()) return emptyList()
         return candidates
             .chunked(MAX_SQL_BIND_ARGS)
-            .flatMap { ids -> epgDao.getUpcomingProgramsForIds(ids, nowMs) }
+            .flatMap { ids -> epgDao.getUpcomingProgramsForIds(ids, nowMs, limit) }
     }
 }
 

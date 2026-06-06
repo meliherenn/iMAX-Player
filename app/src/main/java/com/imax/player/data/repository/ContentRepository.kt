@@ -1,6 +1,7 @@
 package com.imax.player.data.repository
 
 import com.imax.player.core.common.SearchMatcher
+import com.imax.player.core.common.StringUtils
 import com.imax.player.core.common.orderCategoryNames
 import com.imax.player.core.database.*
 import com.imax.player.core.model.*
@@ -13,6 +14,15 @@ import kotlinx.coroutines.withContext
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
+
+private const val SEARCH_CANDIDATE_LIMIT = 360
+private const val SEARCH_FULL_SCAN_FALLBACK_MIN_LENGTH = 3
+
+private data class SearchQueryParts(
+    val sqlQuery: String,
+    val token: String,
+    val normalizedQuery: String
+)
 
 @Singleton
 class ContentRepository @Inject constructor(
@@ -318,10 +328,23 @@ class ContentRepository @Inject constructor(
             }
             .flowOn(Dispatchers.Default)
 
-    suspend fun searchChannelsNow(playlistId: Long, query: String): List<Channel> =
-        rankSearchSnapshot(
-            load = { channelDao.getByPlaylistSnapshot(playlistId) },
+    suspend fun searchChannelsNow(
+        playlistId: Long,
+        query: String,
+        allowFullScanFallback: Boolean = true
+    ): List<Channel> =
+        rankCandidateSearch(
             query = query,
+            allowFullScanFallback = allowFullScanFallback,
+            loadCandidates = { parts ->
+                channelDao.searchCandidates(
+                    playlistId = playlistId,
+                    query = parts.sqlQuery,
+                    token = parts.token,
+                    limit = SEARCH_CANDIDATE_LIMIT
+                )
+            },
+            loadFallback = { channelDao.getByPlaylistSnapshot(playlistId) },
             primary = { it.name },
             secondary = { listOf(it.groupTitle, it.epgChannelId, it.streamId.takeIf { id -> id > 0 }?.toString().orEmpty()) },
             year = { 0 },
@@ -341,10 +364,23 @@ class ContentRepository @Inject constructor(
             }
             .flowOn(Dispatchers.Default)
 
-    suspend fun searchMoviesNow(playlistId: Long, query: String): List<Movie> =
-        rankSearchSnapshot(
-            load = { movieDao.getByPlaylistSnapshot(playlistId) },
+    suspend fun searchMoviesNow(
+        playlistId: Long,
+        query: String,
+        allowFullScanFallback: Boolean = true
+    ): List<Movie> =
+        rankCandidateSearch(
             query = query,
+            allowFullScanFallback = allowFullScanFallback,
+            loadCandidates = { parts ->
+                movieDao.searchCandidates(
+                    playlistId = playlistId,
+                    query = parts.sqlQuery,
+                    token = parts.token,
+                    limit = SEARCH_CANDIDATE_LIMIT
+                )
+            },
+            loadFallback = { movieDao.getByPlaylistSnapshot(playlistId) },
             primary = { it.name },
             secondary = {
                 listOf(
@@ -371,10 +407,23 @@ class ContentRepository @Inject constructor(
             }
             .flowOn(Dispatchers.Default)
 
-    suspend fun searchSeriesNow(playlistId: Long, query: String): List<Series> =
-        rankSearchSnapshot(
-            load = { seriesDao.getByPlaylistSnapshot(playlistId) },
+    suspend fun searchSeriesNow(
+        playlistId: Long,
+        query: String,
+        allowFullScanFallback: Boolean = true
+    ): List<Series> =
+        rankCandidateSearch(
             query = query,
+            allowFullScanFallback = allowFullScanFallback,
+            loadCandidates = { parts ->
+                seriesDao.searchCandidates(
+                    playlistId = playlistId,
+                    query = parts.sqlQuery,
+                    token = parts.token,
+                    limit = SEARCH_CANDIDATE_LIMIT
+                )
+            },
+            loadFallback = { seriesDao.getByPlaylistSnapshot(playlistId) },
             primary = { it.name },
             secondary = {
                 listOf(
@@ -405,15 +454,54 @@ class ContentRepository @Inject constructor(
         }
     }
 
-    private suspend fun <Entity, Model> rankSearchSnapshot(
-        load: suspend () -> List<Entity>,
+    private suspend fun <Entity, Model> rankCandidateSearch(
+        query: String,
+        allowFullScanFallback: Boolean,
+        loadCandidates: suspend (SearchQueryParts) -> List<Entity>,
+        loadFallback: suspend () -> List<Entity>,
+        primary: (Entity) -> String,
+        secondary: (Entity) -> List<String>,
+        year: (Entity) -> Int,
+        mapper: (Entity) -> Model
+    ): List<Model> {
+        val parts = query.toSearchQueryParts() ?: return emptyList()
+        val candidates = withContext(Dispatchers.IO) { loadCandidates(parts) }
+        val rankedCandidates = rankSearchItems(
+            items = candidates,
+            query = query,
+            primary = primary,
+            secondary = secondary,
+            year = year,
+            mapper = mapper
+        )
+
+        if (
+            rankedCandidates.isNotEmpty() ||
+            !allowFullScanFallback ||
+            parts.normalizedQuery.length < SEARCH_FULL_SCAN_FALLBACK_MIN_LENGTH
+        ) {
+            return rankedCandidates
+        }
+
+        val fallbackItems = withContext(Dispatchers.IO) { loadFallback() }
+        return rankSearchItems(
+            items = fallbackItems,
+            query = query,
+            primary = primary,
+            secondary = secondary,
+            year = year,
+            mapper = mapper
+        )
+    }
+
+    private suspend fun <Entity, Model> rankSearchItems(
+        items: List<Entity>,
         query: String,
         primary: (Entity) -> String,
         secondary: (Entity) -> List<String>,
         year: (Entity) -> Int,
         mapper: (Entity) -> Model
     ): List<Model> {
-        val items = withContext(Dispatchers.IO) { load() }
         return withContext(Dispatchers.Default) {
             SearchMatcher.rank(
                 query = query,
@@ -423,5 +511,28 @@ class ContentRepository @Inject constructor(
                 year = year
             ).map(mapper)
         }
+    }
+
+    private fun String.toSearchQueryParts(): SearchQueryParts? {
+        val trimmed = trim()
+        val normalized = StringUtils.normalizeTitle(trimmed)
+        if (normalized.isBlank()) return null
+
+        val terms = normalized
+            .split(" ")
+            .filter { it.length >= 2 }
+        val token = terms.maxByOrNull { it.length } ?: normalized.takeIf { it.length >= 2 }.orEmpty()
+        val sqlQuery = trimmed
+            .replace('%', ' ')
+            .replace('_', ' ')
+            .trim()
+            .replace(Regex("\\s+"), " ")
+            .ifBlank { normalized }
+
+        return SearchQueryParts(
+            sqlQuery = sqlQuery,
+            token = token,
+            normalizedQuery = normalized
+        )
     }
 }

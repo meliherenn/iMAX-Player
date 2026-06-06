@@ -100,6 +100,10 @@ class PlayerViewModel @Inject constructor(
         MutableStateFlow<Map<Long, com.imax.player.data.parser.EpgProgram>>(emptyMap())
     val channelListEpgPrograms: StateFlow<Map<Long, com.imax.player.data.parser.EpgProgram>> =
         _channelListEpgPrograms.asStateFlow()
+    private val _currentChannelEpgPrograms =
+        MutableStateFlow<List<com.imax.player.data.parser.EpgProgram>>(emptyList())
+    val currentChannelEpgPrograms: StateFlow<List<com.imax.player.data.parser.EpgProgram>> =
+        _currentChannelEpgPrograms.asStateFlow()
 
     private var currentUrl = ""
     private var currentOriginalUrl = ""
@@ -235,12 +239,24 @@ class PlayerViewModel @Inject constructor(
         if (channel == null) {
             _currentEpgProgram.value = null
             _nextEpgProgram.value = null
+            _currentChannelEpgPrograms.value = emptyList()
             return
         }
 
         viewModelScope.launch {
             _currentEpgProgram.value = epgRepository.getCurrentProgram(channel)
             _nextEpgProgram.value = epgRepository.getNextProgram(channel)
+        }
+    }
+
+    fun loadEpgProgramsForChannel(channel: Channel?) {
+        if (channel == null) {
+            _currentChannelEpgPrograms.value = emptyList()
+            return
+        }
+
+        viewModelScope.launch {
+            _currentChannelEpgPrograms.value = epgRepository.getProgramsForChannel(channel)
         }
     }
 

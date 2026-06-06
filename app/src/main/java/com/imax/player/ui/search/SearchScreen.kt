@@ -1,5 +1,6 @@
 package com.imax.player.ui.search
 
+import android.os.SystemClock
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
@@ -36,19 +37,29 @@ import com.imax.player.data.repository.PlaylistRepository
 import com.imax.player.ui.components.*
 import com.imax.player.ui.navigation.Routes
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.async
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import timber.log.Timber
 import java.util.Locale
 import javax.inject.Inject
 import androidx.compose.ui.res.stringResource
 import com.imax.player.R
 
 private const val MIN_SEARCH_QUERY_LENGTH = 1
+private const val MAX_COMBINED_SEARCH_RESULTS = 120
 
 private data class RankedSearchResult(
     val result: SearchResult,
     val score: Double
+)
+
+private data class SearchRequest(
+    val query: String,
+    val filter: ContentType?,
+    val playlistId: Long?
 )
 
 data class SearchState(
@@ -69,6 +80,8 @@ class SearchViewModel @Inject constructor(
 
     private val _queryFlow = MutableStateFlow("")
     private val _filterFlow = MutableStateFlow<ContentType?>(null)
+    private val activePlaylist = playlistRepository.getActivePlaylist()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     init {
         viewModelScope.launch {
@@ -77,11 +90,14 @@ class SearchViewModel @Inject constructor(
                     .debounce(Constants.SEARCH_DEBOUNCE_MS)
                     .map { it.trim() }
                     .distinctUntilChanged(),
-                _filterFlow
-            ) { query, filter -> query to filter }
-                .collectLatest { (query, filter) ->
-                    if (query.length >= MIN_SEARCH_QUERY_LENGTH) {
-                        performSearch(query, filter)
+                _filterFlow,
+                activePlaylist
+            ) { query, filter, playlist ->
+                SearchRequest(query = query, filter = filter, playlistId = playlist?.id)
+            }
+                .collectLatest { request ->
+                    if (request.query.length >= MIN_SEARCH_QUERY_LENGTH && request.playlistId != null) {
+                        performSearch(request.query, request.filter, request.playlistId)
                     } else {
                         _state.update { it.copy(results = emptyList(), isSearching = false) }
                     }
@@ -112,48 +128,111 @@ class SearchViewModel @Inject constructor(
         }
     }
 
-    private suspend fun performSearch(query: String, filter: ContentType?) {
-        val playlist = playlistRepository.getActivePlaylist().first()
-        if (playlist == null) {
-            _state.update { it.copy(results = emptyList(), isSearching = false) }
-            return
-        }
-
+    private suspend fun performSearch(query: String, filter: ContentType?, playlistId: Long) = coroutineScope {
+        val startedAt = SystemClock.elapsedRealtime()
         val results = mutableListOf<RankedSearchResult>()
+        val allowFullScanFallback = filter != null
 
         if (filter == null || filter == ContentType.LIVE) {
-            contentRepository.searchChannelsNow(playlist.id, query).mapTo(results) {
-                RankedSearchResult(
-                    result = SearchResult(it.id, it.name, it.logoUrl, ContentType.LIVE, it.groupTitle, streamUrl = it.streamUrl),
-                    score = SearchMatcher.score(query, it.name, listOf(it.groupTitle, it.epgChannelId))
-                )
-            }
-        }
-        if (filter == null || filter == ContentType.MOVIE) {
-            contentRepository.searchMoviesNow(playlist.id, query).mapTo(results) {
-                RankedSearchResult(
-                    result = SearchResult(it.id, it.name, it.posterUrl, ContentType.MOVIE, it.genre, it.year, it.rating, it.streamUrl),
-                    score = SearchMatcher.score(query, it.name, listOf(it.categoryName, it.genre, it.releaseDate), it.year)
-                )
-            }
-        }
-        if (filter == null || filter == ContentType.SERIES) {
-            contentRepository.searchSeriesNow(playlist.id, query).mapTo(results) {
-                RankedSearchResult(
-                    result = SearchResult(it.id, it.name, it.posterUrl, ContentType.SERIES, it.genre, it.year, it.rating),
-                    score = SearchMatcher.score(query, it.name, listOf(it.categoryName, it.genre, it.releaseDate), it.year)
-                )
+            addChannelResults(
+                results = results,
+                channels = contentRepository.searchChannelsNow(
+                    playlistId = playlistId,
+                    query = query,
+                    allowFullScanFallback = allowFullScanFallback
+                ),
+                query = query
+            )
+            if (filter == null && results.isNotEmpty()) {
+                publishSearchResults(results, isSearching = true)
             }
         }
 
+        val movies = if (filter == null || filter == ContentType.MOVIE) {
+            async {
+                contentRepository.searchMoviesNow(
+                    playlistId = playlistId,
+                    query = query,
+                    allowFullScanFallback = allowFullScanFallback
+                )
+            }
+        } else {
+            null
+        }
+        val series = if (filter == null || filter == ContentType.SERIES) {
+            async {
+                contentRepository.searchSeriesNow(
+                    playlistId = playlistId,
+                    query = query,
+                    allowFullScanFallback = allowFullScanFallback
+                )
+            }
+        } else {
+            null
+        }
+
+        movies?.await()?.let { addMovieResults(results, it, query) }
+        series?.await()?.let { addSeriesResults(results, it, query) }
+
+        val sortedResults = publishSearchResults(results, isSearching = false)
+        Timber.d(
+            "Search completed length=${query.length}, filter=$filter, results=${sortedResults.size}, elapsedMs=${SystemClock.elapsedRealtime() - startedAt}"
+        )
+    }
+
+    private fun publishSearchResults(
+        results: List<RankedSearchResult>,
+        isSearching: Boolean
+    ): List<SearchResult> {
         val sortedResults = results
             .sortedWith(
                 compareByDescending<RankedSearchResult> { it.score }
                     .thenBy { it.result.title.lowercase(Locale.ENGLISH) }
             )
+            .take(MAX_COMBINED_SEARCH_RESULTS)
             .map { it.result }
 
-        _state.update { it.copy(results = sortedResults, isSearching = false) }
+        _state.update { it.copy(results = sortedResults, isSearching = isSearching) }
+        return sortedResults
+    }
+
+    private fun addChannelResults(
+        results: MutableList<RankedSearchResult>,
+        channels: List<Channel>,
+        query: String
+    ) {
+        channels.mapTo(results) {
+            RankedSearchResult(
+                result = SearchResult(it.id, it.name, it.logoUrl, ContentType.LIVE, it.groupTitle, streamUrl = it.streamUrl),
+                score = SearchMatcher.score(query, it.name, listOf(it.groupTitle, it.epgChannelId))
+            )
+        }
+    }
+
+    private fun addMovieResults(
+        results: MutableList<RankedSearchResult>,
+        movies: List<Movie>,
+        query: String
+    ) {
+        movies.mapTo(results) {
+            RankedSearchResult(
+                result = SearchResult(it.id, it.name, it.posterUrl, ContentType.MOVIE, it.genre, it.year, it.rating, it.streamUrl),
+                score = SearchMatcher.score(query, it.name, listOf(it.categoryName, it.genre, it.releaseDate), it.year)
+            )
+        }
+    }
+
+    private fun addSeriesResults(
+        results: MutableList<RankedSearchResult>,
+        series: List<Series>,
+        query: String
+    ) {
+        series.mapTo(results) {
+            RankedSearchResult(
+                result = SearchResult(it.id, it.name, it.posterUrl, ContentType.SERIES, it.genre, it.year, it.rating),
+                score = SearchMatcher.score(query, it.name, listOf(it.categoryName, it.genre, it.releaseDate), it.year)
+            )
+        }
     }
 }
 
@@ -334,31 +413,45 @@ private fun SearchResults(
 ) {
     val dimens = LocalImaxDimens.current
 
-    when {
-        state.isSearching -> LoadingScreen()
-        state.query.isNotBlank() && state.results.isEmpty() -> EmptyScreen(stringResource(R.string.no_results))
-        state.query.isBlank() -> EmptyScreen(stringResource(R.string.search_hint))
-        else -> {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(columns),
-                contentPadding = PaddingValues(horizontal = dimens.screenPadding, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(dimens.cardSpacing),
-                verticalArrangement = Arrangement.spacedBy(dimens.cardSpacing)
-            ) {
-                items(state.results, key = { "${it.contentType.name}-${it.id}" }) { result ->
-                    ContentPosterCard(
-                        title = result.title,
-                        posterUrl = result.posterUrl,
-                        rating = result.rating,
-                        year = result.year,
-                        isTv = isTv,
-                        onClick = {
-                            when (result.contentType) {
-                                ContentType.LIVE -> onPlayContent(result.streamUrl, result.title, result.id, "LIVE")
-                                else -> onContentClick(result.id, result.contentType.name)
+    Column(modifier = Modifier.fillMaxSize()) {
+        if (state.isSearching && state.results.isNotEmpty()) {
+            LinearProgressIndicator(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = dimens.screenPadding),
+                color = ImaxColors.Primary,
+                trackColor = ImaxColors.SurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+        }
+
+        when {
+            state.isSearching && state.results.isEmpty() -> LoadingScreen()
+            state.query.isNotBlank() && state.results.isEmpty() -> EmptyScreen(stringResource(R.string.no_results))
+            state.query.isBlank() -> EmptyScreen(stringResource(R.string.search_hint))
+            else -> {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(columns),
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = dimens.screenPadding, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(dimens.cardSpacing),
+                    verticalArrangement = Arrangement.spacedBy(dimens.cardSpacing)
+                ) {
+                    items(state.results, key = { "${it.contentType.name}-${it.id}" }) { result ->
+                        ContentPosterCard(
+                            title = result.title,
+                            posterUrl = result.posterUrl,
+                            rating = result.rating,
+                            year = result.year,
+                            isTv = isTv,
+                            onClick = {
+                                when (result.contentType) {
+                                    ContentType.LIVE -> onPlayContent(result.streamUrl, result.title, result.id, "LIVE")
+                                    else -> onContentClick(result.id, result.contentType.name)
+                                }
                             }
-                        }
-                    )
+                        )
+                    }
                 }
             }
         }

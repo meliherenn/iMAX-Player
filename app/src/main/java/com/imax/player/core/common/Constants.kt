@@ -8,7 +8,7 @@ object Constants {
     const val MAX_BUFFER_MS = 60_000
     const val RECONNECT_DELAY_MS = 3_000L
     const val MAX_RECONNECT_ATTEMPTS = 5
-    const val SEARCH_DEBOUNCE_MS = 400L
+    const val SEARCH_DEBOUNCE_MS = 200L
     const val CONTROLLER_AUTO_HIDE_MS = 5_000L
     const val OVERSCAN_PADDING_DP = 48
     const val TV_CARD_WIDTH_DP = 180
