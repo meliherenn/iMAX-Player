@@ -18,6 +18,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import timber.log.Timber
+import java.util.Locale
 
 @Singleton
 class PlayerManager @Inject constructor(
@@ -62,23 +63,7 @@ class PlayerManager @Inject constructor(
     fun getActiveEngineType(): PlayerEngineType? = activeEngineTypeFor(currentEngine)
 
     suspend fun initializeWithSettings() {
-        val settings = settingsDataStore.settings.first()
-
-        defaultAudioLang = settings.defaultAudioLanguage
-        defaultSubtitleLang = settings.defaultSubtitleLanguage
-        autoEnableSubtitles = settings.autoEnableSubtitles
-        preferredAspectRatio = AspectRatioMode.entries.firstOrNull {
-            it.name.equals(settings.aspectRatio, ignoreCase = true)
-        } ?: AspectRatioMode.FIT
-        preferredVideoQualityMode = VideoQualityMode.entries.firstOrNull {
-            it.name.equals(settings.videoQualityMode, ignoreCase = true)
-        } ?: VideoQualityMode.AUTO
-        defaultPlaybackSpeed = settings.defaultPlaybackSpeed
-
-        cachedBufferMs = settings.bufferDurationMs.toLong()
-        cachedLatencyMode = settings.liveLatencyMode
-        cachedPreferHw = settings.preferHwDecoding
-
+        val settings = refreshSettingsCache()
         switchEngine(PlayerEngineType.fromStoredValue(settings.playerEngine))
     }
 
@@ -178,28 +163,8 @@ class PlayerManager @Inject constructor(
 
                 // 4. Initialize new engine
                 withContext(Dispatchers.Main.immediate) {
-                    finalEngine.setPlaybackConfiguration(cachedBufferMs, cachedLatencyMode, cachedPreferHw)
                     finalEngine.initialize()
-                    finalEngine.setAspectRatio(preferredAspectRatio)
-                    finalEngine.setVideoQualityMode(preferredVideoQualityMode)
-                    finalEngine.setPlaybackSpeed(defaultPlaybackSpeed)
-
-                    // Subtitle/Audio logic
-                    if (finalEngine is ExoPlayerEngine) {
-                        finalEngine.setPreferredAudioLanguage(defaultAudioLang)
-                        if (autoEnableSubtitles && defaultSubtitleLang.lowercase() !in listOf("off", "none")) {
-                            finalEngine.setPreferredSubtitleLanguage(defaultSubtitleLang)
-                        } else if (defaultSubtitleLang.lowercase() in listOf("off", "none")) {
-                            finalEngine.disableSubtitles()
-                        }
-                    } else if (finalEngine is VlcPlayerEngine) {
-                        finalEngine.setPreferredAudioLanguage(defaultAudioLang)
-                        if (autoEnableSubtitles && defaultSubtitleLang.lowercase() !in listOf("off", "none")) {
-                            finalEngine.setPreferredSubtitleLanguage(defaultSubtitleLang)
-                        } else if (defaultSubtitleLang.lowercase() in listOf("off", "none")) {
-                            finalEngine.disableSubtitles()
-                        }
-                    }
+                    applyCachedSettingsToEngine(finalEngine)
                 }
 
                 currentEngine = finalEngine
@@ -231,15 +196,16 @@ class PlayerManager @Inject constructor(
         startPosition: Long = 0L,
         profile: PlaybackProfile = PlaybackProfile.VOD
     ) {
+        refreshSettingsCache()
         lastPlaybackRequest = PlaybackRequest(
             url = url,
             startPosition = startPosition,
             profile = profile
         )
         withContext(Dispatchers.Main.immediate) {
-            currentEngine?.play(url, startPosition, profile)
-            if (defaultPlaybackSpeed != 1f) {
-                currentEngine?.setPlaybackSpeed(defaultPlaybackSpeed)
+            currentEngine?.let { engine ->
+                applyCachedSettingsToEngine(engine)
+                engine.play(url, startPosition, profile)
             }
         }
     }
@@ -378,5 +344,76 @@ class PlayerManager @Inject constructor(
             is VlcPlayerEngine -> PlayerEngineType.VLC
             else -> null
         }
+    }
+
+    private suspend fun refreshSettingsCache(): com.imax.player.core.datastore.AppSettings {
+        val settings = settingsDataStore.settings.first()
+
+        defaultAudioLang = settings.defaultAudioLanguage
+        defaultSubtitleLang = settings.defaultSubtitleLanguage
+        autoEnableSubtitles = settings.autoEnableSubtitles
+        preferredAspectRatio = AspectRatioMode.entries.firstOrNull {
+            it.name.equals(settings.aspectRatio, ignoreCase = true)
+        } ?: AspectRatioMode.FIT
+        preferredVideoQualityMode = VideoQualityMode.entries.firstOrNull {
+            it.name.equals(settings.videoQualityMode, ignoreCase = true)
+        } ?: VideoQualityMode.AUTO
+        defaultPlaybackSpeed = settings.defaultPlaybackSpeed
+
+        cachedBufferMs = settings.bufferDurationMs.toLong()
+        cachedLatencyMode = settings.liveLatencyMode
+        cachedPreferHw = settings.preferHwDecoding
+        return settings
+    }
+
+    private fun applyCachedSettingsToEngine(engine: PlayerEngine) {
+        engine.setPlaybackConfiguration(cachedBufferMs, cachedLatencyMode, cachedPreferHw)
+        engine.setAspectRatio(preferredAspectRatio)
+        engine.setVideoQualityMode(preferredVideoQualityMode)
+        engine.setPlaybackSpeed(defaultPlaybackSpeed)
+        applyPreferredTracks(engine)
+    }
+
+    private fun applyPreferredTracks(engine: PlayerEngine) {
+        val audioLanguage = resolvePreferredLanguage(defaultAudioLang)
+        val subtitleLanguage = resolvePreferredLanguage(defaultSubtitleLang)
+        val subtitlesDisabled = defaultSubtitleLang.isExplicitlyDisabledLanguage()
+
+        when (engine) {
+            is ExoPlayerEngine -> {
+                audioLanguage?.let(engine::setPreferredAudioLanguage)
+                when {
+                    subtitlesDisabled -> engine.disableSubtitles()
+                    subtitleLanguage != null -> engine.setPreferredSubtitleLanguage(subtitleLanguage)
+                    !autoEnableSubtitles -> engine.disableSubtitles()
+                }
+            }
+
+            is VlcPlayerEngine -> {
+                audioLanguage?.let(engine::setPreferredAudioLanguage)
+                when {
+                    subtitlesDisabled -> engine.disableSubtitles()
+                    subtitleLanguage != null -> engine.setPreferredSubtitleLanguage(subtitleLanguage)
+                    !autoEnableSubtitles -> engine.disableSubtitles()
+                }
+            }
+        }
+    }
+
+    private fun resolvePreferredLanguage(language: String): String? {
+        val normalized = language.trim()
+        if (normalized.isBlank() || normalized.isExplicitlyDisabledLanguage()) {
+            return null
+        }
+
+        return when (normalized.lowercase(Locale.getDefault())) {
+            "auto", "default" -> null
+            "system" -> Locale.getDefault().language.takeIf { it.isNotBlank() }
+            else -> normalized
+        }
+    }
+
+    private fun String.isExplicitlyDisabledLanguage(): Boolean {
+        return lowercase(Locale.getDefault()).trim() in listOf("off", "none")
     }
 }

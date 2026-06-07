@@ -53,6 +53,7 @@ data class PlayerSessionState(
     val previousChannel: Channel? = null,
     val nextChannel: Channel? = null,
     val availableChannels: List<Channel> = emptyList(),
+    val liveGroups: List<String> = emptyList(),
     val liveGroup: String = ""
 )
 
@@ -67,6 +68,12 @@ private data class PlaybackRecoverySnapshot(
     val playbackState: PlaybackState,
     val isPlaybackConfirmed: Boolean,
     val errorMessage: String?
+)
+
+private data class AutoPlayNextSnapshot(
+    val playbackState: PlaybackState,
+    val currentPosition: Long,
+    val duration: Long
 )
 
 @HiltViewModel
@@ -104,6 +111,8 @@ class PlayerViewModel @Inject constructor(
         MutableStateFlow<List<com.imax.player.data.parser.EpgProgram>>(emptyList())
     val currentChannelEpgPrograms: StateFlow<List<com.imax.player.data.parser.EpgProgram>> =
         _currentChannelEpgPrograms.asStateFlow()
+    private val _channelBrowserChannels = MutableStateFlow<List<Channel>>(emptyList())
+    val channelBrowserChannels: StateFlow<List<Channel>> = _channelBrowserChannels.asStateFlow()
 
     private var currentUrl = ""
     private var currentOriginalUrl = ""
@@ -117,6 +126,7 @@ class PlayerViewModel @Inject constructor(
     private var liveChannelSwitchJob: kotlinx.coroutines.Job? = null
     private var pendingLiveChannel: Channel? = null
     private var liveEpgAutoDiscoveryPlaylistId: Long? = null
+    private var autoPlayNextTriggeredContentId: Long? = null
 
     private var httpRetryCount = 0
     private val maxHttpRetries = 3
@@ -125,6 +135,8 @@ class PlayerViewModel @Inject constructor(
         private const val LIVE_WARMUP_EXTENSION_MS = 4_000L
         private const val LIVE_WARMUP_MIN_PROGRESS_MS = 2_000L
         private const val LIVE_WARMUP_MIN_BUFFER_AHEAD_MS = 500L
+        private const val AUTO_PLAY_NEXT_MIN_DURATION_MS = 30_000L
+        private const val AUTO_PLAY_NEXT_END_TOLERANCE_MS = 2_500L
     }
 
     init {
@@ -197,6 +209,48 @@ class PlayerViewModel @Inject constructor(
                     }
                 }
         }
+
+        viewModelScope.launch {
+            state
+                .map { playerState ->
+                    AutoPlayNextSnapshot(
+                        playbackState = playerState.playbackState,
+                        currentPosition = playerState.currentPosition,
+                        duration = playerState.duration
+                    )
+                }
+                .distinctUntilChanged()
+                .collect(::maybeAutoPlayNextEpisode)
+        }
+    }
+
+    private fun maybeAutoPlayNextEpisode(snapshot: AutoPlayNextSnapshot) {
+        if (!currentContentType.equals(ContentType.SERIES.name, ignoreCase = true)) return
+        if (!settings.value.autoPlayNextEpisode) return
+
+        val contentId = currentContentId.takeIf { it > 0L } ?: return
+        if (autoPlayNextTriggeredContentId == contentId) return
+
+        val nextEpisode = session.value.nextEpisode ?: return
+        val reachedEnd = snapshot.playbackState == PlaybackState.ENDED
+        val activeNearEndState = snapshot.playbackState == PlaybackState.PLAYING ||
+            snapshot.playbackState == PlaybackState.BUFFERING
+        val nearlyEnded = snapshot.duration >= AUTO_PLAY_NEXT_MIN_DURATION_MS &&
+            snapshot.currentPosition >= snapshot.duration - AUTO_PLAY_NEXT_END_TOLERANCE_MS &&
+            activeNearEndState
+
+        if (!reachedEnd && !nearlyEnded) return
+
+        autoPlayNextTriggeredContentId = contentId
+        Timber.d(
+            "Auto-playing next episode current=%d next=%d state=%s position=%d duration=%d",
+            contentId,
+            nextEpisode.id,
+            snapshot.playbackState,
+            snapshot.currentPosition,
+            snapshot.duration
+        )
+        playEpisode(nextEpisode)
     }
 
     private fun handlePlaybackError(errorMessage: String?) {
@@ -271,6 +325,31 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
+    fun loadChannelBrowser(group: String?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val playlist = playlistRepository.getActivePlaylist().first()
+            if (playlist == null) {
+                _channelBrowserChannels.value = emptyList()
+                _channelListEpgPrograms.value = emptyMap()
+                return@launch
+            }
+
+            val normalizedGroup = group?.takeIf { it.isNotBlank() }
+            val channels = if (normalizedGroup == null) {
+                contentRepository.getChannels(playlist.id).first()
+            } else {
+                contentRepository.getChannelsByGroup(playlist.id, normalizedGroup).first()
+            }
+
+            _channelBrowserChannels.value = channels
+            _channelListEpgPrograms.value = if (channels.isEmpty()) {
+                emptyMap()
+            } else {
+                epgRepository.getCurrentProgramsForChannels(channels)
+            }
+        }
+    }
+
     private fun ensureLiveEpgSynced() {
         viewModelScope.launch {
             val playlist = playlistRepository.getActivePlaylist().first() ?: return@launch
@@ -314,6 +393,7 @@ class PlayerViewModel @Inject constructor(
         currentContentId = contentId
         currentContentType = contentType
         currentGroupContext = groupContext
+        autoPlayNextTriggeredContentId = null
 
         viewModelScope.launch {
             clearLiveChannelSwitchError()
@@ -563,6 +643,7 @@ class PlayerViewModel @Inject constructor(
         currentContentId = contentId
         currentContentType = contentType
         currentGroupContext = groupContext
+        autoPlayNextTriggeredContentId = null
 
         refreshSessionContext(resolvedUrl, title, contentId, contentType, groupContext)
         playerManager.play(
@@ -587,7 +668,7 @@ class PlayerViewModel @Inject constructor(
         val previousGroupContext = currentGroupContext
         val previousPlaybackCandidates = currentPlaybackCandidates
         val previousSession = session.value
-        val targetGroupContext = currentGroupContext.ifBlank { channel.groupTitle }
+        val targetGroupContext = channel.groupTitle.ifBlank { currentGroupContext }
         val playbackCandidates = resolvePlaybackCandidates(channel.streamUrl, ContentType.LIVE.name)
 
         _liveChannelSwitch.value = LiveChannelSwitchState(
@@ -773,6 +854,9 @@ class PlayerViewModel @Inject constructor(
                 ContentType.LIVE.name -> {
                     val currentChannel = contentRepository.getChannel(contentId)
                     val playlist = playlistRepository.getActivePlaylist().first()
+                    val liveGroups = playlist?.let {
+                        contentRepository.getChannelGroups(it.id).first()
+                    } ?: emptyList()
                     val scopedChannels = if (playlist != null && groupContext.isNotBlank()) {
                         contentRepository.getChannelsByGroup(playlist.id, groupContext).first()
                     } else {
@@ -793,6 +877,7 @@ class PlayerViewModel @Inject constructor(
                         previousChannel = currentIndex?.let { primaryChannels.getOrNull(it - 1) },
                         nextChannel = currentIndex?.let { primaryChannels.getOrNull(it + 1) },
                         availableChannels = primaryChannels,
+                        liveGroups = liveGroups,
                         liveGroup = groupContext
                     )
                 }

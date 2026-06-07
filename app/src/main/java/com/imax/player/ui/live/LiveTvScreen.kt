@@ -213,7 +213,7 @@ private fun TvLiveTvContent(
             )
         }
     }
-    val categoryFocusRequesters = remember(displayCategories) {
+    val categoryFocusRequesters = remember(displayCategories.map { it.id }) {
         displayCategories.associate { it.id to FocusRequester() }
     }
     Row(modifier = Modifier.fillMaxSize()) {
@@ -232,7 +232,7 @@ private fun TvLiveTvContent(
         }
         val selectedCategoryRequester = categoryFocusRequesters[state.selectedGroup ?: TV_ALL_CATEGORY_KEY]
         val firstChannelRequester = display.firstOrNull()
-            ?.let { channel -> channelFocusRequesters.getValue(channel.id) }
+            ?.let { channel -> channelFocusRequesters[channel.id] }
 
         LaunchedEffect(state.isLoading, state.selectedGroup, display.firstOrNull()?.id) {
             if (!state.isLoading) {
@@ -249,7 +249,10 @@ private fun TvLiveTvContent(
                     name = category.title,
                     isSelected = state.selectedGroup == category.group,
                     modifier = Modifier
-                        .focusRequester(categoryFocusRequesters.getValue(category.id))
+                        .then(
+                            categoryFocusRequesters[category.id]?.let { Modifier.focusRequester(it) }
+                                ?: Modifier
+                        )
                         .focusProperties {
                             right = firstChannelRequester ?: FocusRequester.Cancel
                             // Prevent wrap-around: block UP on first item, DOWN on last item
@@ -278,7 +281,10 @@ private fun TvLiveTvContent(
                         isTv = true,
                         epgProgram = state.epgPrograms[channel.id],
                         modifier = Modifier
-                            .focusRequester(channelFocusRequesters.getValue(channel.id))
+                            .then(
+                                channelFocusRequesters[channel.id]?.let { Modifier.focusRequester(it) }
+                                    ?: Modifier
+                            )
                             .focusProperties {
                                 left = selectedCategoryRequester ?: FocusRequester.Cancel
                                 right = FocusRequester.Cancel

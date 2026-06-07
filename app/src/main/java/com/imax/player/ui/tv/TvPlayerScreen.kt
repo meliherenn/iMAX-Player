@@ -122,6 +122,7 @@ import timber.log.Timber
 private enum class TvPlayerPanel {
     NONE,
     CHANNELS,
+    CATEGORIES,
     EPG,
     AUDIO,
     SUBTITLE,
@@ -321,6 +322,7 @@ fun TvPlayerScreen(
     val nextEpgProgram by viewModel.nextEpgProgram.collectAsStateWithLifecycle()
     val channelListEpgPrograms by viewModel.channelListEpgPrograms.collectAsStateWithLifecycle()
     val currentChannelEpgPrograms by viewModel.currentChannelEpgPrograms.collectAsStateWithLifecycle()
+    val channelBrowserChannels by viewModel.channelBrowserChannels.collectAsStateWithLifecycle()
 
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
@@ -377,6 +379,17 @@ fun TvPlayerScreen(
 
     var overlayVisible by rememberSaveable { mutableStateOf(true) }
     var activePanel by rememberSaveable { mutableStateOf(TvPlayerPanel.NONE) }
+    var channelPanelGroup by rememberSaveable { mutableStateOf<String?>(null) }
+    val sessionPanelGroup = session.liveGroup
+        .takeIf { it.isNotBlank() }
+        ?: session.currentChannel?.groupTitle?.takeIf { it.isNotBlank() }
+    val channelPanelChannels = channelBrowserChannels.ifEmpty {
+        if (channelPanelGroup == sessionPanelGroup) {
+            session.availableChannels
+        } else {
+            emptyList()
+        }
+    }
     var lastOverlayAction by rememberSaveable {
         mutableStateOf(if (isLivePlayback) TvOverlayAction.CHANNELS else TvOverlayAction.PLAY_PAUSE)
     }
@@ -402,6 +415,7 @@ fun TvPlayerScreen(
         if (!overlayVisible) {
             activePanel = TvPlayerPanel.NONE
         }
+        channelPanelGroup = groupContext.takeIf { it.isNotBlank() }
         transientZapAction = null
         transientZapTitle = ""
     }
@@ -464,6 +478,11 @@ fun TvPlayerScreen(
 
     fun handleBack(): Boolean {
         return when {
+            activePanel == TvPlayerPanel.CATEGORIES -> {
+                activePanel = TvPlayerPanel.CHANNELS
+                true
+            }
+
             activePanel != TvPlayerPanel.NONE -> {
                 closePanel()
                 true
@@ -546,6 +565,14 @@ fun TvPlayerScreen(
         viewModel.loadEpgForChannel(currentChannel)
     }
 
+    LaunchedEffect(activePanel, session.liveGroup, currentChannel?.groupTitle) {
+        if (activePanel != TvPlayerPanel.CHANNELS && activePanel != TvPlayerPanel.CATEGORIES) {
+            channelPanelGroup = session.liveGroup
+                .takeIf { it.isNotBlank() }
+                ?: currentChannel?.groupTitle?.takeIf { it.isNotBlank() }
+        }
+    }
+
     LaunchedEffect(overlayVisible, activePanel, requestedOverlayAction) {
         val targetAction = resolvedOverlayAction(requestedOverlayAction)
         if (requestedOverlayAction != targetAction) {
@@ -602,6 +629,10 @@ fun TvPlayerScreen(
                 requestedOverlayAction = TvOverlayAction.CHANNELS
                 overlayVisible = true
                 activePanel = TvPlayerPanel.CHANNELS
+                channelPanelGroup = session.liveGroup
+                    .takeIf { it.isNotBlank() }
+                    ?: session.currentChannel?.groupTitle?.takeIf { it.isNotBlank() }
+                viewModel.loadChannelBrowser(channelPanelGroup)
                 registerInteraction()
             } else {
                 showOverlay(TvOverlayAction.CHANNELS)
@@ -609,9 +640,11 @@ fun TvPlayerScreen(
         }
     }
 
-    LaunchedEffect(activePanel, session.availableChannels.map(Channel::id)) {
-        if (activePanel == TvPlayerPanel.CHANNELS && session.availableChannels.isNotEmpty()) {
-            viewModel.loadEpgForChannels(session.availableChannels)
+    LaunchedEffect(activePanel, session.availableChannels.map(Channel::id), channelBrowserChannels.map(Channel::id)) {
+        if (activePanel == TvPlayerPanel.CHANNELS) {
+            if (channelPanelChannels.isNotEmpty()) {
+                viewModel.loadEpgForChannels(channelPanelChannels)
+            }
         }
     }
 
@@ -657,9 +690,31 @@ fun TvPlayerScreen(
         return true
     }
 
-    fun openLiveChannelPanel(): Boolean {
+    fun selectedLiveChannelGroup(): String? {
+        return channelPanelGroup
+            ?: session.liveGroup.takeIf { it.isNotBlank() }
+            ?: session.currentChannel?.groupTitle?.takeIf { it.isNotBlank() }
+    }
+
+    fun openLiveChannelPanel(group: String? = selectedLiveChannelGroup()): Boolean {
         if (!isLivePlayback || session.availableChannels.isEmpty()) return false
+        channelPanelGroup = group?.takeIf { it.isNotBlank() }
+        viewModel.loadChannelBrowser(channelPanelGroup)
         return openRemotePanel(TvPlayerPanel.CHANNELS, TvOverlayAction.CHANNELS)
+    }
+
+    fun openLiveCategoryPanel(): Boolean {
+        if (!isLivePlayback || session.liveGroups.isEmpty()) return false
+        return openRemotePanel(TvPlayerPanel.CATEGORIES, TvOverlayAction.CHANNELS)
+    }
+
+    fun selectLiveChannelGroup(group: String?) {
+        channelPanelGroup = group?.takeIf { it.isNotBlank() }
+        viewModel.loadChannelBrowser(channelPanelGroup)
+        requestedOverlayAction = TvOverlayAction.CHANNELS
+        overlayVisible = true
+        activePanel = TvPlayerPanel.CHANNELS
+        registerInteraction()
     }
 
     fun openLiveEpgPanel(): Boolean {
@@ -823,7 +878,9 @@ fun TvPlayerScreen(
                     }
 
                     event.key == Key.DirectionLeft -> {
-                        if (!overlayVisible && activePanel == TvPlayerPanel.NONE) {
+                        if (isLivePlayback && activePanel == TvPlayerPanel.CHANNELS) {
+                            openLiveCategoryPanel()
+                        } else if (!overlayVisible && activePanel == TvPlayerPanel.NONE) {
                             if (isLivePlayback) {
                                 openLiveChannelPanel()
                             } else {
@@ -835,7 +892,9 @@ fun TvPlayerScreen(
                     }
 
                     event.key == Key.DirectionRight -> {
-                        if (!overlayVisible && activePanel == TvPlayerPanel.NONE) {
+                        if (isLivePlayback && activePanel == TvPlayerPanel.CATEGORIES) {
+                            openLiveChannelPanel(channelPanelGroup)
+                        } else if (!overlayVisible && activePanel == TvPlayerPanel.NONE) {
                             if (isLivePlayback) {
                                 openLiveEpgPanel()
                             } else {
@@ -914,7 +973,11 @@ fun TvPlayerScreen(
         if (
             (playerState.playbackState == PlaybackState.ERROR || !liveChannelSwitch.errorMessage.isNullOrBlank()) &&
             !isChannelSwitching &&
-            !(isLivePlayback && activePanel == TvPlayerPanel.CHANNELS && session.availableChannels.isNotEmpty())
+            !(
+                isLivePlayback &&
+                    activePanel in listOf(TvPlayerPanel.CHANNELS, TvPlayerPanel.CATEGORIES) &&
+                    session.availableChannels.isNotEmpty()
+            )
         ) {
             TvErrorState(
                 message = liveChannelSwitch.errorMessage
@@ -983,8 +1046,7 @@ fun TvPlayerScreen(
                 },
                 onOpenChannels = {
                     registerInteraction()
-                    activePanel = TvPlayerPanel.CHANNELS
-                    overlayVisible = true
+                    openLiveChannelPanel()
                 },
                 onOpenEpg = {
                     registerInteraction()
@@ -1028,7 +1090,9 @@ fun TvPlayerScreen(
                 modifier = Modifier.fillMaxSize(),
                 activePanel = activePanel,
                 playerState = playerState,
-                channels = session.availableChannels,
+                channels = channelPanelChannels,
+                channelGroups = session.liveGroups,
+                selectedChannelGroup = channelPanelGroup,
                 currentChannelId = liveChannelSwitch.targetChannelId ?: session.currentChannel?.id ?: contentId,
                 epgPrograms = channelListEpgPrograms,
                 currentChannelTitle = session.currentChannel?.name ?: displayTitle,
@@ -1042,6 +1106,7 @@ fun TvPlayerScreen(
                     hideOverlay()
                     showTransientZapFeedback(TvOverlayAction.MAIN_NEXT, channel.name)
                 },
+                onSelectChannelGroup = ::selectLiveChannelGroup,
                 onSelectAudio = {
                     if (playerState.selectedAudioTrack != it) {
                         viewModel.selectAudio(it)
@@ -1511,6 +1576,8 @@ private fun TvPlayerPanelHost(
     activePanel: TvPlayerPanel,
     playerState: PlayerState,
     channels: List<Channel>,
+    channelGroups: List<String>,
+    selectedChannelGroup: String?,
     currentChannelId: Long,
     epgPrograms: Map<Long, com.imax.player.data.parser.EpgProgram>,
     currentChannelTitle: String,
@@ -1518,6 +1585,7 @@ private fun TvPlayerPanelHost(
     isChannelSwitching: Boolean,
     onDismiss: () -> Unit,
     onSelectChannel: (Channel) -> Unit,
+    onSelectChannelGroup: (String?) -> Unit,
     onSelectAudio: (Int) -> Unit,
     onSelectSubtitle: (Int) -> Unit,
     onDisableSubtitles: () -> Unit,
@@ -1533,7 +1601,8 @@ private fun TvPlayerPanelHost(
         modifier = modifier
             .background(Color.Black.copy(alpha = 0.44f)),
         contentAlignment = when (activePanel) {
-            TvPlayerPanel.CHANNELS -> Alignment.CenterStart
+            TvPlayerPanel.CHANNELS,
+            TvPlayerPanel.CATEGORIES -> Alignment.CenterStart
             else -> Alignment.CenterEnd
         }
     ) {
@@ -1541,8 +1610,12 @@ private fun TvPlayerPanelHost(
             TvPlayerPanel.NONE -> Unit
 
             TvPlayerPanel.CHANNELS -> {
+                val panelTitle = selectedChannelGroup
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { group -> "${stringResource(R.string.channels)} • $group" }
+                    ?: stringResource(R.string.channel_list)
                 TvOptionPanel(
-                    title = stringResource(R.string.channel_list),
+                    title = panelTitle,
                     modifier = Modifier.clickable(enabled = false) {},
                     edgeToEdge = true,
                     panelSide = TvPanelSide.START,
@@ -1556,6 +1629,46 @@ private fun TvPlayerPanelHost(
                             selected = channel.id == currentChannelId,
                             enabled = channel.id != currentChannelId,
                             onClick = { onSelectChannel(channel) }
+                        )
+                    }
+                )
+            }
+
+            TvPlayerPanel.CATEGORIES -> {
+                val categoryItems = buildList {
+                    add(
+                        TvPanelOption(
+                            title = stringResource(R.string.category_all),
+                            selected = selectedChannelGroup.isNullOrBlank(),
+                            onClick = { onSelectChannelGroup(null) }
+                        )
+                    )
+                    addAll(
+                        channelGroups.map { group ->
+                            TvPanelOption(
+                                title = group,
+                                selected = group == selectedChannelGroup,
+                                onClick = { onSelectChannelGroup(group) }
+                            )
+                        }
+                    )
+                }
+
+                TvOptionPanel(
+                    title = stringResource(R.string.categories),
+                    modifier = Modifier.clickable(enabled = false) {},
+                    edgeToEdge = true,
+                    panelSide = TvPanelSide.START,
+                    width = 380.dp,
+                    items = if (categoryItems.isNotEmpty()) {
+                        categoryItems
+                    } else {
+                        listOf(
+                            TvPanelOption(
+                                title = stringResource(R.string.no_content),
+                                enabled = false,
+                                onClick = {}
+                            )
                         )
                     }
                 )
