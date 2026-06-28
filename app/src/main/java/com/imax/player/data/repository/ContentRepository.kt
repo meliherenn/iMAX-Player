@@ -4,6 +4,7 @@ import com.imax.player.core.common.SearchMatcher
 import com.imax.player.core.common.StringUtils
 import com.imax.player.core.common.orderCategoryNames
 import com.imax.player.core.database.*
+import com.imax.player.core.common.rethrowIfCancellation
 import com.imax.player.core.model.*
 import com.imax.player.data.parser.XtreamClient
 import com.imax.player.metadata.MetadataProvider
@@ -196,6 +197,7 @@ class ContentRepository @Inject constructor(
             }
             false
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             Timber.e(e, "Failed to sync episodes for series ${series.name}")
             false
         }
@@ -213,6 +215,7 @@ class ContentRepository @Inject constructor(
                 // A null return means no confident match was found
                 result
             } catch (e: Exception) {
+                e.rethrowIfCancellation()
                 Timber.e(e, "Metadata enrichment failed for: $title")
                 null
             }
@@ -224,6 +227,7 @@ class ContentRepository @Inject constructor(
             try {
                 metadataProvider.getCachedMetadata(title, year, contentType)
             } catch (e: Exception) {
+                e.rethrowIfCancellation()
                 Timber.e(e, "Metadata cache lookup failed for: $title")
                 null
             }

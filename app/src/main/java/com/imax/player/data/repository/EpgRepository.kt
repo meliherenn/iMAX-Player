@@ -2,6 +2,7 @@ package com.imax.player.data.repository
 
 import android.content.Context
 import com.imax.player.core.common.SensitiveLog
+import com.imax.player.core.common.rethrowIfCancellation
 import com.imax.player.core.database.EpgDao
 import com.imax.player.core.database.EpgProgramEntity
 import com.imax.player.core.model.Channel
@@ -104,15 +105,17 @@ class EpgRepository @Inject constructor(
                     .url(url)
                     .header("User-Agent", "iMAX Player/Android")
                     .build()
-                val response = okHttpClient.newCall(request).execute()
-                if (!response.isSuccessful) {
-                    return@withContext Result.failure(Exception("HTTP ${response.code}"))
+                val programs = okHttpClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        return@withContext Result.failure(Exception("HTTP ${response.code}"))
+                    }
+                    val body = response.body
+                        ?: return@withContext Result.failure(Exception("Empty body"))
+                    xmltvParser.parse(
+                        body.byteStream().asXmltvInputStream(url, body.contentType()?.toString()),
+                        channelIdMap
+                    )
                 }
-                val body = response.body ?: return@withContext Result.failure(Exception("Empty body"))
-                val programs = xmltvParser.parse(
-                    body.byteStream().asXmltvInputStream(url, body.contentType()?.toString()),
-                    channelIdMap
-                )
                 if (programs.isNotEmpty()) {
                     epgDao.deleteOld(System.currentTimeMillis() - 7_200_000L) // 2h past
                     programs.chunked(500).forEach { epgDao.insertAll(it) }
@@ -120,7 +123,8 @@ class EpgRepository @Inject constructor(
                 Timber.d("EpgRepository: saved ${programs.size} programs")
                 Result.success(programs.size)
             } catch (e: Exception) {
-                Timber.e(e, "EpgRepository fetch failed")
+                e.rethrowIfCancellation()
+                Timber.e("EpgRepository fetch failed: %s", e.javaClass.simpleName)
                 Result.failure(e)
             }
         }

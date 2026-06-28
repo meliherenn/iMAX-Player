@@ -1,6 +1,9 @@
 package com.imax.player
 
 import android.app.PictureInPictureParams
+import android.content.pm.PackageManager
+import android.graphics.Rect
+import android.os.Build
 import android.content.res.Configuration
 import android.os.Bundle
 import android.util.Rational
@@ -35,6 +38,12 @@ class MainActivity : AppCompatActivity() {
 
     // Set to true by PlayerScreen via a side-effect when player is active
     var isPlayerScreenActive: Boolean = false
+        set(value) {
+            field = value
+            updatePictureInPictureParams()
+        }
+
+    private var pipSourceRect: Rect? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
@@ -68,17 +77,46 @@ class MainActivity : AppCompatActivity() {
      */
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (isPlayerScreenActive && !DeviceUtils.resolveUiMode(this).isTv) {
+        if (
+            isPlayerScreenActive &&
+            !DeviceUtils.resolveUiMode(this).isTv &&
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.S
+        ) {
             enterPipMode()
         }
     }
 
     fun enterPipMode() {
-        val params = PictureInPictureParams.Builder()
-            .setAspectRatio(Rational(16, 9))
-            .build()
-        enterPictureInPictureMode(params)
+        if (!supportsPictureInPicture()) return
+        enterPictureInPictureMode(buildPictureInPictureParams())
     }
+
+    fun updatePipSourceRect(sourceRect: Rect) {
+        pipSourceRect = Rect(sourceRect)
+        updatePictureInPictureParams()
+    }
+
+    private fun updatePictureInPictureParams() {
+        if (!supportsPictureInPicture()) return
+        setPictureInPictureParams(buildPictureInPictureParams())
+    }
+
+    private fun buildPictureInPictureParams(): PictureInPictureParams {
+        return PictureInPictureParams.Builder()
+            .setAspectRatio(Rational(16, 9))
+            .apply {
+                pipSourceRect?.takeIf { !it.isEmpty }?.let(::setSourceRectHint)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    setAutoEnterEnabled(isPlayerScreenActive)
+                    setSeamlessResizeEnabled(true)
+                }
+            }
+            .build()
+    }
+
+    private fun supportsPictureInPicture(): Boolean =
+        packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE) &&
+            !DeviceUtils.resolveUiMode(this).isTv
 
     override fun onPictureInPictureModeChanged(
         isInPictureInPictureMode: Boolean,

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.hilt.work.HiltWorker
 import androidx.work.*
 import com.imax.player.core.common.SensitiveLog
+import com.imax.player.core.common.rethrowIfCancellation
 import com.imax.player.core.database.ChannelDao
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
@@ -84,6 +85,7 @@ class StreamHealthCheckWorker @AssistedInject constructor(
                 )
             )
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             Timber.e(e, "StreamHealthCheckWorker failed")
             Result.failure()
         }
@@ -97,12 +99,11 @@ class StreamHealthCheckWorker @AssistedInject constructor(
                 .head()
                 .header("User-Agent", "iMAX Player/Android")
                 .build()
-            val response = pingClient.newCall(request).execute()
-            val code = response.code
-            response.close()
+            val code = pingClient.newCall(request).execute().use { it.code }
             // 2xx and 3xx are OK; 4xx auth errors we treat as alive (stream exists)
             code < 500
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             Timber.v("pingStream dead: %s - %s", SensitiveLog.redactUrl(url), e.javaClass.simpleName)
             false
         }

@@ -5,6 +5,7 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.*
 import com.imax.player.core.database.ChannelDao
 import com.imax.player.core.common.SensitiveLog
+import com.imax.player.core.common.rethrowIfCancellation
 import com.imax.player.core.database.EpgDao
 import com.imax.player.core.database.PlaylistDao
 import com.imax.player.core.database.toModel
@@ -51,22 +52,23 @@ class EpgSyncWorker @AssistedInject constructor(
                 .header("User-Agent", "iMAX Player/Android")
                 .build()
 
-            val response = okHttpClient.newCall(request).execute()
-            if (!response.isSuccessful) {
-                Timber.w("EpgSyncWorker: HTTP ${response.code}")
-                return if (runAttemptCount < 2) Result.retry() else Result.failure()
-            }
+            val programs = okHttpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Timber.w("EpgSyncWorker: HTTP ${response.code}")
+                    return if (runAttemptCount < 2) Result.retry() else Result.failure()
+                }
 
-            val body = response.body ?: run {
-                Timber.w("EpgSyncWorker: empty body")
-                return Result.failure()
-            }
+                val body = response.body ?: run {
+                    Timber.w("EpgSyncWorker: empty body")
+                    return Result.failure()
+                }
 
-            val channelIdMap = buildActiveChannelIdMap()
-            val programs = xmltvParser.parse(
-                body.byteStream().asXmltvInputStream(epgUrl, body.contentType()?.toString()),
-                channelIdMap.takeIf { it.isNotEmpty() }
-            )
+                val channelIdMap = buildActiveChannelIdMap()
+                xmltvParser.parse(
+                    body.byteStream().asXmltvInputStream(epgUrl, body.contentType()?.toString()),
+                    channelIdMap.takeIf { it.isNotEmpty() }
+                )
+            }
             if (programs.isEmpty()) {
                 Timber.w("EpgSyncWorker: no programs parsed")
                 return Result.success() // Not a failure — might be empty EPG
@@ -84,6 +86,7 @@ class EpgSyncWorker @AssistedInject constructor(
             Timber.d("EpgSyncWorker: inserted ${programs.size} programs")
             Result.success()
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             Timber.e(e, "EpgSyncWorker failed")
             if (runAttemptCount < 2) Result.retry() else Result.failure()
         }

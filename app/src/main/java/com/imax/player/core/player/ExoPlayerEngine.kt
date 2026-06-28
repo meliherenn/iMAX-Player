@@ -118,13 +118,18 @@ class ExoPlayerEngine @Inject constructor(
         liveLatencyMode: String,
         preferHwDecoding: Boolean
     ) {
+        val configurationChanged = configuredBufferMs != bufferDurationMs ||
+            !configuredLatencyMode.equals(liveLatencyMode, ignoreCase = true) ||
+            configuredPreferHw != preferHwDecoding
         configuredBufferMs = bufferDurationMs
         configuredLatencyMode = liveLatencyMode
         configuredPreferHw = preferHwDecoding
 
-        runOnMain {
-            val profile = currentProfile ?: return@runOnMain
-            rebuildPlayer(profile)
+        if (configurationChanged) {
+            runOnMain {
+                val profile = currentProfile ?: return@runOnMain
+                rebuildPlayer(profile)
+            }
         }
     }
 

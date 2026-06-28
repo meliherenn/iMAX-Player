@@ -19,7 +19,9 @@ class ImaxApp : Application(), Configuration.Provider {
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
             .setWorkerFactory(workerFactory)
-            .setMinimumLoggingLevel(android.util.Log.INFO)
+            .setMinimumLoggingLevel(
+                if (BuildConfig.DEBUG) android.util.Log.DEBUG else android.util.Log.WARN
+            )
             .build()
 
     override fun onCreate() {

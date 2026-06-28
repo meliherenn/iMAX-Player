@@ -427,6 +427,9 @@ fun PlayerScreen(
                 playbackActive = playbackActive,
                 shellMode = PlayerShellMode.MOBILE
             ),
+            onSurfaceBoundsChanged = { bounds ->
+                (activity as? com.imax.player.MainActivity)?.updatePipSourceRect(bounds)
+            },
             placeholder = {
                 CircularProgressIndicator(
                     color = ImaxColors.Primary,

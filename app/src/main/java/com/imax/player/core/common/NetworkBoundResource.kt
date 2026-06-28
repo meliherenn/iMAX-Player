@@ -44,6 +44,7 @@ inline fun <DB, Network> networkBoundResource(
             saveFetchResult(networkResult)
             emitAll(query().map { Resource.Success(it) })
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             onFetchFailed(e)
             val errorMsg = when {
                 e.message?.contains("Unable to resolve host") == true ||

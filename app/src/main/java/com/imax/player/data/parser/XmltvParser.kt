@@ -1,6 +1,7 @@
 package com.imax.player.data.parser
 
 import com.imax.player.core.database.EpgProgramEntity
+import com.imax.player.core.common.rethrowIfCancellation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.xml.sax.Attributes
@@ -48,6 +49,7 @@ class XmltvParser @Inject constructor() {
             val result: List<EpgProgramEntity> = try {
                 parseInternal(inputStream, channelIdMap)
             } catch (e: Exception) {
+                e.rethrowIfCancellation()
                 Timber.e(e, "XMLTV parse failed")
                 emptyList()
             }

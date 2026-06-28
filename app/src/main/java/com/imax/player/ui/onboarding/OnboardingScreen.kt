@@ -1,10 +1,15 @@
 package com.imax.player.ui.onboarding
 
+import android.graphics.Bitmap
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
@@ -49,6 +54,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -60,6 +66,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
@@ -67,6 +74,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.ImeAction
@@ -82,7 +90,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.imax.player.BuildConfig
 import com.imax.player.core.common.Resource
+import com.imax.player.core.common.rethrowIfCancellation
 import com.imax.player.core.designsystem.theme.ImaxColors
 import com.imax.player.core.designsystem.theme.LocalImaxDimens
 import com.imax.player.core.model.Playlist
@@ -98,7 +108,6 @@ import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
 import android.content.Context
-import android.net.Uri
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -113,16 +122,21 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.File
+import java.security.SecureRandom
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import coil.compose.AsyncImage
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.MultiFormatWriter
+import com.google.zxing.EncodeHintType
+import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 
 private const val TV_ONBOARDING_LOG_TAG = "TvOnboarding"
 
-private const val SUPABASE_URL = "https://apkurmmvlpqsznybnxyq.supabase.co"
-private const val SUPABASE_ANON_KEY = "sb_publishable_QU2LmMC06cBEpcabFqjTJg_vIrEFNUm"
+private const val REMOTE_PAIRING_CODE_LENGTH = 8
+private const val MAX_REMOTE_PLAYLIST_BYTES = 5L * 1024L * 1024L
+private const val PAIRING_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 
 @Serializable
-data class SupabasePairingResponse(
+data class RemotePairingResponse(
     val status: String,
     val payload: JsonObject? = null
 )
@@ -160,7 +174,8 @@ data class OnboardingState(
     val syncError: String? = null,
     val pairingCode: String? = null,
     val pairingStatus: String? = null,
-    val pairingErrorMessage: String? = null
+    val pairingErrorMessage: String? = null,
+    val isRemoteSetupAvailable: Boolean = BuildConfig.REMOTE_SETUP_ENABLED
 )
 
 @HiltViewModel
@@ -173,6 +188,7 @@ class OnboardingViewModel @Inject constructor(
     val state: StateFlow<OnboardingState> = _state.asStateFlow()
 
     private var pairingJob: Job? = null
+    private val secureRandom = SecureRandom()
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -197,8 +213,18 @@ class OnboardingViewModel @Inject constructor(
     }
 
     fun startQrPairing(onPlaylistSelected: () -> Unit) {
+        if (!BuildConfig.REMOTE_SETUP_ENABLED) {
+            _state.update {
+                it.copy(pairingErrorMessage = "Uzaktan kurulum bu build için yapılandırılmamış.")
+            }
+            return
+        }
         pairingJob?.cancel()
-        val code = (1..6).map { "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".random() }.joinToString("")
+        val code = buildString(REMOTE_PAIRING_CODE_LENGTH) {
+            repeat(REMOTE_PAIRING_CODE_LENGTH) {
+                append(PAIRING_ALPHABET[secureRandom.nextInt(PAIRING_ALPHABET.length)])
+            }
+        }
         _state.update {
             it.copy(
                 pairingCode = code,
@@ -235,7 +261,7 @@ class OnboardingViewModel @Inject constructor(
                                 pairingCode = null
                             )
                         }
-                        saveAndActivateRemotePlaylist(response.payload, onPlaylistSelected)
+                        saveAndActivateRemotePlaylist(code, response.payload, onPlaylistSelected)
                     } else {
                         _state.update {
                             it.copy(
@@ -275,17 +301,15 @@ class OnboardingViewModel @Inject constructor(
         try {
             val jsonBody = """
                 {
-                    "pairing_code": "$code",
+                    "pairingCode": "$code",
                     "status": "pending",
                     "payload": {}
                 }
             """.trimIndent()
             val body = jsonBody.toRequestBody("application/json".toMediaType())
             val request = Request.Builder()
-                .url("$SUPABASE_URL/rest/v1/tv_pairings")
+                .url("${BuildConfig.REMOTE_SETUP_API_BASE_URL}/api/pairings")
                 .post(body)
-                .addHeader("apikey", SUPABASE_ANON_KEY)
-                .addHeader("Authorization", "Bearer $SUPABASE_ANON_KEY")
                 .addHeader("Content-Type", "application/json")
                 .build()
 
@@ -293,39 +317,45 @@ class OnboardingViewModel @Inject constructor(
                 response.isSuccessful
             }
         } catch (e: Exception) {
-            Timber.e(e, "Failed to insert pairing code")
+            e.rethrowIfCancellation()
+            Timber.e("Failed to insert pairing code: %s", e.javaClass.simpleName)
             false
         }
     }
 
-    private suspend fun checkPairingStatus(code: String): SupabasePairingResponse? = withContext(Dispatchers.IO) {
+    private suspend fun checkPairingStatus(code: String): RemotePairingResponse? = withContext(Dispatchers.IO) {
         try {
             val request = Request.Builder()
-                .url("$SUPABASE_URL/rest/v1/tv_pairings?pairing_code=eq.$code&select=status,payload")
+                .url("${BuildConfig.REMOTE_SETUP_API_BASE_URL}/api/pairings/$code")
                 .get()
-                .addHeader("apikey", SUPABASE_ANON_KEY)
-                .addHeader("Authorization", "Bearer $SUPABASE_ANON_KEY")
                 .build()
 
             okHttpClient.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
                     val bodyString = response.body?.string() ?: return@use null
-                    val list = json.decodeFromString<List<SupabasePairingResponse>>(bodyString)
-                    list.firstOrNull()
+                    json.decodeFromString<RemotePairingResponse>(bodyString)
                 } else {
                     null
                 }
             }
         } catch (e: Exception) {
-            Timber.e(e, "Failed to check pairing status")
+            e.rethrowIfCancellation()
+            Timber.e("Failed to check pairing status: %s", e.javaClass.simpleName)
             null
         }
     }
 
-    private fun saveAndActivateRemotePlaylist(payloadJson: JsonObject, onPlaylistSelected: () -> Unit) {
+    private fun saveAndActivateRemotePlaylist(
+        expectedPairingCode: String,
+        payloadJson: JsonObject,
+        onPlaylistSelected: () -> Unit
+    ) {
         viewModelScope.launch {
             try {
                 val payload = json.decodeFromJsonElement<RemoteSetupPayload>(payloadJson)
+                require(payload.pairingCode.equals(expectedPairingCode, ignoreCase = true)) {
+                    "Eşleştirme kodu doğrulanamadı."
+                }
                 val remotePlaylist = payload.playlist
 
                 val type = when (remotePlaylist.type) {
@@ -337,12 +367,7 @@ class OnboardingViewModel @Inject constructor(
 
                 var filePath = ""
                 if (type == PlaylistType.M3U_FILE && remotePlaylist.fileContent.isNotEmpty()) {
-                    val dir = File(context.filesDir, "playlists")
-                    if (!dir.exists()) dir.mkdirs()
-                    val fileName = remotePlaylist.fileName.ifBlank { "remote_${System.currentTimeMillis()}.m3u" }
-                    val file = File(dir, fileName)
-                    file.writeText(remotePlaylist.fileContent)
-                    filePath = file.absolutePath
+                    filePath = writeRemotePlaylistFile(remotePlaylist)
                 }
 
                 val playlist = Playlist(
@@ -361,7 +386,8 @@ class OnboardingViewModel @Inject constructor(
 
                 selectPlaylist(savedPlaylist, onPlaylistSelected)
             } catch (e: Exception) {
-                Timber.e(e, "Failed to save remote playlist")
+                e.rethrowIfCancellation()
+                Timber.e("Failed to save remote playlist: %s", e.javaClass.simpleName)
                 _state.update {
                     it.copy(
                         pairingStatus = "error",
@@ -371,6 +397,22 @@ class OnboardingViewModel @Inject constructor(
             }
         }
     }
+
+    private suspend fun writeRemotePlaylistFile(remotePlaylist: RemotePlaylistInfo): String =
+        withContext(Dispatchers.IO) {
+            val contentBytes = remotePlaylist.fileContent.toByteArray(Charsets.UTF_8)
+            require(contentBytes.size <= MAX_REMOTE_PLAYLIST_BYTES) {
+                "Uzaktan gönderilen playlist dosyası 5 MB sınırını aşıyor."
+            }
+
+            val safeName = File(remotePlaylist.fileName).name
+                .replace(Regex("[^A-Za-z0-9._-]"), "_")
+                .take(96)
+                .takeIf { it.isNotBlank() && it != "." && it != ".." }
+                ?: "remote_${System.currentTimeMillis()}.m3u"
+            val directory = File(context.filesDir, "playlists").apply { mkdirs() }
+            File(directory, safeName).apply { writeBytes(contentBytes) }.absolutePath
+        }
 
     fun showAddDialog() = _state.update { it.copy(showAddDialog = true, syncError = null) }
     fun hideAddDialog() = _state.update { it.copy(showAddDialog = false) }
@@ -680,7 +722,7 @@ private fun TvOnboardingContent(
             if (state.playlists.isNotEmpty()) {
                 firstPlaylistFocusRequester.requestFocusSafely("TV onboarding first saved playlist")
             } else {
-                addPlaylistFocusRequester.requestFocusSafely("TV onboarding QR pairing card")
+                addPlaylistFocusRequester.requestFocusSafely("TV onboarding add source card")
             }
         }
     }
@@ -720,14 +762,21 @@ private fun TvOnboardingContent(
                         .padding(horizontal = 72.dp),
                     horizontalArrangement = Arrangement.spacedBy(24.dp)
                 ) {
-                    TvQrPairingCard(
-                        modifier = Modifier
-                            .weight(1.2f)
-                            .focusRequester(addPlaylistFocusRequester),
-                        onClick = { viewModel.startQrPairing(onPlaylistSelected) }
-                    )
+                    if (state.isRemoteSetupAvailable) {
+                        TvQrPairingCard(
+                            modifier = Modifier
+                                .weight(1.2f)
+                                .focusRequester(addPlaylistFocusRequester),
+                            onClick = { viewModel.startQrPairing(onPlaylistSelected) }
+                        )
+                    }
                     TvAddPlaylistCard(
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .then(
+                                if (state.isRemoteSetupAvailable) Modifier
+                                else Modifier.focusRequester(addPlaylistFocusRequester)
+                            ),
                         onClick = { viewModel.showAddDialog() }
                     )
                 }
@@ -788,10 +837,12 @@ private fun TvOnboardingContent(
                 onTest = { name, type, url, server, user, pass, onResult ->
                     viewModel.testDraftConnection(name, type, url, server, user, pass, onResult)
                 },
-                onQrClick = {
-                    viewModel.hideAddDialog()
-                    viewModel.startQrPairing(onPlaylistSelected)
-                }
+                onQrClick = if (state.isRemoteSetupAvailable) {
+                    {
+                        viewModel.hideAddDialog()
+                        viewModel.startQrPairing(onPlaylistSelected)
+                    }
+                } else null
             )
         }
 
@@ -800,6 +851,8 @@ private fun TvOnboardingContent(
                 pairingCode = state.pairingCode,
                 pairingStatus = state.pairingStatus ?: "pending",
                 errorMessage = state.pairingErrorMessage,
+                apiBaseUrl = BuildConfig.REMOTE_SETUP_API_BASE_URL,
+                webBaseUrl = BuildConfig.REMOTE_SETUP_WEB_BASE_URL,
                 onDismiss = { viewModel.cancelPairing() }
             )
         }
@@ -1714,6 +1767,7 @@ private fun MobileAddPlaylistDialog(
     onAdd: (String, PlaylistType, String, String, String, String, String) -> Unit,
     onTest: (String, PlaylistType, String, String, String, String, (String) -> Unit) -> Unit
 ) {
+    val context = LocalContext.current
     var selectedType by remember(initialPlaylist?.id) {
         mutableStateOf(initialPlaylist?.type ?: PlaylistType.M3U_URL)
     }
@@ -1742,6 +1796,18 @@ private fun MobileAddPlaylistDialog(
     }
     var isTesting by remember { mutableStateOf(false) }
     var testMessage by remember { mutableStateOf<String?>(null) }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            url = uri.toString()
+            testMessage = null
+        }
+    }
 
     val canSave = remember(selectedType, name, url, server, username, password) {
         isDraftValid(
@@ -1810,12 +1876,28 @@ private fun MobileAddPlaylistDialog(
                     }
 
                     PlaylistType.M3U_FILE -> {
-                        DialogTextField(
-                            value = url,
-                            onValueChange = { url = it },
-                            label = "File Path",
-                            imeAction = ImeAction.Next
-                        )
+                        OutlinedButton(
+                            onClick = {
+                                filePicker.launch(
+                                    arrayOf(
+                                        "application/vnd.apple.mpegurl",
+                                        "audio/x-mpegurl",
+                                        "text/plain",
+                                        "application/octet-stream"
+                                    )
+                                )
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(if (url.isBlank()) "Choose playlist file" else "Change playlist file")
+                        }
+                        if (url.isNotBlank()) {
+                            Text(
+                                text = "File selected",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = ImaxColors.Success
+                            )
+                        }
                     }
 
                     PlaylistType.XTREAM_CODES -> {
@@ -2843,11 +2925,16 @@ private fun TvQrPairingDialog(
     pairingCode: String,
     pairingStatus: String,
     errorMessage: String?,
+    apiBaseUrl: String,
+    webBaseUrl: String,
     onDismiss: () -> Unit
 ) {
-    val netlifyBaseUrl = "https://imax-player.netlify.app"
-    val pairingUrl = "$netlifyBaseUrl/?code=$pairingCode"
-    val qrCodeUrl = "https://api.qrserver.com/v1/create-qr-code/?size=400x400&color=ffffff&bgcolor=12121a&data=${Uri.encode(pairingUrl)}"
+    val pairingUrl = remember(pairingCode, apiBaseUrl, webBaseUrl) {
+        val encodedCode = java.net.URLEncoder.encode(pairingCode, "UTF-8")
+        val encodedApiUrl = java.net.URLEncoder.encode(apiBaseUrl, "UTF-8")
+        "$webBaseUrl/?code=$encodedCode&api=$encodedApiUrl"
+    }
+    val qrCode = remember(pairingUrl) { createPairingQrCode(pairingUrl) }
 
     val closeFocusRequester = remember { FocusRequester() }
 
@@ -2905,13 +2992,15 @@ private fun TvQrPairingDialog(
                             .border(1.dp, ImaxColors.CardBorder, RoundedCornerShape(20.dp)),
                         contentAlignment = Alignment.Center
                     ) {
-                        AsyncImage(
-                            model = qrCodeUrl,
-                            contentDescription = "Pairing QR Code",
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(16.dp)
-                        )
+                        qrCode?.let { bitmap ->
+                            Image(
+                                bitmap = bitmap.asImageBitmap(),
+                                contentDescription = "Pairing QR Code",
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(16.dp)
+                            )
+                        }
                     }
 
                     // Right: Code displays and status
@@ -2945,7 +3034,7 @@ private fun TvQrPairingDialog(
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = netlifyBaseUrl,
+                                text = webBaseUrl,
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = ImaxColors.TextSecondary
                             )
@@ -3018,3 +3107,20 @@ private fun TvQrPairingDialog(
         }
     }
 }
+
+private fun createPairingQrCode(content: String, size: Int = 400): Bitmap? = runCatching {
+    val hints = mapOf(
+        EncodeHintType.MARGIN to 1,
+        EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M
+    )
+    val matrix = MultiFormatWriter().encode(content, BarcodeFormat.QR_CODE, size, size, hints)
+    val pixels = IntArray(size * size)
+    for (y in 0 until size) {
+        for (x in 0 until size) {
+            pixels[y * size + x] = if (matrix[x, y]) android.graphics.Color.BLACK else android.graphics.Color.WHITE
+        }
+    }
+    Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888).apply {
+        setPixels(pixels, 0, size, 0, 0, size, size)
+    }
+}.getOrNull()

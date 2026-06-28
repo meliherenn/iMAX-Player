@@ -45,6 +45,24 @@ class PlayerManagerTest {
     }
 
     @Test
+    fun `engine switch replays active buffering paused and error requests`() {
+        assertThat(shouldReplayAfterEngineSwitch(PlaybackState.BUFFERING)).isTrue()
+        assertThat(shouldReplayAfterEngineSwitch(PlaybackState.PLAYING)).isTrue()
+        assertThat(shouldReplayAfterEngineSwitch(PlaybackState.PAUSED)).isTrue()
+        assertThat(shouldReplayAfterEngineSwitch(PlaybackState.ERROR)).isTrue()
+        assertThat(shouldReplayAfterEngineSwitch(PlaybackState.IDLE)).isFalse()
+        assertThat(shouldReplayAfterEngineSwitch(PlaybackState.STOPPED)).isFalse()
+        assertThat(shouldReplayAfterEngineSwitch(PlaybackState.ENDED)).isFalse()
+    }
+
+    @Test
+    fun `engine switch resets live position and preserves nonnegative vod position`() {
+        assertThat(engineSwitchStartPosition(PlaybackProfile.LIVE, 45_000L)).isEqualTo(0L)
+        assertThat(engineSwitchStartPosition(PlaybackProfile.VOD, 45_000L)).isEqualTo(45_000L)
+        assertThat(engineSwitchStartPosition(PlaybackProfile.VOD, -1L)).isEqualTo(0L)
+    }
+
+    @Test
     fun `player engine contract exposes single profile aware play method`() {
         val engine = object : PlayerEngine {
             override val state = MutableStateFlow(PlayerState())

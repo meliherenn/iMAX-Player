@@ -29,7 +29,6 @@ object DatabaseModule {
                 ImaxDatabase.MIGRATION_4_5,
                 ImaxDatabase.MIGRATION_5_6
             )
-            .fallbackToDestructiveMigration()
             .build()
     }
 

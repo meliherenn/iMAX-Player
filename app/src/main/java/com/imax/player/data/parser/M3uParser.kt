@@ -3,6 +3,7 @@ package com.imax.player.data.parser
 import com.imax.player.core.database.ChannelEntity
 import com.imax.player.core.database.MovieEntity
 import com.imax.player.core.database.SeriesEntity
+import com.imax.player.core.common.rethrowIfCancellation
 import com.imax.player.core.model.ContentType
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import timber.log.Timber
@@ -70,6 +71,7 @@ class M3uParser @Inject constructor() {
                 }
             }
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             Timber.e(e, "Error parsing M3U")
         }
 

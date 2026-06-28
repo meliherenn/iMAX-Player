@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.hilt.work.HiltWorker
 import androidx.work.*
 import com.imax.player.core.database.ChannelDao
+import com.imax.player.core.common.rethrowIfCancellation
 import com.imax.player.core.database.PlaylistDao
 import com.imax.player.data.repository.PlaylistRepository
 import dagger.assisted.Assisted
@@ -67,6 +68,7 @@ class PlaylistRefreshWorker @AssistedInject constructor(
                 else -> Result.failure()
             }
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             Timber.e(e, "PlaylistRefreshWorker failed")
             if (runAttemptCount < 2) Result.retry() else Result.failure()
         }

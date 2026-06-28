@@ -284,7 +284,10 @@ private fun SetPinDialog(
             }
         }
     }
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    LaunchedEffect(Unit) {
+        androidx.compose.runtime.withFrameNanos { }
+        runCatching { focusRequester.requestFocus() }
+    }
 }
 
 // ─── Verify PIN Dialog ───────────────────────────────────────────────────────

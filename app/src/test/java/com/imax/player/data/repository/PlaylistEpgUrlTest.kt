@@ -1,7 +1,6 @@
 package com.imax.player.data.repository
 
 import com.google.common.truth.Truth.assertThat
-import com.imax.player.core.model.Channel
 import com.imax.player.core.model.Playlist
 import com.imax.player.core.model.PlaylistType
 import org.junit.Test
@@ -93,36 +92,4 @@ class PlaylistEpgUrlTest {
         assertThat(credentials?.password).isEqualTo("pass1")
     }
 
-    @Test
-    fun `turkish public epg urls include requested fallback sources`() {
-        assertThat(TURKISH_PUBLIC_EPG_URLS).containsExactly(
-            "https://www.open-epg.com/files/turkey1.xml",
-            "https://www.open-epg.com/files/turkey2.xml",
-            "https://www.open-epg.com/files/turkey3.xml",
-            "https://www.open-epg.com/files/turkey4.xml",
-            "https://www.open-epg.com/files/turkey5.xml",
-            "https://epgshare01.online/epgshare01/epg_ripper_TR1.xml.gz",
-            "https://epgshare01.online/epgshare01/epg_ripper_TR3.xml.gz"
-        ).inOrder()
-    }
-
-    @Test
-    fun `turkish public epg fallback is enabled for tr channel lists`() {
-        val channels = listOf(
-            Channel(playlistId = 1L, name = "TR • TRT 1 FHD", groupTitle = "TR Ulusal", streamUrl = "https://example.test/1"),
-            Channel(playlistId = 1L, name = "TR • Show HD", groupTitle = "TR Ulusal", streamUrl = "https://example.test/2")
-        )
-
-        assertThat(shouldUseTurkishPublicEpgFallback(channels)).isTrue()
-    }
-
-    @Test
-    fun `turkish public epg fallback is not enabled for unrelated channel lists`() {
-        val channels = listOf(
-            Channel(playlistId = 1L, name = "BBC News", groupTitle = "UK News", streamUrl = "https://example.test/1"),
-            Channel(playlistId = 1L, name = "CNN International", groupTitle = "News", streamUrl = "https://example.test/2")
-        )
-
-        assertThat(shouldUseTurkishPublicEpgFallback(channels)).isFalse()
-    }
 }

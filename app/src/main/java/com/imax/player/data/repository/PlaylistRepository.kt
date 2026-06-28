@@ -1,13 +1,17 @@
 package com.imax.player.data.repository
 
+import android.content.Context
+import android.net.Uri
 import androidx.room.withTransaction
 import com.imax.player.core.common.Resource
+import com.imax.player.core.common.rethrowIfCancellation
 import com.imax.player.core.database.*
 import com.imax.player.core.datastore.SettingsDataStore
 import com.imax.player.core.model.*
 import com.imax.player.data.parser.M3uParser
 import com.imax.player.data.parser.XtreamClient
 import com.imax.player.data.parser.XtreamContentResult
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -37,7 +41,8 @@ class PlaylistRepository @Inject constructor(
     private val xtreamClient: XtreamClient,
     private val epgRepository: EpgRepository,
     private val okHttpClient: OkHttpClient,
-    private val settingsDataStore: SettingsDataStore
+    private val settingsDataStore: SettingsDataStore,
+    @ApplicationContext private val context: Context
 ) {
     private val epgDiscoveryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val epgDiscoveryJobs = ConcurrentHashMap<Long, Job>()
@@ -83,18 +88,23 @@ class PlaylistRepository @Inject constructor(
             when (playlist.type) {
                 PlaylistType.M3U_URL -> {
                     val request = Request.Builder().url(playlist.url).head().build()
-                    val response = okHttpClient.newCall(request).execute()
-                    if (response.isSuccessful) Result.success("Connection successful")
-                    else Result.failure(Exception("HTTP ${response.code}"))
+                    okHttpClient.newCall(request).execute().use { response ->
+                        if (response.isSuccessful) Result.success("Connection successful")
+                        else Result.failure(Exception("HTTP ${response.code}"))
+                    }
                 }
                 PlaylistType.XTREAM_CODES -> {
                     val result = xtreamClient.authenticate(playlist.serverUrl, playlist.username, playlist.password)
                     result.map { "Connection successful - ${it.userInfo?.status}" }
                 }
-                PlaylistType.M3U_FILE -> Result.success("Local file ready")
+                PlaylistType.M3U_FILE -> {
+                    openLocalPlaylist(playlist.filePath).use { }
+                    Result.success("Local file ready")
+                }
             }
         } catch (e: Exception) {
-            Timber.e(e, "Connection test failed")
+            e.rethrowIfCancellation()
+            Timber.e("Connection test failed: %s", e.javaClass.simpleName)
             Result.failure(e)
         }
     }
@@ -130,7 +140,8 @@ class PlaylistRepository @Inject constructor(
 
             Resource.Success(Unit)
         } catch (e: Exception) {
-            Timber.e(e, "Sync failed for playlist ${playlist.id}")
+            e.rethrowIfCancellation()
+            Timber.e("Sync failed for playlist %d: %s", playlist.id, e.javaClass.simpleName)
             Resource.Error(e.message ?: "Sync failed", e)
         }
     }
@@ -176,6 +187,7 @@ class PlaylistRepository @Inject constructor(
 
             syncDiscoveredEpg(normalizedPlaylist, content.toEpgDiscoverySeed())
         }.getOrElse { error ->
+            error.rethrowIfCancellation()
             Timber.w(error, "EPG auto discovery failed for playlist ${playlist.id}")
             false
         }
@@ -193,11 +205,23 @@ class PlaylistRepository @Inject constructor(
     }
 
     private suspend fun loadM3uFile(playlist: Playlist): com.imax.player.data.parser.M3uParseResult {
-        val file = java.io.File(playlist.filePath)
-        if (!file.exists()) throw Exception("File not found: ${playlist.filePath}")
-        return file.inputStream().use { input ->
+        return openLocalPlaylist(playlist.filePath).use { input ->
             m3uParser.parse(input, playlist.id)
         }
+    }
+
+    private fun openLocalPlaylist(location: String): java.io.InputStream {
+        val trimmed = location.trim()
+        require(trimmed.isNotBlank()) { "Playlist file is not selected" }
+
+        if (trimmed.startsWith("content://", ignoreCase = true)) {
+            return context.contentResolver.openInputStream(Uri.parse(trimmed))
+                ?: throw IllegalStateException("Selected playlist file cannot be opened")
+        }
+
+        val file = java.io.File(trimmed)
+        if (!file.isFile) throw IllegalStateException("Selected playlist file cannot be opened")
+        return file.inputStream()
     }
 
     private suspend fun loadXtream(playlist: Playlist): XtreamContentResult =
@@ -256,10 +280,6 @@ class PlaylistRepository @Inject constructor(
             Timber.d("No EPG URL discovered for playlist ${playlist.id}")
         }
 
-        if (syncTurkishPublicEpgFallback(playlist, channels)) {
-            return true
-        }
-
         return syncXtreamApiEpg(playlist, channels)
     }
 
@@ -277,6 +297,7 @@ class PlaylistRepository @Inject constructor(
             try {
                 syncDiscoveredEpg(playlist, seed)
             } catch (error: Exception) {
+                error.rethrowIfCancellation()
                 Timber.w(error, "Background EPG discovery failed for playlist ${playlist.id}")
             } finally {
                 epgDiscoveryJobs.remove(playlist.id)
@@ -362,41 +383,6 @@ class PlaylistRepository @Inject constructor(
         settingsDataStore.updateEpgLastSync(System.currentTimeMillis())
         Timber.d("Xtream API EPG sync completed for playlist ${playlist.id}: $savedProgramCount programs")
         return true
-    }
-
-    private suspend fun syncTurkishPublicEpgFallback(
-        playlist: Playlist,
-        channels: List<Channel>
-    ): Boolean {
-        if (!shouldUseTurkishPublicEpgFallback(channels)) {
-            return false
-        }
-
-        val channelIdMap = epgRepository.buildChannelIdMap(channels)
-        var savedProgramCount = 0
-
-        TURKISH_PUBLIC_EPG_URLS.forEach { epgUrl ->
-            val result = epgRepository.fetchAndSave(epgUrl, channelIdMap)
-            val count = result.getOrNull() ?: 0
-            if (result.isFailure || count <= 0) {
-                result.exceptionOrNull()?.let { error ->
-                    Timber.w(error, "Turkish public EPG fallback failed for playlist ${playlist.id}")
-                }
-                return@forEach
-            }
-
-            savedProgramCount += count
-            if (hasCurrentEpgMatches(channels)) {
-                settingsDataStore.updateEpgLastSync(System.currentTimeMillis())
-                Timber.d("Turkish public EPG fallback completed for playlist ${playlist.id}: $savedProgramCount programs")
-                return true
-            }
-        }
-
-        if (savedProgramCount > 0) {
-            Timber.w("Turkish public EPG fallback parsed programs but matched no current channels for playlist ${playlist.id}")
-        }
-        return false
     }
 
     private suspend fun hasCurrentEpgMatches(channels: List<Channel>): Boolean =
@@ -596,62 +582,6 @@ internal fun resolveM3uEpgUrls(
         .map(String::trim)
         .filter(String::isNotBlank)
         .distinct()
-
-internal val TURKISH_PUBLIC_EPG_URLS = listOf(
-    "https://www.open-epg.com/files/turkey1.xml",
-    "https://www.open-epg.com/files/turkey2.xml",
-    "https://www.open-epg.com/files/turkey3.xml",
-    "https://www.open-epg.com/files/turkey4.xml",
-    "https://www.open-epg.com/files/turkey5.xml",
-    "https://epgshare01.online/epgshare01/epg_ripper_TR1.xml.gz",
-    "https://epgshare01.online/epgshare01/epg_ripper_TR3.xml.gz"
-)
-
-internal fun shouldUseTurkishPublicEpgFallback(channels: List<Channel>): Boolean {
-    if (channels.isEmpty()) return false
-
-    val strongMatch = channels.any { channel ->
-        val fields = listOf(channel.name, channel.groupTitle, channel.epgChannelId)
-            .map { it.trim().lowercase(Locale.ROOT) }
-        fields.any { value ->
-            value.startsWith("tr ") ||
-                value.startsWith("tr.") ||
-                value.startsWith("tr-") ||
-                value.contains(" tr ") ||
-                value.endsWith(".tr") ||
-                value.endsWith("-tr") ||
-                value.contains("turkey") ||
-                value.contains("turkiye") ||
-                value.contains("türkiye")
-        }
-    }
-    if (strongMatch) return true
-
-    val knownTurkishChannelMatches = channels.count { channel ->
-        val normalized = listOf(channel.name, channel.groupTitle, channel.epgChannelId)
-            .joinToString(" ")
-            .lowercase(Locale.ROOT)
-        knownTurkishChannelTokens.any { token -> normalized.contains(token) }
-    }
-    return knownTurkishChannelMatches >= 3
-}
-
-private val knownTurkishChannelTokens = listOf(
-    "trt",
-    "kanal d",
-    "show tv",
-    "show hd",
-    "atv",
-    "star tv",
-    "now tv",
-    "tv8",
-    "a haber",
-    "haberturk",
-    "haber turk",
-    "kanal 7",
-    "beyaz tv",
-    "teve2"
-)
 
 private fun String.splitEpgSourceUrls(): List<String> =
     lineSequence()

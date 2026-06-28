@@ -3,6 +3,7 @@ package com.imax.player.metadata
 import com.imax.player.BuildConfig
 import com.imax.player.core.common.Constants
 import com.imax.player.core.common.StringUtils
+import com.imax.player.core.common.rethrowIfCancellation
 import com.imax.player.core.database.MetadataCacheDao
 import com.imax.player.core.database.MetadataCacheEntity
 import com.imax.player.core.model.ContentType
@@ -180,6 +181,7 @@ class MetadataProvider @Inject constructor(
 
             return result.takeIf { it.hasUsableDetails() }
         } catch (e: Exception) {
+            e.rethrowIfCancellation()
             Timber.e(e, "Failed to fetch metadata for: $title")
             return null
         }
@@ -213,8 +215,9 @@ class MetadataProvider @Inject constructor(
 
         return runCatching {
             fetchDetailByTmdbId(tmdbId, contentType, ENGLISH_FALLBACK_LANGUAGE)
-        }.onFailure {
-            Timber.w(it, "Failed to fetch English fallback metadata for TMDB id=$tmdbId")
+        }.onFailure { error ->
+            error.rethrowIfCancellation()
+            Timber.w(error, "Failed to fetch English fallback metadata for TMDB id=$tmdbId")
         }.getOrNull()
     }
 

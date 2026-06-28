@@ -6,8 +6,10 @@ import javax.inject.Inject
 import javax.inject.Provider
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -97,23 +99,18 @@ class PlayerManager @Inject constructor(
     suspend fun switchEngine(targetType: PlayerEngineType) {
         switchMutex.withLock {
             _switchState.value = EngineSwitchState.SWITCHING
+            var engineBeingPrepared: PlayerEngine? = null
 
             try {
                 val previousState = _playerState.value
                 val pendingPlaybackRequest = lastPlaybackRequest?.takeIf {
-                    previousState.playbackState !in listOf(
-                        PlaybackState.IDLE,
-                        PlaybackState.STOPPED,
-                        PlaybackState.ENDED,
-                        PlaybackState.ERROR
-                    ) && previousState.isPlaybackConfirmed
+                    shouldReplayAfterEngineSwitch(previousState.playbackState)
                 }?.let { request ->
                     request.copy(
-                        startPosition = if (request.profile == PlaybackProfile.LIVE) {
-                            0L
-                        } else {
-                            previousState.currentPosition.coerceAtLeast(0L)
-                        }
+                        startPosition = engineSwitchStartPosition(
+                            profile = request.profile,
+                            currentPosition = previousState.currentPosition
+                        )
                     )
                 }
 
@@ -123,21 +120,7 @@ class PlayerManager @Inject constructor(
 
                 // 2. Safely release current engine completely
                 currentEngine?.let { oldEngine ->
-                    withContext(Dispatchers.Main.immediate) {
-                        try {
-                            oldEngine.stop()
-                        } catch (e: Exception) {
-                            Timber.w(e, "Error stopping old engine")
-                        }
-                    }
-                    // VLC native release blocks thread, dispatch it safely if needed.
-                    withContext(if (oldEngine is VlcPlayerEngine) Dispatchers.IO else Dispatchers.Main.immediate) {
-                        try {
-                            oldEngine.release()
-                        } catch (e: Exception) {
-                            Timber.w(e, "Error releasing old engine")
-                        }
-                    }
+                    safelyReleaseEngine(oldEngine)
                 }
                 currentEngine = null
                 _activeEngineName.value = null
@@ -160,11 +143,17 @@ class PlayerManager @Inject constructor(
                 } else {
                     newEngine
                 }
+                engineBeingPrepared = finalEngine
 
                 // 4. Initialize new engine
                 withContext(Dispatchers.Main.immediate) {
                     finalEngine.initialize()
                     applyCachedSettingsToEngine(finalEngine)
+                }
+                if (finalEngine.state.value.playbackState == PlaybackState.ERROR) {
+                    throw IllegalStateException(
+                        finalEngine.state.value.errorMessage ?: "Playback engine initialization failed"
+                    )
                 }
 
                 currentEngine = finalEngine
@@ -172,18 +161,34 @@ class PlayerManager @Inject constructor(
                 startCollectingState()
 
                 pendingPlaybackRequest?.let { request ->
-                    finalEngine.play(
-                        url = request.url,
-                        startPosition = request.startPosition,
-                        profile = request.profile
-                    )
+                    withContext(Dispatchers.Main.immediate) {
+                        finalEngine.play(
+                            url = request.url,
+                            startPosition = request.startPosition,
+                            profile = request.profile
+                        )
+                    }
                 }
 
+                engineBeingPrepared = null
                 _switchState.value = EngineSwitchState.SUCCESS
                 Timber.d("Successfully switched to engine: ${finalEngine.engineName}")
 
+            } catch (cancellation: CancellationException) {
+                withContext(NonCancellable) {
+                    stateCollectionJob?.cancel()
+                    stateCollectionJob = null
+                    (currentEngine ?: engineBeingPrepared)?.let { safelyReleaseEngine(it) }
+                    currentEngine = null
+                    _activeEngineName.value = null
+                    _switchState.value = EngineSwitchState.IDLE
+                }
+                throw cancellation
             } catch (e: Exception) {
                 Timber.e(e, "Failed to switch engine")
+                stateCollectionJob?.cancel()
+                stateCollectionJob = null
+                (currentEngine ?: engineBeingPrepared)?.let { safelyReleaseEngine(it) }
                 currentEngine = null
                 _activeEngineName.value = null
                 _switchState.value = EngineSwitchState.ERROR
@@ -203,7 +208,16 @@ class PlayerManager @Inject constructor(
             profile = profile
         )
         withContext(Dispatchers.Main.immediate) {
-            currentEngine?.let { engine ->
+            val engine = currentEngine
+            if (engine == null) {
+                _playerState.value = PlayerState(
+                    playbackState = PlaybackState.ERROR,
+                    errorMessage = "Playback engine is not initialized",
+                    aspectRatioMode = preferredAspectRatio,
+                    videoQualityMode = preferredVideoQualityMode,
+                    playbackSpeed = defaultPlaybackSpeed
+                )
+            } else {
                 applyCachedSettingsToEngine(engine)
                 engine.play(url, startPosition, profile)
             }
@@ -308,19 +322,7 @@ class PlayerManager @Inject constructor(
 
                     val engineToRelease = currentEngine
                     if (engineToRelease != null) {
-                        try {
-                            engineToRelease.stop()
-                        } catch (exception: Exception) {
-                            Timber.w(exception, "Error stopping playback engine")
-                        }
-
-                        withContext(if (engineToRelease is VlcPlayerEngine) Dispatchers.IO else Dispatchers.Main.immediate) {
-                            try {
-                                engineToRelease.release()
-                            } catch (exception: Exception) {
-                                Timber.w(exception, "Error releasing playback engine")
-                            }
-                        }
+                        safelyReleaseEngine(engineToRelease)
                     }
 
                     currentEngine = null
@@ -343,6 +345,28 @@ class PlayerManager @Inject constructor(
             is ExoPlayerEngine -> PlayerEngineType.EXOPLAYER
             is VlcPlayerEngine -> PlayerEngineType.VLC
             else -> null
+        }
+    }
+
+    private suspend fun safelyReleaseEngine(engine: PlayerEngine) {
+        withContext(Dispatchers.Main.immediate) {
+            try {
+                engine.stop()
+                if (engine is VlcPlayerEngine) {
+                    engine.detachSurface()
+                }
+            } catch (exception: Exception) {
+                Timber.w(exception, "Error stopping playback engine")
+            }
+        }
+
+        // LibVLC native release can block; Android view/surface cleanup above remains on main.
+        withContext(if (engine is VlcPlayerEngine) Dispatchers.IO else Dispatchers.Main.immediate) {
+            try {
+                engine.release()
+            } catch (exception: Exception) {
+                Timber.w(exception, "Error releasing playback engine")
+            }
         }
     }
 
@@ -417,3 +441,15 @@ class PlayerManager @Inject constructor(
         return lowercase(Locale.getDefault()).trim() in listOf("off", "none")
     }
 }
+
+internal fun shouldReplayAfterEngineSwitch(playbackState: PlaybackState): Boolean =
+    playbackState !in listOf(
+        PlaybackState.IDLE,
+        PlaybackState.STOPPED,
+        PlaybackState.ENDED
+    )
+
+internal fun engineSwitchStartPosition(
+    profile: PlaybackProfile,
+    currentPosition: Long
+): Long = if (profile == PlaybackProfile.LIVE) 0L else currentPosition.coerceAtLeast(0L)

@@ -19,7 +19,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         MetadataCacheEntity::class
     ],
     version = 6,
-    exportSchema = false
+    exportSchema = true
 )
 abstract class ImaxDatabase : RoomDatabase() {
     abstract fun playlistDao(): PlaylistDao

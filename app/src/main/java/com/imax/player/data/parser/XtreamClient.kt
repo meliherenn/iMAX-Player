@@ -1,6 +1,7 @@
 package com.imax.player.data.parser
 
 import com.imax.player.core.common.Constants
+import com.imax.player.core.common.rethrowIfCancellation
 import com.imax.player.core.database.*
 import com.imax.player.core.model.Channel
 import com.imax.player.core.model.ContentType
@@ -61,7 +62,8 @@ class XtreamClient @Inject constructor(
                 Result.failure(Exception("Account not active: ${response.userInfo?.status}"))
             }
         } catch (e: Exception) {
-            Timber.e(e, "Xtream authentication failed")
+            e.rethrowIfCancellation()
+            logRequestFailure("Xtream authentication", e)
             Result.failure(e)
         }
     }
@@ -105,7 +107,8 @@ class XtreamClient @Inject constructor(
                 )
             })
         } catch (e: Exception) {
-            Timber.e(e, "Failed to load live streams")
+            e.rethrowIfCancellation()
+            logRequestFailure("Live stream loading", e)
         }
 
         try {
@@ -152,7 +155,8 @@ class XtreamClient @Inject constructor(
                 )
             })
         } catch (e: Exception) {
-            Timber.e(e, "Failed to load VOD streams")
+            e.rethrowIfCancellation()
+            logRequestFailure("VOD loading", e)
         }
 
         try {
@@ -190,7 +194,8 @@ class XtreamClient @Inject constructor(
                 )
             })
         } catch (e: Exception) {
-            Timber.e(e, "Failed to load series")
+            e.rethrowIfCancellation()
+            logRequestFailure("Series loading", e)
         }
 
         return XtreamContentResult(
@@ -244,7 +249,8 @@ class XtreamClient @Inject constructor(
             }
             episodes
         } catch (e: Exception) {
-            Timber.e(e, "Failed to load series episodes")
+            e.rethrowIfCancellation()
+            logRequestFailure("Series episode loading", e)
             emptyList()
         }
     }
@@ -289,7 +295,8 @@ class XtreamClient @Inject constructor(
         }
             .map { response -> parseXtreamEpgPrograms(response, channel) }
             .getOrElse { error ->
-                Timber.w(error, "Failed to load short EPG for stream ${channel.streamId}")
+                error.rethrowIfCancellation()
+                logRequestFailure("Short EPG loading for stream ${channel.streamId}", error)
                 emptyList()
             }
 
@@ -306,7 +313,8 @@ class XtreamClient @Inject constructor(
         }
             .map { response -> parseXtreamEpgPrograms(response, channel) }
             .getOrElse { error ->
-                Timber.w(error, "Failed to load simple EPG table for stream ${channel.streamId}")
+                error.rethrowIfCancellation()
+                logRequestFailure("Simple EPG loading for stream ${channel.streamId}", error)
                 emptyList()
             }
     }
@@ -345,6 +353,11 @@ class XtreamClient @Inject constructor(
                 episode.episodeNum > 0 ||
                 episode.containerExtension.isNotBlank()
         }
+    }
+
+    private fun logRequestFailure(operation: String, error: Throwable) {
+        // Retrofit exceptions may retain a request URL containing Xtream credentials.
+        Timber.w("%s failed: %s", operation, error.javaClass.simpleName)
     }
 }
 

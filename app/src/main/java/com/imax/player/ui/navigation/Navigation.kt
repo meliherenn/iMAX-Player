@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.rememberNavController
+import com.imax.player.BuildConfig
 import com.imax.player.core.common.DeviceUiMode
 import com.imax.player.ui.navigation.mobile.MobileNavGraph
 import com.imax.player.ui.navigation.tv.TvNavGraph
@@ -67,6 +68,8 @@ fun ImaxNavHost(
         } else {
             MobileNavGraph(navController = navController)
         }
-        AppUpdateHost(isTv = deviceUiMode.isTv)
+        if (BuildConfig.SELF_HOSTED_UPDATES_ENABLED) {
+            AppUpdateHost(isTv = deviceUiMode.isTv)
+        }
     }
 }

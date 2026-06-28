@@ -1,5 +1,6 @@
 package com.imax.player.ui.player
 
+import android.graphics.Rect
 import android.view.SurfaceView
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -13,6 +14,9 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect as ComposeRect
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.ui.PlayerView
@@ -38,6 +42,7 @@ fun PlayerSurfaceHost(
     playerEngine: PlayerEngine?,
     playerState: PlayerState,
     surfaceState: PlayerSurfaceHostState,
+    onSurfaceBoundsChanged: (Rect) -> Unit = {},
     placeholder: @Composable (() -> Unit)? = null
 ) {
     if (!surfaceState.playerReady || playerEngine == null) {
@@ -47,7 +52,9 @@ fun PlayerSurfaceHost(
 
     key(surfaceState.shellMode, playerEngine.engineName) {
         BoxWithConstraints(
-            modifier = modifier,
+            modifier = modifier.onGloballyPositioned { coordinates ->
+                onSurfaceBoundsChanged(coordinates.boundsInWindow().toAndroidRect())
+            },
             contentAlignment = Alignment.Center
         ) {
             val viewportAspectRatio = if (maxHeight > 0.dp) {
@@ -77,6 +84,13 @@ fun PlayerSurfaceHost(
         }
     }
 }
+
+private fun ComposeRect.toAndroidRect(): Rect = Rect(
+    left.toInt(),
+    top.toInt(),
+    right.toInt(),
+    bottom.toInt()
+)
 
 @Composable
 private fun ExoPlayerRenderer(
