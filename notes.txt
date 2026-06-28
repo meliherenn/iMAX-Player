@@ -1,8 +1,8 @@
-1.0.15 — Güvenilirlik
+1.0.16 — TV Rehberi
 
-- Media3 oynatımı ilk doğrulanmış kareden önce başarısız olduğunda VLC'ye otomatik kurtarma eklendi.
-- Başarılı VLC kurtarmaları, URL veya kimlik bilgisi saklanmadan akışa özel olarak hatırlanıyor.
-- M3U EXTVLCOPT, EXTHTTP, KODIPROP ve `url|Header=...` User-Agent/Referer başlıkları destekleniyor.
-- Kalite fallback, kaldığı yerden devam, izlemeye devam ve son kanal ayarları gerçek davranışa bağlandı.
-- Mobil ve Android TV oynatıcılarına gizlilik korumalı tanılama bilgisi ve kopyalanabilir rapor eklendi.
-- Header taşıyan akışların sağlık kontrolü, seri URL fallback'i ve Xtream EPG keşfi iyileştirildi.
+- Mobil ve Android TV için kanal grubu filtreli, zaman çizelgeli TV Rehberi eklendi.
+- Şimdi, iki saat ve bir gün ileri/geri gezinme ile gerçek EPG yenileme desteği eklendi.
+- Geçmiş EPG verisi yedi gün korunuyor; destekleyen kanallarda geçmiş programdan geri izleme açılabiliyor.
+- Xtream geri izleme başlangıç saatleri UTC olarak ve iş parçacığı güvenli biçimde üretiliyor.
+- Eksik veya bozuk film görselleri Xtream VOD bilgisinden, ardından yapılandırılmışsa TMDB'den sınırlı biçimde tamamlanıyor.
+- Göreli, protokolsüz ve kaçışlı sağlayıcı görsel adresleri normalize ediliyor; yüklenemeyen posterler yeniden deneniyor.

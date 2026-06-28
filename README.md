@@ -12,14 +12,15 @@ M3U/M3U8 and Xtream input, XMLTV EPG support, Media3 playback, and LibVLC fallba
 The repository does not bundle channels, playlists, provider directories, stream URLs, accounts, or
 copyrighted media. Users are responsible for supplying content they are authorized to access.
 
-Current app version: `1.0.15` (`versionCode` 19). Android configuration: min SDK 26, compile/target
+Current app version: `1.0.16` (`versionCode` 20). Android configuration: min SDK 26, compile/target
 SDK 35, Java 17.
 
 ## Features
 
 - User-provided M3U/M3U8 URLs, local playlist documents, and Xtream credentials.
 - Live channels, movies, series, favorites, watch history, search, and continue watching.
-- XMLTV parsing, EPG channel matching, and network-constrained WorkManager synchronization.
+- Mobile/TV timeline guide, XMLTV parsing, EPG channel matching, catch-up routing, and network-constrained synchronization.
+- Bounded movie-poster recovery from Xtream VOD metadata and optional TMDB enrichment.
 - Media3/ExoPlayer primary engine with automatic LibVLC recovery and privacy-safe per-stream engine profiles.
 - M3U request-header compatibility for `EXTVLCOPT`, `EXTHTTP`, `KODIPROP`, and pipe-suffixed headers.
 - Privacy-safe playback diagnostics on mobile and TV, with a copyable support report.
