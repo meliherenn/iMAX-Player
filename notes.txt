@@ -1,6 +1,8 @@
-1.0.8
+1.0.15 — Güvenilirlik
 
-- Özel EPG URL (XMLTV) elle giriş desteği eklendi.
-- M3U oynatma listelerinde ayrı satırlardaki EPG etiketlerinin algılanması iyileştirildi.
-- Parametre bazlı (user/pass query parameter) stream adreslerinde kimlik doğrulama/EPG çıkarımı desteği eklendi.
-- Veritabanı kararlılık iyileştirmeleri ve şema güncellemesi (v6) yapıldı.
+- Media3 oynatımı ilk doğrulanmış kareden önce başarısız olduğunda VLC'ye otomatik kurtarma eklendi.
+- Başarılı VLC kurtarmaları, URL veya kimlik bilgisi saklanmadan akışa özel olarak hatırlanıyor.
+- M3U EXTVLCOPT, EXTHTTP, KODIPROP ve `url|Header=...` User-Agent/Referer başlıkları destekleniyor.
+- Kalite fallback, kaldığı yerden devam, izlemeye devam ve son kanal ayarları gerçek davranışa bağlandı.
+- Mobil ve Android TV oynatıcılarına gizlilik korumalı tanılama bilgisi ve kopyalanabilir rapor eklendi.
+- Header taşıyan akışların sağlık kontrolü, seri URL fallback'i ve Xtream EPG keşfi iyileştirildi.
