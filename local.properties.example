@@ -6,3 +6,17 @@ sdk.dir=/path/to/your/Android/Sdk
 # TMDB API Key for metadata (optional - app works without it)
 # Get your free API key from: https://www.themoviedb.org/settings/api
 TMDB_API_KEY=your_tmdb_api_key_here
+
+# Optional TV remote setup. Both HTTPS URLs are required to enable the feature.
+# The API must implement the contract documented in web/remote-setup/README.md.
+REMOTE_SETUP_API_BASE_URL=https://setup-api.example.com
+REMOTE_SETUP_WEB_BASE_URL=https://setup.example.com
+
+# Optional self-hosted release update channel. Ignored by normal Play release builds.
+UPDATE_MANIFEST_URL=https://updates.example.com/latest.json
+
+# Optional release signing configuration. Never commit the real values.
+IMAX_RELEASE_STORE_FILE=keystores/imax-release.jks
+IMAX_RELEASE_STORE_PASSWORD=replace_me
+IMAX_RELEASE_KEY_ALIAS=imax-player-release
+IMAX_RELEASE_KEY_PASSWORD=replace_me

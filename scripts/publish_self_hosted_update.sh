@@ -29,7 +29,7 @@ APK_BASE_URL="${APK_BASE_URL:-https://github.com/meliherenn/iMAX-Player/releases
 APK_BASE_URL="${APK_BASE_URL%/}"
 MANDATORY="${2:-false}"
 NOTES_FILE="${3:-}"
-BUILD_TASK="${BUILD_TASK:-assembleRelease}"
+BUILD_TASK="${BUILD_TASK:-:app:assembleSelfHostedRelease}"
 MIN_SUPPORTED_VERSION_CODE="${MIN_SUPPORTED_VERSION_CODE:-0}"
 
 if [[ "$MANDATORY" != "true" && "$MANDATORY" != "false" ]]; then
@@ -50,6 +50,19 @@ fi
 
 VERSION_CODE="$((CURRENT_CODE + 1))"
 TMP_VERSION_FILE="$(mktemp)"
+VERSION_FILE_BACKUP="$(mktemp)"
+cp "$VERSION_FILE" "$VERSION_FILE_BACKUP"
+
+restore_version_on_error() {
+  local status=$?
+  if [[ $status -ne 0 ]]; then
+    cp "$VERSION_FILE_BACKUP" "$VERSION_FILE"
+  fi
+  rm -f "$VERSION_FILE_BACKUP"
+  exit "$status"
+}
+trap restore_version_on_error EXIT
+
 awk -F= -v code="$VERSION_CODE" -v name="$VERSION_NAME" '
   BEGIN { OFS = "=" }
   /^VERSION_CODE=/ { print "VERSION_CODE", code; next }
@@ -61,13 +74,15 @@ mv "$TMP_VERSION_FILE" "$VERSION_FILE"
 cd "$ROOT_DIR"
 ./gradlew "$BUILD_TASK"
 
-APK_SOURCE="$(find "$ROOT_DIR/app/build/outputs/apk" -path "*/release/*" -name "*.apk" | sort | head -n 1)"
-if [[ -z "$APK_SOURCE" ]]; then
-  APK_SOURCE="$(find "$ROOT_DIR/app/build/outputs/apk" -name "*.apk" | sort | head -n 1)"
-fi
+APK_SOURCE="$(find "$ROOT_DIR/app/build/outputs/apk" -path "*/selfHostedRelease/*" -name "*.apk" | sort | head -n 1)"
 
 if [[ -z "$APK_SOURCE" ]]; then
   echo "No APK was produced by $BUILD_TASK" >&2
+  exit 1
+fi
+
+if [[ "$APK_SOURCE" == *unsigned* ]]; then
+  echo "Refusing to publish an unsigned APK. Configure release signing first." >&2
   exit 1
 fi
 
@@ -106,10 +121,6 @@ manifest = {
 print(json.dumps(manifest, ensure_ascii=False, indent=2))
 PY
 
-if [[ "$APK_SOURCE" == *unsigned* ]]; then
-  echo "Warning: produced APK looks unsigned. Configure release signing before publishing." >&2
-fi
-
 cat <<OUTPUT
 Update bundle created:
   APK:       $OUT_DIR/$APK_NAME
@@ -120,5 +131,8 @@ Upload both files to:
   $APK_BASE_URL/
 
 Build app releases with:
-  UPDATE_MANIFEST_URL=$APK_BASE_URL/latest.json ./gradlew assembleRelease
+  UPDATE_MANIFEST_URL=$APK_BASE_URL/latest.json ./gradlew :app:assembleSelfHostedRelease
 OUTPUT
+
+trap - EXIT
+rm -f "$VERSION_FILE_BACKUP"
