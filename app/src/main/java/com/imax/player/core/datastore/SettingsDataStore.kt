@@ -8,6 +8,7 @@ import com.imax.player.core.common.Constants
 
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -43,6 +44,7 @@ data class AppSettings(
     val defaultDisplayMode: String = "FIT",
     val preferHwDecoding: Boolean = true,
     val allowQualityFallback: Boolean = true,
+    val autoPlayerFallback: Boolean = true,
     val hardwareAcceleration: Int = 1,
     val bufferDurationMs: Int = Constants.DEFAULT_BUFFER_MS,
 
@@ -100,6 +102,8 @@ class SettingsDataStore @Inject constructor(
         val DEFAULT_DISPLAY_MODE = stringPreferencesKey("default_display_mode")
         val PREFER_HW_DECODING = booleanPreferencesKey("prefer_hw_decoding")
         val ALLOW_QUALITY_FALLBACK = booleanPreferencesKey("allow_quality_fallback")
+        val AUTO_PLAYER_FALLBACK = booleanPreferencesKey("auto_player_fallback")
+        val PLAYBACK_ENGINE_PROFILES = stringSetPreferencesKey("playback_engine_profiles")
         val HW_ACCEL = intPreferencesKey("hw_acceleration")
         val BUFFER_DURATION = intPreferencesKey("buffer_duration_ms")
 
@@ -146,6 +150,7 @@ class SettingsDataStore @Inject constructor(
             defaultDisplayMode = prefs[Keys.DEFAULT_DISPLAY_MODE] ?: prefs[Keys.ASPECT_RATIO] ?: "FIT",
             preferHwDecoding = prefs[Keys.PREFER_HW_DECODING] ?: true,
             allowQualityFallback = prefs[Keys.ALLOW_QUALITY_FALLBACK] ?: true,
+            autoPlayerFallback = prefs[Keys.AUTO_PLAYER_FALLBACK] ?: true,
             hardwareAcceleration = prefs[Keys.HW_ACCEL] ?: 1,
             bufferDurationMs = prefs[Keys.BUFFER_DURATION] ?: Constants.DEFAULT_BUFFER_MS,
 
@@ -200,6 +205,7 @@ class SettingsDataStore @Inject constructor(
     }
     suspend fun updatePreferHwDecoding(enabled: Boolean) { store.edit { it[Keys.PREFER_HW_DECODING] = enabled } }
     suspend fun updateAllowQualityFallback(enabled: Boolean) { store.edit { it[Keys.ALLOW_QUALITY_FALLBACK] = enabled } }
+    suspend fun updateAutoPlayerFallback(enabled: Boolean) { store.edit { it[Keys.AUTO_PLAYER_FALLBACK] = enabled } }
     suspend fun updateBufferDuration(ms: Int) { store.edit { it[Keys.BUFFER_DURATION] = ms } }
 
     // ━━━━━━ Live TV ━━━━━━
@@ -213,6 +219,47 @@ class SettingsDataStore @Inject constructor(
     suspend fun updateLastPlaylistId(id: Long) { store.edit { it[Keys.LAST_PLAYLIST_ID] = id } }
     suspend fun updateRememberQuality(enabled: Boolean) { store.edit { it[Keys.REMEMBER_QUALITY] = enabled } }
 
+    suspend fun getPlaybackEngineProfile(profileKey: String): String? {
+        return store.data.first()[Keys.PLAYBACK_ENGINE_PROFILES]
+            .orEmpty()
+            .asSequence()
+            .mapNotNull(::parsePlaybackEngineProfile)
+            .firstOrNull { it.profileKey == profileKey }
+            ?.engine
+    }
+
+    suspend fun updatePlaybackEngineProfile(profileKey: String, engine: String) {
+        if (profileKey.isBlank()) return
+        store.edit { preferences ->
+            val retained = preferences[Keys.PLAYBACK_ENGINE_PROFILES]
+                .orEmpty()
+                .asSequence()
+                .mapNotNull(::parsePlaybackEngineProfile)
+                .filterNot { it.profileKey == profileKey }
+                .sortedByDescending(StoredPlaybackEngineProfile::updatedAt)
+                .take(MAX_STORED_PLAYBACK_ENGINE_PROFILES - 1)
+                .map(StoredPlaybackEngineProfile::encoded)
+                .toMutableSet()
+            retained += StoredPlaybackEngineProfile(
+                updatedAt = System.currentTimeMillis(),
+                profileKey = profileKey,
+                engine = engine
+            ).encoded()
+            preferences[Keys.PLAYBACK_ENGINE_PROFILES] = retained
+        }
+    }
+
+    suspend fun removePlaybackEngineProfile(profileKey: String) {
+        store.edit { preferences ->
+            preferences[Keys.PLAYBACK_ENGINE_PROFILES] = preferences[Keys.PLAYBACK_ENGINE_PROFILES]
+                .orEmpty()
+                .mapNotNull(::parsePlaybackEngineProfile)
+                .filterNot { it.profileKey == profileKey }
+                .map(StoredPlaybackEngineProfile::encoded)
+                .toSet()
+        }
+    }
+
     // ━━━━━━ EPG ━━━━━━
     suspend fun updateEpgUrl(url: String) { store.edit { it[Keys.EPG_URL] = url } }
     suspend fun updateEpgLastSync(time: Long) { store.edit { it[Keys.EPG_LAST_SYNC] = time } }
@@ -225,5 +272,25 @@ class SettingsDataStore @Inject constructor(
 
     suspend fun clearImageCache() {
         // This is a signal — actual clearing is done in the image loader
+    }
+
+    private data class StoredPlaybackEngineProfile(
+        val updatedAt: Long,
+        val profileKey: String,
+        val engine: String
+    ) {
+        fun encoded(): String = "$updatedAt:$profileKey:$engine"
+    }
+
+    private fun parsePlaybackEngineProfile(value: String): StoredPlaybackEngineProfile? {
+        val parts = value.split(':', limit = 3)
+        val updatedAt = parts.getOrNull(0)?.toLongOrNull() ?: return null
+        val profileKey = parts.getOrNull(1)?.takeIf(String::isNotBlank) ?: return null
+        val engine = parts.getOrNull(2)?.takeIf(String::isNotBlank) ?: return null
+        return StoredPlaybackEngineProfile(updatedAt, profileKey, engine)
+    }
+
+    private companion object {
+        const val MAX_STORED_PLAYBACK_ENGINE_PROFILES = 100
     }
 }

@@ -1,6 +1,7 @@
 package com.imax.player.data.parser
 
 import com.google.common.truth.Truth.assertThat
+import com.imax.player.core.player.parsePlaybackSource
 import org.junit.Before
 import org.junit.Test
 
@@ -172,6 +173,71 @@ class M3uParserTest {
         assertThat(result.channels[0].epgChannelId).isEqualTo("test.id")
         assertThat(result.channels[0].logoUrl).isEqualTo("http://logo.png")
         assertThat(result.channels[0].catchupSource).isEqualTo("http://catchup")
+    }
+
+    @Test
+    fun `parse EXTVLCOPT request headers for the next stream`() {
+        val m3u = """
+            #EXTM3U
+            #EXTINF:-1 group-title="News",Synthetic News
+            #EXTVLCOPT:http-user-agent=Example TV Client
+            #EXTVLCOPT:http-referrer=https://portal.example.test/
+            https://media.example.test/live/1.m3u8
+            #EXTINF:-1 group-title="News",Second Channel
+            https://media.example.test/live/2.m3u8
+        """.trimIndent()
+
+        val result = parser.parseText(m3u, 1L)
+        val firstSource = parsePlaybackSource(result.channels[0].streamUrl)
+        val secondSource = parsePlaybackSource(result.channels[1].streamUrl)
+
+        assertThat(firstSource.headers).containsExactly(
+            "User-Agent", "Example TV Client",
+            "Referer", "https://portal.example.test/"
+        )
+        assertThat(secondSource.headers).isEmpty()
+    }
+
+    @Test
+    fun `parse request headers from EXTINF attributes and preserve pipe headers`() {
+        val m3u = """
+            #EXTM3U
+            #EXTINF:-1 http-user-agent="Attribute Agent" http-origin="https://portal.example.test" group-title="Film",Synthetic Film
+            https://media.example.test/movie/1.mkv|Referer=https%3A%2F%2Fref.example.test%2F
+        """.trimIndent()
+
+        val result = parser.parseText(m3u, 1L)
+        val source = parsePlaybackSource(result.movies.single().streamUrl)
+
+        assertThat(source.headers).containsExactly(
+            "User-Agent", "Attribute Agent",
+            "Origin", "https://portal.example.test",
+            "Referer", "https://ref.example.test/"
+        )
+    }
+
+    @Test
+    fun `parse KODIPROP and EXTHTTP request headers`() {
+        val m3u = """
+            #EXTM3U
+            #EXTINF:-1 group-title="News",Kodi Synthetic
+            #KODIPROP:inputstream.adaptive.stream_headers=User-Agent=Kodi%20Agent&Referer=https%3A%2F%2Fportal.example.test%2F
+            https://media.example.test/live/1.m3u8
+            #EXTINF:-1 group-title="News",JSON Synthetic
+            #EXTHTTP:{"User-Agent":"JSON Agent","Origin":"https://portal.example.test"}
+            https://media.example.test/live/2.m3u8
+        """.trimIndent()
+
+        val result = parser.parseText(m3u, 1L)
+
+        assertThat(parsePlaybackSource(result.channels[0].streamUrl).headers).containsExactly(
+            "User-Agent", "Kodi Agent",
+            "Referer", "https://portal.example.test/"
+        )
+        assertThat(parsePlaybackSource(result.channels[1].streamUrl).headers).containsExactly(
+            "User-Agent", "JSON Agent",
+            "Origin", "https://portal.example.test"
+        )
     }
 
     @Test

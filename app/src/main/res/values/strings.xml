@@ -169,6 +169,9 @@
     <string name="settings_auto_enable_subtitles">Altyazıyı Otomatik Aç</string>
     <string name="settings_prefer_hw_decoding">Donanım Çözücü Tercih Et</string>
     <string name="settings_allow_quality_fallback">Kalite Düşüşüne İzin Ver</string>
+    <string name="settings_auto_player_fallback">Otomatik Oynatıcı Kurtarma</string>
+    <string name="copy_playback_diagnostics">Tanılama Raporunu Kopyala</string>
+    <string name="playback_diagnostics_copied">Tanılama raporu kopyalandı</string>
     <string name="settings_live_latency">Canlı Yayın Gecikmesi</string>
     <string name="settings_live_reconnect">Hatada Otomatik Yeniden Bağlan</string>
     <string name="settings_remember_channel">Son Kanalı Hatırla</string>

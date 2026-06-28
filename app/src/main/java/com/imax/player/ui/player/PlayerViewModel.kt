@@ -1,7 +1,9 @@
 package com.imax.player.ui.player
 
+import android.os.Build
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.imax.player.BuildConfig
 import com.imax.player.core.common.SensitiveLog
 import com.imax.player.core.datastore.AppSettings
 import com.imax.player.core.datastore.SettingsDataStore
@@ -12,8 +14,12 @@ import com.imax.player.core.model.WatchHistoryItem
 import com.imax.player.core.player.AspectRatioMode
 import com.imax.player.core.player.PlaybackState
 import com.imax.player.core.player.PlaybackProfile
+import com.imax.player.core.player.PlaybackDiagnostics
+import com.imax.player.core.player.buildPlaybackDiagnosticsReport
 import com.imax.player.core.player.PlayerManager
 import com.imax.player.core.player.PlayerState
+import com.imax.player.core.player.parsePlaybackSource
+import com.imax.player.core.player.withPlaybackHeaders
 import com.imax.player.core.player.RetryState
 import com.imax.player.core.player.SleepTimerManager
 import com.imax.player.core.player.SleepTimerState
@@ -87,6 +93,7 @@ class PlayerViewModel @Inject constructor(
     private val epgRepository: EpgRepository
 ) : ViewModel() {
     val state: StateFlow<PlayerState> = playerManager.state
+    val diagnostics: StateFlow<PlaybackDiagnostics> = playerManager.diagnostics
     val settings: StateFlow<AppSettings> = settingsDataStore.settings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppSettings())
     val retryState: StateFlow<RetryState> = retryManager.state
@@ -398,7 +405,7 @@ class PlayerViewModel @Inject constructor(
         currentUrl = resolvedUrl
         currentPlaybackCandidates = playbackCandidates
         currentPlaybackCandidateIndex = 0
-        currentStartPosition = startPos.coerceAtLeast(0L)
+        currentStartPosition = 0L
         hasConfirmedCurrentContent = false
         currentTitle = title
         currentContentId = contentId
@@ -407,6 +414,12 @@ class PlayerViewModel @Inject constructor(
         autoPlayNextTriggeredContentId = null
 
         viewModelScope.launch {
+            val playbackSettings = settingsDataStore.settings.first()
+            val effectiveStartPosition = playbackStartPosition(
+                requestedPosition = startPos,
+                autoResumeEnabled = playbackSettings.autoResumePlayback
+            )
+            currentStartPosition = effectiveStartPosition
             clearLiveChannelSwitchError()
             if (!isInitialized) {
                 _playerReady.value = false
@@ -417,18 +430,24 @@ class PlayerViewModel @Inject constructor(
             refreshSessionContext(url, title, contentId, contentType, groupContext)
 
             val playbackStarted = if (contentType.equals(ContentType.LIVE.name, ignoreCase = true)) {
-                startLiveChannelPlayback(playbackCandidates, startPos)
+                startLiveChannelPlayback(playbackCandidates, effectiveStartPosition)
             } else {
                 playerManager.play(
                     url = resolvedUrl,
-                    startPosition = startPos,
+                    startPosition = effectiveStartPosition,
                     profile = currentPlaybackProfile()
                 )
                 true
             }
 
-            if (playbackStarted && contentType == ContentType.LIVE.name && contentId > 0L) {
-                contentRepository.updateChannelLastWatched(contentId)
+            if (
+                playbackStarted &&
+                contentType == ContentType.LIVE.name &&
+                contentId > 0L
+            ) {
+                if (playbackSettings.rememberLastChannel) {
+                    contentRepository.updateChannelLastWatched(contentId)
+                }
                 ensureLiveEpgSynced()
             } else if (!playbackStarted) {
                 _liveChannelSwitch.value = LiveChannelSwitchState(
@@ -519,6 +538,15 @@ class PlayerViewModel @Inject constructor(
             playerManager.selectVideoTrack(index)
         }
     }
+
+    fun buildDiagnosticsReport(): String = buildPlaybackDiagnosticsReport(
+        appVersion = BuildConfig.VERSION_NAME,
+        device = "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
+        androidSdk = Build.VERSION.SDK_INT,
+        contentType = currentContentType,
+        diagnostics = diagnostics.value,
+        state = state.value
+    )
 
     fun saveProgress() {
         viewModelScope.launch(Dispatchers.IO) {
@@ -647,13 +675,18 @@ class PlayerViewModel @Inject constructor(
             saveProgressInternal()
         }
 
+        val playbackSettings = settingsDataStore.settings.first()
+        val effectiveStartPosition = playbackStartPosition(
+            requestedPosition = startPosition,
+            autoResumeEnabled = playbackSettings.autoResumePlayback
+        )
         val playbackCandidates = resolvePlaybackCandidates(url, contentType)
         val resolvedUrl = playbackCandidates.firstOrNull().orEmpty()
         currentOriginalUrl = url
         currentUrl = resolvedUrl
         currentPlaybackCandidates = playbackCandidates
         currentPlaybackCandidateIndex = 0
-        currentStartPosition = startPosition.coerceAtLeast(0L)
+        currentStartPosition = effectiveStartPosition
         hasConfirmedCurrentContent = false
         currentTitle = title
         currentContentId = contentId
@@ -664,11 +697,15 @@ class PlayerViewModel @Inject constructor(
         refreshSessionContext(resolvedUrl, title, contentId, contentType, groupContext)
         playerManager.play(
             url = resolvedUrl,
-            startPosition = startPosition,
+            startPosition = effectiveStartPosition,
             profile = playbackProfileFor(contentType)
         )
 
-        if (contentType == ContentType.LIVE.name && contentId > 0L) {
+        if (
+            contentType == ContentType.LIVE.name &&
+            contentId > 0L &&
+            playbackSettings.rememberLastChannel
+        ) {
             contentRepository.updateChannelLastWatched(contentId)
         }
     }
@@ -722,7 +759,9 @@ class PlayerViewModel @Inject constructor(
                     contentType = ContentType.LIVE.name,
                     groupContext = targetGroupContext
                 )
-                contentRepository.updateChannelLastWatched(channel.id)
+                if (settingsDataStore.settings.first().rememberLastChannel) {
+                    contentRepository.updateChannelLastWatched(channel.id)
+                }
             }
         } catch (cancelled: CancellationException) {
             currentOriginalUrl = previousOriginalUrl
@@ -911,15 +950,18 @@ class PlayerViewModel @Inject constructor(
     private suspend fun saveProgressInternal() {
         val snapshot = state.value
         if (currentContentId <= 0L) return
+        val playbackSettings = settingsDataStore.settings.first()
 
         when (currentContentType.uppercase()) {
-            ContentType.MOVIE.name -> saveMovieProgress(snapshot)
-            ContentType.SERIES.name -> saveSeriesProgress(snapshot)
-            ContentType.LIVE.name -> contentRepository.updateChannelLastWatched(currentContentId)
+            ContentType.MOVIE.name -> saveMovieProgress(snapshot, playbackSettings.continueWatching)
+            ContentType.SERIES.name -> saveSeriesProgress(snapshot, playbackSettings.continueWatching)
+            ContentType.LIVE.name -> if (playbackSettings.rememberLastChannel) {
+                contentRepository.updateChannelLastWatched(currentContentId)
+            }
         }
     }
 
-    private suspend fun saveMovieProgress(snapshot: PlayerState) {
+    private suspend fun saveMovieProgress(snapshot: PlayerState, addToContinueWatching: Boolean) {
         if (snapshot.currentPosition <= 0L) return
 
         val movie = session.value.movie ?: contentRepository.getMovie(currentContentId) ?: return
@@ -927,7 +969,7 @@ class PlayerViewModel @Inject constructor(
         val progress = calculateProgress(snapshot.currentPosition, totalDuration)
 
         contentRepository.updateMovieProgress(movie.id, snapshot.currentPosition, totalDuration)
-        contentRepository.addWatchHistory(
+        if (addToContinueWatching) contentRepository.addWatchHistory(
             WatchHistoryItem(
                 contentId = movie.id,
                 contentType = ContentType.MOVIE,
@@ -941,7 +983,7 @@ class PlayerViewModel @Inject constructor(
         )
     }
 
-    private suspend fun saveSeriesProgress(snapshot: PlayerState) {
+    private suspend fun saveSeriesProgress(snapshot: PlayerState, addToContinueWatching: Boolean) {
         if (snapshot.currentPosition <= 0L) return
 
         val currentEpisode = session.value.currentEpisode ?: contentRepository.getEpisode(currentContentId) ?: return
@@ -951,7 +993,7 @@ class PlayerViewModel @Inject constructor(
 
         contentRepository.updateEpisodeProgress(currentEpisode.id, snapshot.currentPosition, totalDuration)
         contentRepository.updateSeriesLastWatchedEpisode(currentEpisode.seriesId, currentEpisode.id)
-        contentRepository.addWatchHistory(
+        if (addToContinueWatching) contentRepository.addWatchHistory(
             WatchHistoryItem(
                 contentId = currentEpisode.id,
                 contentType = ContentType.SERIES,
@@ -977,9 +1019,10 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun resolvePlaybackUrl(url: String, contentType: String): String {
-        val trimmedUrl = url.trim().removeSuffix(".")
+        val source = parsePlaybackSource(url)
+        val trimmedUrl = source.url
 
-        return when {
+        val resolvedUrl = when {
             contentType.equals(ContentType.LIVE.name, ignoreCase = true) &&
                 trimmedUrl.contains("/live/") &&
                 trimmedUrl.endsWith(".m3u8", ignoreCase = true) -> {
@@ -988,18 +1031,20 @@ class PlayerViewModel @Inject constructor(
 
             else -> trimmedUrl
         }
+        return withPlaybackHeaders(resolvedUrl, source.headers)
     }
 
     private fun resolvePlaybackCandidates(url: String, contentType: String): List<String> {
-        val trimmedUrl = url.trim().removeSuffix(".")
-        val defaultResolvedUrl = resolvePlaybackUrl(trimmedUrl, contentType)
+        val source = parsePlaybackSource(url)
+        val trimmedUrl = source.url
+        val defaultResolvedUrl = parsePlaybackSource(resolvePlaybackUrl(url, contentType)).url
 
         if (contentType.equals(ContentType.SERIES.name, ignoreCase = true)) {
-            return seriesPlaybackCandidates(defaultResolvedUrl)
+            return seriesPlaybackCandidates(withPlaybackHeaders(defaultResolvedUrl, source.headers))
         }
 
         if (!contentType.equals(ContentType.LIVE.name, ignoreCase = true)) {
-            return listOf(defaultResolvedUrl)
+            return listOf(withPlaybackHeaders(defaultResolvedUrl, source.headers))
         }
 
         return buildList {
@@ -1019,7 +1064,7 @@ class PlayerViewModel @Inject constructor(
             if (enableTvPlaybackWorkarounds && trimmedUrl != defaultResolvedUrl) {
                 add(defaultResolvedUrl)
             }
-        }.map(String::trim)
+        }.map { candidate -> withPlaybackHeaders(candidate.trim(), source.headers) }
             .filter(String::isNotBlank)
             .distinct()
     }
@@ -1270,9 +1315,10 @@ class PlayerViewModel @Inject constructor(
 }
 
 internal fun seriesPlaybackCandidates(url: String): List<String> {
-    val trimmedUrl = url.trim().removeSuffix(".")
+    val source = parsePlaybackSource(url)
+    val trimmedUrl = source.url
     if (trimmedUrl.isBlank() || !trimmedUrl.contains("/series/", ignoreCase = true)) {
-        return listOf(trimmedUrl).filter(String::isNotBlank)
+        return listOf(withPlaybackHeaders(trimmedUrl, source.headers)).filter(String::isNotBlank)
     }
 
     val suffixIndex = sequenceOf(trimmedUrl.indexOf('?'), trimmedUrl.indexOf('#'))
@@ -1284,13 +1330,16 @@ internal fun seriesPlaybackCandidates(url: String): List<String> {
     val streamId = baseUrl.substringAfterLast('/')
 
     if (streamId.contains('.')) {
-        return listOf(trimmedUrl)
+        return listOf(withPlaybackHeaders(trimmedUrl, source.headers))
     }
 
     return buildList {
-        add(trimmedUrl)
+        add(withPlaybackHeaders(trimmedUrl, source.headers))
         listOf("mkv", "mp4", "ts").forEach { extension ->
-            add("$baseUrl.$extension$suffix")
+            add(withPlaybackHeaders("$baseUrl.$extension$suffix", source.headers))
         }
     }.distinct()
 }
+
+internal fun playbackStartPosition(requestedPosition: Long, autoResumeEnabled: Boolean): Long =
+    if (autoResumeEnabled) requestedPosition.coerceAtLeast(0L) else 0L

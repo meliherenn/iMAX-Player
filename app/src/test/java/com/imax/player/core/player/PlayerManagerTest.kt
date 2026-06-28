@@ -1,6 +1,7 @@
 package com.imax.player.core.player
 
 import com.google.common.truth.Truth.assertThat
+import com.imax.player.core.model.PlayerEngineType
 import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Test
 
@@ -60,6 +61,82 @@ class PlayerManagerTest {
         assertThat(engineSwitchStartPosition(PlaybackProfile.LIVE, 45_000L)).isEqualTo(0L)
         assertThat(engineSwitchStartPosition(PlaybackProfile.VOD, 45_000L)).isEqualTo(45_000L)
         assertThat(engineSwitchStartPosition(PlaybackProfile.VOD, -1L)).isEqualTo(0L)
+    }
+
+    @Test
+    fun `automatic fallback only handles unconfirmed ExoPlayer errors once`() {
+        val failedState = PlayerState(
+            playbackState = PlaybackState.ERROR,
+            errorMessage = "Decoder failed",
+            isPlaybackConfirmed = false
+        )
+
+        assertThat(
+            shouldAttemptAutomaticFallback(
+                enabled = true,
+                activeEngineType = PlayerEngineType.EXOPLAYER,
+                state = failedState,
+                hasPreviouslyConfirmed = false,
+                alreadyAttempted = false,
+                hasPlaybackRequest = true
+            )
+        ).isTrue()
+        assertThat(
+            shouldAttemptAutomaticFallback(
+                enabled = true,
+                activeEngineType = PlayerEngineType.VLC,
+                state = failedState,
+                hasPreviouslyConfirmed = false,
+                alreadyAttempted = false,
+                hasPlaybackRequest = true
+            )
+        ).isFalse()
+        assertThat(
+            shouldAttemptAutomaticFallback(
+                enabled = true,
+                activeEngineType = PlayerEngineType.EXOPLAYER,
+                state = failedState,
+                hasPreviouslyConfirmed = false,
+                alreadyAttempted = true,
+                hasPlaybackRequest = true
+            )
+        ).isFalse()
+        assertThat(
+            shouldAttemptAutomaticFallback(
+                enabled = false,
+                activeEngineType = PlayerEngineType.EXOPLAYER,
+                state = failedState,
+                hasPreviouslyConfirmed = false,
+                alreadyAttempted = false,
+                hasPlaybackRequest = true
+            )
+        ).isFalse()
+    }
+
+    @Test
+    fun `confirmed playback errors do not trigger automatic fallback`() {
+        val state = PlayerState(
+            playbackState = PlaybackState.ERROR,
+            isPlaybackConfirmed = true
+        )
+
+        assertThat(
+            shouldAttemptAutomaticFallback(
+                enabled = true,
+                activeEngineType = PlayerEngineType.EXOPLAYER,
+                state = state,
+                hasPreviouslyConfirmed = true,
+                alreadyAttempted = false,
+                hasPlaybackRequest = true
+            )
+        ).isFalse()
+    }
+
+    @Test
+    fun `playback errors are reduced to privacy safe categories`() {
+        assertThat(classifyPlaybackError("HTTP 403 for a private URL")).isEqualTo("authorization")
+        assertThat(classifyPlaybackError("Decoder failed for video HEVC")).isEqualTo("decoder")
+        assertThat(classifyPlaybackError(null)).isEqualTo("unknown")
     }
 
     @Test

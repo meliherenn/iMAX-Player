@@ -22,6 +22,22 @@ import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.util.Locale
 
+data class PlaybackRecoveryState(
+    val isRecovering: Boolean = false,
+    val automaticFallbackUsed: Boolean = false,
+    val fromEngine: String = "",
+    val toEngine: String = "",
+    val lastErrorCategory: String = ""
+)
+
+data class PlaybackDiagnostics(
+    val engineName: String = "—",
+    val streamProtocol: String = "unknown",
+    val streamHost: String = "unknown",
+    val requestHeaderNames: Set<String> = emptySet(),
+    val recovery: PlaybackRecoveryState = PlaybackRecoveryState()
+)
+
 @Singleton
 class PlayerManager @Inject constructor(
     private val exoPlayerProvider: Provider<ExoPlayerEngine>,
@@ -40,6 +56,10 @@ class PlayerManager @Inject constructor(
     private var currentEngine: PlayerEngine? = null
     private var stateCollectionJob: Job? = null
     private var lastPlaybackRequest: PlaybackRequest? = null
+    private var currentPlaybackProfileKey: String? = null
+    private var automaticFallbackAttempted = false
+    private var profilePersistedForRequest = false
+    private var hasConfirmedCurrentRequest = false
 
     private val _playerState = MutableStateFlow(PlayerState())
     val state: StateFlow<PlayerState> = _playerState.asStateFlow()
@@ -49,6 +69,12 @@ class PlayerManager @Inject constructor(
 
     private val _switchState = MutableStateFlow(EngineSwitchState.IDLE)
     val switchState: StateFlow<EngineSwitchState> = _switchState.asStateFlow()
+
+    private val _recoveryState = MutableStateFlow(PlaybackRecoveryState())
+    val recoveryState: StateFlow<PlaybackRecoveryState> = _recoveryState.asStateFlow()
+
+    private val _diagnostics = MutableStateFlow(PlaybackDiagnostics())
+    val diagnostics: StateFlow<PlaybackDiagnostics> = _diagnostics.asStateFlow()
 
     private var defaultAudioLang: String = "eng"
     private var defaultSubtitleLang: String = "eng"
@@ -60,6 +86,8 @@ class PlayerManager @Inject constructor(
     private var cachedBufferMs: Long = 30000L
     private var cachedLatencyMode: String = "BALANCED"
     private var cachedPreferHw: Boolean = true
+    private var cachedAllowQualityFallback: Boolean = true
+    private var cachedAutoPlayerFallback: Boolean = true
 
     fun getEngine(): PlayerEngine? = currentEngine
     fun getActiveEngineType(): PlayerEngineType? = activeEngineTypeFor(currentEngine)
@@ -87,7 +115,68 @@ class PlayerManager @Inject constructor(
         val engine = currentEngine ?: return
         stateCollectionJob = managerScope.launch {
             engine.state.collect { engineState ->
+                if (engine !== currentEngine) return@collect
+                if (engineState.isPlaybackConfirmed) hasConfirmedCurrentRequest = true
+
+                if (shouldAttemptAutomaticFallback(
+                        enabled = cachedAutoPlayerFallback,
+                        activeEngineType = activeEngineTypeFor(engine),
+                        state = engineState,
+                        hasPreviouslyConfirmed = hasConfirmedCurrentRequest,
+                        alreadyAttempted = automaticFallbackAttempted,
+                        hasPlaybackRequest = lastPlaybackRequest != null
+                    )
+                ) {
+                    automaticFallbackAttempted = true
+                    val errorCategory = classifyPlaybackError(engineState.errorMessage)
+                    _recoveryState.value = PlaybackRecoveryState(
+                        isRecovering = true,
+                        automaticFallbackUsed = true,
+                        fromEngine = engine.engineName,
+                        toEngine = PlayerEngineType.VLC.name,
+                        lastErrorCategory = errorCategory
+                    )
+                    _playerState.value = engineState.copy(
+                        playbackState = PlaybackState.BUFFERING,
+                        isPlaying = false,
+                        errorMessage = null
+                    )
+                    updateDiagnostics(engine.engineName)
+                    managerScope.launch {
+                        Timber.w("Media3 playback failed before confirmation; attempting VLC recovery (%s)", errorCategory)
+                        switchEngineInternal(PlayerEngineType.VLC, replayRequest = true)
+                    }
+                    return@collect
+                }
+
                 _playerState.value = engineState
+                if (engineState.isPlaybackConfirmed) {
+                    val currentType = activeEngineTypeFor(engine)
+                    val profileKey = currentPlaybackProfileKey
+                    if (
+                        _recoveryState.value.automaticFallbackUsed &&
+                        currentType == PlayerEngineType.VLC &&
+                        profileKey != null &&
+                        !profilePersistedForRequest
+                    ) {
+                        profilePersistedForRequest = true
+                        managerScope.launch(Dispatchers.IO) {
+                            settingsDataStore.updatePlaybackEngineProfile(profileKey, PlayerEngineType.VLC.name)
+                        }
+                    }
+                    if (_recoveryState.value.isRecovering) {
+                        _recoveryState.value = _recoveryState.value.copy(isRecovering = false)
+                    }
+                } else if (
+                    engineState.playbackState == PlaybackState.ERROR &&
+                    _recoveryState.value.isRecovering
+                ) {
+                    _recoveryState.value = _recoveryState.value.copy(
+                        isRecovering = false,
+                        lastErrorCategory = classifyPlaybackError(engineState.errorMessage)
+                    )
+                }
+                updateDiagnostics(engine.engineName)
             }
         }
     }
@@ -97,6 +186,13 @@ class PlayerManager @Inject constructor(
      * Guarantees old engine is released before the new one is instantiated.
      */
     suspend fun switchEngine(targetType: PlayerEngineType) {
+        switchEngineInternal(targetType, replayRequest = true)
+    }
+
+    private suspend fun switchEngineInternal(
+        targetType: PlayerEngineType,
+        replayRequest: Boolean
+    ) {
         switchMutex.withLock {
             _switchState.value = EngineSwitchState.SWITCHING
             var engineBeingPrepared: PlayerEngine? = null
@@ -104,6 +200,7 @@ class PlayerManager @Inject constructor(
             try {
                 val previousState = _playerState.value
                 val pendingPlaybackRequest = lastPlaybackRequest?.takeIf {
+                    replayRequest &&
                     shouldReplayAfterEngineSwitch(previousState.playbackState)
                 }?.let { request ->
                     request.copy(
@@ -158,6 +255,7 @@ class PlayerManager @Inject constructor(
 
                 currentEngine = finalEngine
                 _activeEngineName.value = finalEngine.engineName
+                updateDiagnostics(finalEngine.engineName)
                 startCollectingState()
 
                 pendingPlaybackRequest?.let { request ->
@@ -192,6 +290,15 @@ class PlayerManager @Inject constructor(
                 currentEngine = null
                 _activeEngineName.value = null
                 _switchState.value = EngineSwitchState.ERROR
+                _recoveryState.value = _recoveryState.value.copy(isRecovering = false)
+                _playerState.value = PlayerState(
+                    playbackState = PlaybackState.ERROR,
+                    errorMessage = "Playback engine switch failed",
+                    aspectRatioMode = preferredAspectRatio,
+                    videoQualityMode = preferredVideoQualityMode,
+                    playbackSpeed = defaultPlaybackSpeed
+                )
+                updateDiagnostics()
             }
         }
     }
@@ -201,7 +308,31 @@ class PlayerManager @Inject constructor(
         startPosition: Long = 0L,
         profile: PlaybackProfile = PlaybackProfile.VOD
     ) {
-        refreshSettingsCache()
+        val settings = refreshSettingsCache()
+        val profileKey = playbackProfileKey(url)
+        val rememberedEngine = settingsDataStore.getPlaybackEngineProfile(profileKey)
+            ?.let(PlayerEngineType::fromStoredValue)
+        val preferredEngine = rememberedEngine
+            ?: PlayerEngineType.fromStoredValue(settings.playerEngine)
+
+        if (currentEngine != null && activeEngineTypeFor(currentEngine) != preferredEngine) {
+            switchEngineInternal(preferredEngine, replayRequest = false)
+        }
+
+        currentPlaybackProfileKey = profileKey
+        automaticFallbackAttempted = false
+        profilePersistedForRequest = false
+        hasConfirmedCurrentRequest = false
+        _recoveryState.value = PlaybackRecoveryState()
+        val source = parsePlaybackSource(url)
+        val (protocol, host) = playbackSourceSummary(url)
+        _diagnostics.value = PlaybackDiagnostics(
+            engineName = currentEngine?.engineName ?: "—",
+            streamProtocol = protocol,
+            streamHost = host,
+            requestHeaderNames = source.headers.keys,
+            recovery = _recoveryState.value
+        )
         lastPlaybackRequest = PlaybackRequest(
             url = url,
             startPosition = startPosition,
@@ -238,6 +369,7 @@ class PlayerManager @Inject constructor(
 
     suspend fun stop() {
         lastPlaybackRequest = null
+        currentPlaybackProfileKey = null
         withContext(Dispatchers.Main.immediate) {
             currentEngine?.stop()
         }
@@ -319,6 +451,10 @@ class PlayerManager @Inject constructor(
                     stateCollectionJob?.cancel()
                     stateCollectionJob = null
                     lastPlaybackRequest = null
+                    currentPlaybackProfileKey = null
+                    automaticFallbackAttempted = false
+                    profilePersistedForRequest = false
+                    hasConfirmedCurrentRequest = false
 
                     val engineToRelease = currentEngine
                     if (engineToRelease != null) {
@@ -328,6 +464,8 @@ class PlayerManager @Inject constructor(
                     currentEngine = null
                     _activeEngineName.value = null
                     _switchState.value = EngineSwitchState.IDLE
+                    _recoveryState.value = PlaybackRecoveryState()
+                    _diagnostics.value = PlaybackDiagnostics()
                     _playerState.value = PlayerState(
                         aspectRatioMode = preferredAspectRatio,
                         videoQualityMode = preferredVideoQualityMode,
@@ -387,11 +525,18 @@ class PlayerManager @Inject constructor(
         cachedBufferMs = settings.bufferDurationMs.toLong()
         cachedLatencyMode = settings.liveLatencyMode
         cachedPreferHw = settings.preferHwDecoding
+        cachedAllowQualityFallback = settings.allowQualityFallback
+        cachedAutoPlayerFallback = settings.autoPlayerFallback
         return settings
     }
 
     private fun applyCachedSettingsToEngine(engine: PlayerEngine) {
-        engine.setPlaybackConfiguration(cachedBufferMs, cachedLatencyMode, cachedPreferHw)
+        engine.setPlaybackConfiguration(
+            cachedBufferMs,
+            cachedLatencyMode,
+            cachedPreferHw,
+            cachedAllowQualityFallback
+        )
         engine.setAspectRatio(preferredAspectRatio)
         engine.setVideoQualityMode(preferredVideoQualityMode)
         engine.setPlaybackSpeed(defaultPlaybackSpeed)
@@ -440,6 +585,13 @@ class PlayerManager @Inject constructor(
     private fun String.isExplicitlyDisabledLanguage(): Boolean {
         return lowercase(Locale.getDefault()).trim() in listOf("off", "none")
     }
+
+    private fun updateDiagnostics(engineName: String = currentEngine?.engineName ?: "—") {
+        _diagnostics.value = _diagnostics.value.copy(
+            engineName = engineName,
+            recovery = _recoveryState.value
+        )
+    }
 }
 
 internal fun shouldReplayAfterEngineSwitch(playbackState: PlaybackState): Boolean =
@@ -453,3 +605,31 @@ internal fun engineSwitchStartPosition(
     profile: PlaybackProfile,
     currentPosition: Long
 ): Long = if (profile == PlaybackProfile.LIVE) 0L else currentPosition.coerceAtLeast(0L)
+
+internal fun shouldAttemptAutomaticFallback(
+    enabled: Boolean,
+    activeEngineType: PlayerEngineType?,
+    state: PlayerState,
+    hasPreviouslyConfirmed: Boolean,
+    alreadyAttempted: Boolean,
+    hasPlaybackRequest: Boolean
+): Boolean = enabled &&
+    activeEngineType == PlayerEngineType.EXOPLAYER &&
+    state.playbackState == PlaybackState.ERROR &&
+    !state.isPlaybackConfirmed &&
+    !hasPreviouslyConfirmed &&
+    !alreadyAttempted &&
+    hasPlaybackRequest
+
+internal fun classifyPlaybackError(message: String?): String {
+    val normalized = message.orEmpty().lowercase(Locale.ROOT)
+    return when {
+        normalized.contains("401") || normalized.contains("403") -> "authorization"
+        normalized.contains("404") -> "not_found"
+        normalized.contains("http") || normalized.contains("network") || normalized.contains("timeout") -> "network"
+        normalized.contains("codec") || normalized.contains("decoder") || normalized.contains("hevc") -> "decoder"
+        normalized.contains("source") || normalized.contains("container") || normalized.contains("format") -> "source"
+        normalized.isBlank() -> "unknown"
+        else -> "playback"
+    }
+}

@@ -128,5 +128,10 @@ interface PlayerEngine {
     fun setAspectRatio(mode: AspectRatioMode)
     fun setVideoQualityMode(mode: VideoQualityMode) {}
     fun selectVideoTrack(index: Int) {}
-    fun setPlaybackConfiguration(bufferDurationMs: Long, liveLatencyMode: String, preferHwDecoding: Boolean) {}
+    fun setPlaybackConfiguration(
+        bufferDurationMs: Long,
+        liveLatencyMode: String,
+        preferHwDecoding: Boolean,
+        allowQualityFallback: Boolean = true
+    ) {}
 }

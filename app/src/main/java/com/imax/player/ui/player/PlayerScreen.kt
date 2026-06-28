@@ -4,6 +4,7 @@ import android.app.Activity
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -40,7 +41,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -79,6 +82,7 @@ fun PlayerScreen(
     viewModel: PlayerViewModel = hiltViewModel()
 ) {
     val playerState by viewModel.state.collectAsStateWithLifecycle()
+    val diagnostics by viewModel.diagnostics.collectAsStateWithLifecycle()
     val playerReady by viewModel.playerReady.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val session by viewModel.session.collectAsStateWithLifecycle()
@@ -96,6 +100,7 @@ fun PlayerScreen(
     var isScreenLocked by remember { mutableStateOf(false) }
     // Context and activity must be declared before PiP and AudioManager references
     val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
     val activity = context as? Activity
     // PiP — read from activity
     val isPipMode by (activity as? com.imax.player.MainActivity)?.isPipMode?.collectAsStateWithLifecycle(false)
@@ -1098,6 +1103,7 @@ fun PlayerScreen(
     if (showSettingsSheet) {
         PlayerSettingsSheet(
             playerState = playerState,
+            diagnostics = diagnostics,
             isTv = isTv,
             onDismiss = { showSettingsSheet = false },
             onSetAspectRatio = { viewModel.setAspectRatio(it) },
@@ -1106,7 +1112,11 @@ fun PlayerScreen(
             onSelectVideoTrack = { viewModel.selectVideoTrack(it) },
             onSelectAudio = { viewModel.selectAudio(it) },
             onSelectSubtitle = { viewModel.selectSubtitle(it) },
-            onDisableSubtitles = { viewModel.disableSubtitles() }
+            onDisableSubtitles = { viewModel.disableSubtitles() },
+            onCopyDiagnostics = {
+                clipboardManager.setText(AnnotatedString(viewModel.buildDiagnosticsReport()))
+                Toast.makeText(context, context.getString(R.string.playback_diagnostics_copied), Toast.LENGTH_SHORT).show()
+            }
         )
     }
 }
@@ -1232,6 +1242,7 @@ private fun ChannelSwitchEpgDetails(
 @Composable
 private fun PlayerSettingsSheet(
     playerState: PlayerState,
+    diagnostics: PlaybackDiagnostics,
     isTv: Boolean,
     onDismiss: () -> Unit,
     onSetAspectRatio: (AspectRatioMode) -> Unit,
@@ -1240,7 +1251,8 @@ private fun PlayerSettingsSheet(
     onSelectVideoTrack: (Int) -> Unit,
     onSelectAudio: (Int) -> Unit,
     onSelectSubtitle: (Int) -> Unit,
-    onDisableSubtitles: () -> Unit
+    onDisableSubtitles: () -> Unit,
+    onCopyDiagnostics: () -> Unit
 ) {
     var activeSection by remember { mutableStateOf<String?>(null) }
 
@@ -1261,6 +1273,7 @@ private fun PlayerSettingsSheet(
                 ) {
                     PlayerSettingsContent(
                         playerState = playerState,
+                        diagnostics = diagnostics,
                         isTv = true,
                         activeSection = activeSection,
                         onSectionChange = { activeSection = it },
@@ -1270,7 +1283,8 @@ private fun PlayerSettingsSheet(
                         onSelectVideoTrack = onSelectVideoTrack,
                         onSelectAudio = onSelectAudio,
                         onSelectSubtitle = onSelectSubtitle,
-                        onDisableSubtitles = onDisableSubtitles
+                        onDisableSubtitles = onDisableSubtitles,
+                        onCopyDiagnostics = onCopyDiagnostics
                     )
                 }
             }
@@ -1293,6 +1307,7 @@ private fun PlayerSettingsSheet(
     ) {
         PlayerSettingsContent(
             playerState = playerState,
+            diagnostics = diagnostics,
             isTv = false,
             activeSection = activeSection,
             onSectionChange = { activeSection = it },
@@ -1302,7 +1317,8 @@ private fun PlayerSettingsSheet(
             onSelectVideoTrack = onSelectVideoTrack,
             onSelectAudio = onSelectAudio,
             onSelectSubtitle = onSelectSubtitle,
-            onDisableSubtitles = onDisableSubtitles
+            onDisableSubtitles = onDisableSubtitles,
+            onCopyDiagnostics = onCopyDiagnostics
         )
     }
 }
@@ -1310,6 +1326,7 @@ private fun PlayerSettingsSheet(
 @Composable
 private fun PlayerSettingsContent(
     playerState: PlayerState,
+    diagnostics: PlaybackDiagnostics,
     isTv: Boolean,
     activeSection: String?,
     onSectionChange: (String?) -> Unit,
@@ -1319,7 +1336,8 @@ private fun PlayerSettingsContent(
     onSelectVideoTrack: (Int) -> Unit,
     onSelectAudio: (Int) -> Unit,
     onSelectSubtitle: (Int) -> Unit,
-    onDisableSubtitles: () -> Unit
+    onDisableSubtitles: () -> Unit,
+    onCopyDiagnostics: () -> Unit
 ) {
         Column(modifier = Modifier.fillMaxWidth().fillMaxHeight(0.7f)) {
             // Header
@@ -1519,6 +1537,9 @@ private fun PlayerSettingsContent(
                             item {
                                 Column(modifier = Modifier.padding(20.dp)) {
                                     StreamInfoRow("Resolution", playerState.currentVideoResolution.ifBlank { "—" })
+                                    StreamInfoRow("Engine", diagnostics.engineName)
+                                    StreamInfoRow("Playback", playerState.playbackState.name)
+                                    StreamInfoRow("Confirmed", if (playerState.isPlaybackConfirmed) "Yes" else "No")
                                     StreamInfoRow("Bitrate", playerState.currentVideoBitrate.ifBlank { "—" })
                                     StreamInfoRow("Codec", playerState.currentVideoCodec.ifBlank { "—" })
                                     StreamInfoRow("FPS", playerState.currentVideoFps.ifBlank { "—" })
@@ -1527,6 +1548,32 @@ private fun PlayerSettingsContent(
                                     StreamInfoRow("Display Mode", playerState.aspectRatioMode.label)
                                     StreamInfoRow("Quality Mode", playerState.videoQualityMode.label)
                                     StreamInfoRow("Speed", "${playerState.playbackSpeed}x")
+                                    StreamInfoRow(
+                                        "Buffer Ahead",
+                                        "${(playerState.bufferedPosition - playerState.currentPosition).coerceAtLeast(0L)} ms"
+                                    )
+                                    StreamInfoRow("Source", "${diagnostics.streamProtocol}:${diagnostics.streamHost}")
+                                    StreamInfoRow(
+                                        "Request Headers",
+                                        diagnostics.requestHeaderNames.sorted().joinToString().ifBlank { "None" }
+                                    )
+                                    StreamInfoRow(
+                                        "Auto Recovery",
+                                        when {
+                                            diagnostics.recovery.isRecovering -> "In progress"
+                                            diagnostics.recovery.automaticFallbackUsed -> "VLC fallback used"
+                                            else -> "Not used"
+                                        }
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Button(
+                                        onClick = onCopyDiagnostics,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Icon(Icons.Filled.ContentCopy, contentDescription = null)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(stringResource(R.string.copy_playback_diagnostics))
+                                    }
                                 }
                             }
                         }

@@ -8,6 +8,7 @@ import com.imax.player.core.common.rethrowIfCancellation
 import com.imax.player.core.database.*
 import com.imax.player.core.datastore.SettingsDataStore
 import com.imax.player.core.model.*
+import com.imax.player.core.player.parsePlaybackSource
 import com.imax.player.data.parser.M3uParser
 import com.imax.player.data.parser.XtreamClient
 import com.imax.player.data.parser.XtreamContentResult
@@ -461,7 +462,7 @@ class PlaylistRepository @Inject constructor(
     private fun MovieEntity.stableContentKey(): String {
         return when {
             streamId > 0 -> "stream:$streamId"
-            streamUrl.isNotBlank() -> "url:${streamUrl.trim()}"
+            streamUrl.isNotBlank() -> "url:${parsePlaybackSource(streamUrl).url}"
             else -> "name:${name.normalizedKeyPart()}:${categoryName.normalizedKeyPart()}"
         }
     }
@@ -622,7 +623,7 @@ internal fun buildXtreamEpgUrlFromM3uPlaylistUrl(playlistUrl: String): String {
 }
 
 internal fun buildXtreamEpgUrlFromStreamUrl(streamUrl: String): String {
-    val httpUrl = streamUrl.toHttpUrlOrNull() ?: return ""
+    val httpUrl = parsePlaybackSource(streamUrl).url.toHttpUrlOrNull() ?: return ""
     var username = httpUrl.queryParameter("username")?.takeIf(String::isNotBlank)
         ?: httpUrl.queryParameter("user")?.takeIf(String::isNotBlank)
     var password = httpUrl.queryParameter("password")?.takeIf(String::isNotBlank)
@@ -694,7 +695,7 @@ internal fun buildXtreamCredentialsFromM3uPlaylistUrl(playlistUrl: String): Xtre
 }
 
 internal fun buildXtreamCredentialsFromStreamUrl(streamUrl: String): XtreamCredentials? {
-    val httpUrl = streamUrl.toHttpUrlOrNull() ?: return null
+    val httpUrl = parsePlaybackSource(streamUrl).url.toHttpUrlOrNull() ?: return null
     var username = httpUrl.queryParameter("username")?.takeIf(String::isNotBlank)
         ?: httpUrl.queryParameter("user")?.takeIf(String::isNotBlank)
     var password = httpUrl.queryParameter("password")?.takeIf(String::isNotBlank)

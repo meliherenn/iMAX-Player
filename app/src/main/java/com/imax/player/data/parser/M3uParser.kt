@@ -5,6 +5,11 @@ import com.imax.player.core.database.MovieEntity
 import com.imax.player.core.database.SeriesEntity
 import com.imax.player.core.common.rethrowIfCancellation
 import com.imax.player.core.model.ContentType
+import com.imax.player.core.player.parsePlaybackSource
+import com.imax.player.core.player.withPlaybackHeaders
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import timber.log.Timber
 import java.io.BufferedReader
@@ -41,6 +46,7 @@ class M3uParser @Inject constructor() {
         var currentLine: String?
         var extinf: String? = null
         var epgUrls = emptyList<String>()
+        var playbackHeaders = linkedMapOf<String, String>()
 
         try {
             while (reader.readLine().also { currentLine = it } != null) {
@@ -49,8 +55,14 @@ class M3uParser @Inject constructor() {
                     line.startsWith("#EXTM3U") -> {
                         epgUrls = parseHeaderEpgUrls(line)
                     }
-                    line.startsWith("#EXTINF:") -> extinf = line
+                    line.startsWith("#EXTINF:") -> {
+                        extinf = line
+                        playbackHeaders.putAll(parseEntryPlaybackHeaders(line))
+                    }
                     line.startsWith("#") -> {
+                        parsePlaybackOptions(line).forEach { (name, value) ->
+                            playbackHeaders[name] = value
+                        }
                         val match = Regex("^#(?:x-tvg-url|url-tvg|tvg-url|epg-url|epg)\\s*[:=]\\s*(.+)$", RegexOption.IGNORE_CASE)
                             .find(line)
                         if (match != null) {
@@ -61,12 +73,16 @@ class M3uParser @Inject constructor() {
                         }
                     }
                     line.isNotEmpty() && extinf != null -> {
-                        val entry = parseEntry(extinf, line)
+                        val streamUrl = withPlaybackHeaders(line, playbackHeaders)
+                        val entry = parseEntry(extinf, streamUrl)
                         if (entry != null) entries.add(entry)
                         extinf = null
+                        playbackHeaders.clear()
                     }
                     line.isNotEmpty() && extinf == null -> {
-                        entries.add(M3uEntry(name = line.substringAfterLast("/"), url = line))
+                        val streamUrl = withPlaybackHeaders(line, playbackHeaders)
+                        entries.add(M3uEntry(name = line.substringAfterLast("/"), url = streamUrl))
+                        playbackHeaders.clear()
                     }
                 }
             }
@@ -122,6 +138,62 @@ class M3uParser @Inject constructor() {
         return attrs
     }
 
+    private fun parseEntryPlaybackHeaders(extinf: String): Map<String, String> {
+        val attributes = parseAttributes(extinf)
+        return buildMap {
+            attributes["http-user-agent"]
+                .orEmpty()
+                .ifBlank { attributes["user-agent"].orEmpty() }
+                .takeIf(String::isNotBlank)
+                ?.let { put("User-Agent", it) }
+            attributes["http-referrer"]
+                .orEmpty()
+                .ifBlank { attributes["referer"].orEmpty() }
+                .ifBlank { attributes["referrer"].orEmpty() }
+                .takeIf(String::isNotBlank)
+                ?.let { put("Referer", it) }
+            attributes["http-origin"]
+                .orEmpty()
+                .ifBlank { attributes["origin"].orEmpty() }
+                .takeIf(String::isNotBlank)
+                ?.let { put("Origin", it) }
+        }
+    }
+
+    private fun parsePlaybackOptions(line: String): Map<String, String> {
+        val vlcMatch = Regex(
+            pattern = "^#EXTVLCOPT:([^=]+)=(.*)$",
+            option = RegexOption.IGNORE_CASE
+        ).find(line)
+        if (vlcMatch != null) {
+            val value = vlcMatch.groupValues[2].trim().takeIf(String::isNotBlank) ?: return emptyMap()
+            val headerName = when (vlcMatch.groupValues[1].trim().lowercase()) {
+                "http-user-agent" -> "User-Agent"
+                "http-referrer", "http-referer" -> "Referer"
+                "http-origin" -> "Origin"
+                "http-cookie", "http-cookies" -> "Cookie"
+                else -> return emptyMap()
+            }
+            return mapOf(headerName to value)
+        }
+
+        val kodiPrefix = "#KODIPROP:inputstream.adaptive.stream_headers="
+        if (line.startsWith(kodiPrefix, ignoreCase = true)) {
+            val payload = line.substring(kodiPrefix.length)
+            return parsePlaybackSource("https://header.invalid|$payload").headers
+        }
+
+        if (line.startsWith("#EXTHTTP:", ignoreCase = true)) {
+            val payload = line.substringAfter(':').trim()
+            return runCatching {
+                Json.parseToJsonElement(payload).jsonObject
+                    .mapValues { (_, value) -> value.jsonPrimitive.content }
+            }.getOrDefault(emptyMap())
+        }
+
+        return emptyMap()
+    }
+
     private fun parseHeaderEpgUrls(header: String): List<String> {
         val attributes = parseAttributes(header)
         return epgUrlAttributeKeys
@@ -135,7 +207,7 @@ class M3uParser @Inject constructor() {
             .filter(String::isNotBlank)
 
     private fun detectContentType(url: String, group: String): ContentType {
-        val lowerUrl = url.lowercase()
+        val lowerUrl = parsePlaybackSource(url).url.lowercase()
         val lowerGroup = group.lowercase()
         return when {
             lowerUrl.contains("/movie/") || lowerGroup.contains("movie") || lowerGroup.contains("film") -> ContentType.MOVIE
@@ -219,7 +291,8 @@ class M3uParser @Inject constructor() {
     }
 
     private fun extractXtreamStreamId(url: String): Int {
-        url.toHttpUrlOrNull()?.let { httpUrl ->
+        val sourceUrl = parsePlaybackSource(url).url
+        sourceUrl.toHttpUrlOrNull()?.let { httpUrl ->
             listOf("stream_id", "streamId", "stream").forEach { key ->
                 httpUrl.queryParameter(key)?.toIntOrNull()?.let { return it }
             }
@@ -229,7 +302,7 @@ class M3uParser @Inject constructor() {
             pattern = """/(?:live|movie|series)/[^/?#]+/[^/?#]+/(\d+)(?:\.[^/?#]+)?(?:[?#].*)?$""",
             option = RegexOption.IGNORE_CASE
         )
-            .find(url)
+            .find(sourceUrl)
             ?.groupValues
             ?.getOrNull(1)
             ?.toIntOrNull()

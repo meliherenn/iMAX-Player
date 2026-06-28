@@ -82,7 +82,10 @@ class SettingsViewModel @Inject constructor(
     fun updateSeekForward(ms: Long) = viewModelScope.launch { settingsDataStore.updateSeekForward(ms) }
     fun updateSeekBackward(ms: Long) = viewModelScope.launch { settingsDataStore.updateSeekBackward(ms) }
     fun updateAutoResume(v: Boolean) = viewModelScope.launch { settingsDataStore.updateAutoResume(v) }
-    fun updateContinueWatching(v: Boolean) = viewModelScope.launch { settingsDataStore.updateContinueWatching(v) }
+    fun updateContinueWatching(v: Boolean) = viewModelScope.launch {
+        settingsDataStore.updateContinueWatching(v)
+        if (!v) contentRepository.clearContinueWatchingHistory()
+    }
     fun updateAutoPlayNext(v: Boolean) = viewModelScope.launch { settingsDataStore.updateAutoPlayNext(v) }
     fun clearWatchHistory() = viewModelScope.launch { contentRepository.clearWatchHistory() }
 
@@ -97,11 +100,15 @@ class SettingsViewModel @Inject constructor(
     fun updateQualityMode(mode: String) = viewModelScope.launch { settingsDataStore.updateVideoQualityMode(mode) }
     fun updatePreferHw(v: Boolean) = viewModelScope.launch { settingsDataStore.updatePreferHwDecoding(v) }
     fun updateAllowFallback(v: Boolean) = viewModelScope.launch { settingsDataStore.updateAllowQualityFallback(v) }
+    fun updateAutoPlayerFallback(v: Boolean) = viewModelScope.launch { settingsDataStore.updateAutoPlayerFallback(v) }
 
     // ━━━ Live TV ━━━
     fun updateLiveMode(mode: String) = viewModelScope.launch { settingsDataStore.updateLiveLatencyMode(mode) }
     fun updateLiveReconnect(v: Boolean) = viewModelScope.launch { settingsDataStore.updateLiveReconnect(v) }
-    fun updateRememberChannel(v: Boolean) = viewModelScope.launch { settingsDataStore.updateRememberLastChannel(v) }
+    fun updateRememberChannel(v: Boolean) = viewModelScope.launch {
+        settingsDataStore.updateRememberLastChannel(v)
+        if (!v) contentRepository.clearRecentlyWatchedChannels()
+    }
     fun updateStartFullscreen(v: Boolean) = viewModelScope.launch { settingsDataStore.updateStartFullscreenLive(v) }
     fun updateOpenLastPlaylist(v: Boolean) = viewModelScope.launch { settingsDataStore.updateOpenLastPlaylist(v) }
 
@@ -354,6 +361,12 @@ private fun SettingsContent(
                 checked = settings.allowQualityFallback,
                 isTv = isTv,
                 onCheckedChange = { viewModel.updateAllowFallback(it) }
+            )
+            SettingsSwitch(
+                label = stringResource(R.string.settings_auto_player_fallback),
+                checked = settings.autoPlayerFallback,
+                isTv = isTv,
+                onCheckedChange = { viewModel.updateAutoPlayerFallback(it) }
             )
         }
 

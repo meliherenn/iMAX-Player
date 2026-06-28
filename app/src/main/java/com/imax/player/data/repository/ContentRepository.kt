@@ -41,6 +41,9 @@ class ContentRepository @Inject constructor(
     fun getChannels(playlistId: Long): Flow<List<Channel>> =
         channelDao.getByPlaylist(playlistId).map { list -> list.map { it.toModel() } }
 
+    fun getRecentlyWatchedChannels(playlistId: Long): Flow<List<Channel>> =
+        channelDao.getRecentlyWatched(playlistId).map { list -> list.map { it.toModel() } }
+
     fun getChannelsByGroup(playlistId: Long, group: String): Flow<List<Channel>> =
         channelDao.getByGroup(playlistId, group).map { list -> list.map { it.toModel() } }
 
@@ -57,6 +60,8 @@ class ContentRepository @Inject constructor(
 
     suspend fun updateChannelLastWatched(id: Long) =
         channelDao.updateLastWatched(id)
+
+    suspend fun clearRecentlyWatchedChannels() = channelDao.clearWatchState()
 
     // Movies
     fun getMovies(playlistId: Long): Flow<List<Movie>> =
@@ -302,6 +307,12 @@ class ContentRepository @Inject constructor(
             episodeDao.clearWatchProgress()
             seriesDao.clearWatchProgress()
             channelDao.clearWatchState()
+        }
+    }
+
+    suspend fun clearContinueWatchingHistory() {
+        withContext(Dispatchers.IO) {
+            watchHistoryDao.deleteAll()
         }
     }
 

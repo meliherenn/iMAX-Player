@@ -3,6 +3,7 @@ package com.imax.player.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.imax.player.core.model.*
+import com.imax.player.core.datastore.SettingsDataStore
 import com.imax.player.data.repository.ContentRepository
 import com.imax.player.data.repository.PlaylistRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -27,7 +28,8 @@ data class HomeState(
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val playlistRepository: PlaylistRepository,
-    private val contentRepository: ContentRepository
+    private val contentRepository: ContentRepository,
+    private val settingsDataStore: SettingsDataStore
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(HomeState())
@@ -49,7 +51,12 @@ class HomeViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            contentRepository.getContinueWatching().collect { items ->
+            combine(
+                contentRepository.getContinueWatching(),
+                settingsDataStore.settings
+            ) { items, settings ->
+                if (settings.continueWatching) items else emptyList()
+            }.collect { items ->
                 _state.update { it.copy(continueWatching = items) }
             }
         }
@@ -79,7 +86,12 @@ class HomeViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            contentRepository.getChannels(playlistId).collect { channels ->
+            combine(
+                contentRepository.getRecentlyWatchedChannels(playlistId),
+                settingsDataStore.settings
+            ) { channels, settings ->
+                if (settings.rememberLastChannel) channels else emptyList()
+            }.collect { channels ->
                 _state.update { it.copy(recentChannels = channels.take(20)) }
             }
         }

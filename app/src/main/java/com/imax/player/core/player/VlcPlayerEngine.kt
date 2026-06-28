@@ -297,7 +297,8 @@ class VlcPlayerEngine @Inject constructor(
     override fun setPlaybackConfiguration(
         bufferDurationMs: Long,
         liveLatencyMode: String,
-        preferHwDecoding: Boolean
+        preferHwDecoding: Boolean,
+        allowQualityFallback: Boolean
     ) {
         configuredBufferMs = bufferDurationMs
         configuredLatencyMode = liveLatencyMode
@@ -365,6 +366,7 @@ class VlcPlayerEngine @Inject constructor(
     private fun startPlaybackInternal(url: String, startPosition: Long) {
         val player = mediaPlayer ?: return
         val vlc = libVlc ?: return
+        val source = parsePlaybackSource(url)
 
         try {
             stopProgressTracking()
@@ -375,12 +377,12 @@ class VlcPlayerEngine @Inject constructor(
             } catch (_: Throwable) {
             }
 
-            val media = Media(vlc, Uri.parse(url))
+            val media = Media(vlc, Uri.parse(source.url))
             media.setHWDecoderEnabled(configuredPreferHw, false)
 
             val isLive = currentProfile == PlaybackProfile.LIVE ||
-                url.contains(".m3u8", ignoreCase = true) ||
-                url.contains(".ts", ignoreCase = true)
+                source.url.contains(".m3u8", ignoreCase = true) ||
+                source.url.contains(".ts", ignoreCase = true)
             val cacheMs = if (isLive) {
                 when (configuredLatencyMode.uppercase()) {
                     LiveLatencyMode.LOW_LATENCY.name -> 500L
@@ -401,7 +403,10 @@ class VlcPlayerEngine @Inject constructor(
                 }
             )
             media.addOption(":clock-synchro=0")
-            media.addOption(":http-user-agent=iMAX Player/Android")
+            media.addOption(":http-user-agent=${source.userAgent}")
+            source.headers["Referer"]?.let { media.addOption(":http-referrer=$it") }
+            source.headers["Origin"]?.let { media.addOption(":http-origin=$it") }
+            source.headers["Cookie"]?.let { media.addOption(":http-cookie=$it") }
             media.addOption(":input-repeat=0")
 
             player.media = media
@@ -420,9 +425,9 @@ class VlcPlayerEngine @Inject constructor(
             }
 
             publishState()
-            Timber.d("VLC playback started: %s", SensitiveLog.redactUrl(url))
+            Timber.d("VLC playback started: %s", SensitiveLog.redactUrl(source.url))
         } catch (throwable: Throwable) {
-            Timber.e(throwable, "VLC play failed: %s", SensitiveLog.redactUrl(url))
+            Timber.e(throwable, "VLC play failed: %s", SensitiveLog.redactUrl(source.url))
             currentErrorMessage = "VLC playback failed: ${throwable.localizedMessage}"
             playbackState = PlaybackState.ERROR
             publishState()

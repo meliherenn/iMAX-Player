@@ -41,6 +41,9 @@ interface ChannelDao {
     @Query("SELECT * FROM channels WHERE playlistId = :playlistId ORDER BY sortOrder, name")
     fun getByPlaylist(playlistId: Long): Flow<List<ChannelEntity>>
 
+    @Query("SELECT * FROM channels WHERE playlistId = :playlistId AND lastWatched > 0 ORDER BY lastWatched DESC LIMIT :limit")
+    fun getRecentlyWatched(playlistId: Long, limit: Int = 20): Flow<List<ChannelEntity>>
+
     @Query("SELECT * FROM channels WHERE playlistId = :playlistId ORDER BY sortOrder, name")
     suspend fun getByPlaylistSnapshot(playlistId: Long): List<ChannelEntity>
 

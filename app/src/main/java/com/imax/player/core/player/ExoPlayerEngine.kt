@@ -85,6 +85,7 @@ class ExoPlayerEngine @Inject constructor(
     private var configuredBufferMs: Long = Constants.DEFAULT_BUFFER_MS.toLong()
     private var configuredLatencyMode: String = LiveLatencyMode.BALANCED.name
     private var configuredPreferHw: Boolean = true
+    private var configuredAllowQualityFallback: Boolean = true
 
     private var preferredAudioLanguage: String? = null
     private var preferredSubtitleLanguage: String? = null
@@ -116,14 +117,17 @@ class ExoPlayerEngine @Inject constructor(
     override fun setPlaybackConfiguration(
         bufferDurationMs: Long,
         liveLatencyMode: String,
-        preferHwDecoding: Boolean
+        preferHwDecoding: Boolean,
+        allowQualityFallback: Boolean
     ) {
         val configurationChanged = configuredBufferMs != bufferDurationMs ||
             !configuredLatencyMode.equals(liveLatencyMode, ignoreCase = true) ||
-            configuredPreferHw != preferHwDecoding
+            configuredPreferHw != preferHwDecoding ||
+            configuredAllowQualityFallback != allowQualityFallback
         configuredBufferMs = bufferDurationMs
         configuredLatencyMode = liveLatencyMode
         configuredPreferHw = preferHwDecoding
+        configuredAllowQualityFallback = allowQualityFallback
 
         if (configurationChanged) {
             runOnMain {
@@ -150,8 +154,8 @@ class ExoPlayerEngine @Inject constructor(
             ensurePlayer(profile)
 
             val exoPlayer = player ?: return@runOnMain
-            val normalizedUrl = normalizePlaybackUrl(url)
-            val mediaItem = buildMediaItem(normalizedUrl, profile)
+            val source = parsePlaybackSource(url)
+            val mediaItem = buildMediaItem(source.url, profile)
 
             resetPlaybackAttemptState()
             pendingPlaybackRequest = PendingPlaybackRequest(
@@ -159,7 +163,7 @@ class ExoPlayerEngine @Inject constructor(
                 startPosition = startPosition
             )
 
-            exoPlayer.setMediaSource(buildMediaSource(mediaItem))
+            exoPlayer.setMediaSource(buildMediaSource(mediaItem, source))
             exoPlayer.volume = 1f
             exoPlayer.playWhenReady = false
             exoPlayer.prepare()
@@ -310,6 +314,7 @@ class ExoPlayerEngine @Inject constructor(
                 VideoQualityMode.AUTO -> {
                     selector.setParameters(
                         selector.buildUponParameters()
+                            .setExceedVideoConstraintsIfNecessary(configuredAllowQualityFallback)
                             .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
                             .clearVideoSizeConstraints()
                             .setForceHighestSupportedBitrate(false)
@@ -320,6 +325,7 @@ class ExoPlayerEngine @Inject constructor(
                 VideoQualityMode.BEST -> {
                     selector.setParameters(
                         selector.buildUponParameters()
+                            .setExceedVideoConstraintsIfNecessary(configuredAllowQualityFallback)
                             .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
                             .clearVideoSizeConstraints()
                             .setForceHighestSupportedBitrate(true)
@@ -330,6 +336,7 @@ class ExoPlayerEngine @Inject constructor(
                 VideoQualityMode.BALANCED -> {
                     selector.setParameters(
                         selector.buildUponParameters()
+                            .setExceedVideoConstraintsIfNecessary(configuredAllowQualityFallback)
                             .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
                             .setForceHighestSupportedBitrate(false)
                             .setMaxVideoSize(1920, 1080)
@@ -340,6 +347,7 @@ class ExoPlayerEngine @Inject constructor(
                 VideoQualityMode.DATA_SAVER -> {
                     selector.setParameters(
                         selector.buildUponParameters()
+                            .setExceedVideoConstraintsIfNecessary(configuredAllowQualityFallback)
                             .clearOverridesOfType(C.TRACK_TYPE_VIDEO)
                             .setForceHighestSupportedBitrate(false)
                             .setMaxVideoSize(1280, 720)
@@ -471,14 +479,14 @@ class ExoPlayerEngine @Inject constructor(
         val selector = DefaultTrackSelector(context).apply {
             setParameters(
                 buildUponParameters()
+                    .setExceedVideoConstraintsIfNecessary(configuredAllowQualityFallback)
                     .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, false)
                     .setTrackTypeDisabled(C.TRACK_TYPE_VIDEO, false)
             )
         }
         trackSelector = selector
 
-        val dataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
-            .setUserAgent(userAgent)
+        val dataSourceFactory = buildDataSourceFactory()
         val renderersFactory = ImaxRenderersFactory(
             context = context,
             preferHardwareVideoDecoding = configuredPreferHw
@@ -698,10 +706,19 @@ class ExoPlayerEngine @Inject constructor(
             .build()
     }
 
-    private fun buildMediaSource(mediaItem: MediaItem): MediaSource {
-        val dataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
-            .setUserAgent(userAgent)
+    private fun buildMediaSource(mediaItem: MediaItem, source: PlaybackSource): MediaSource {
+        val dataSourceFactory = buildDataSourceFactory(source)
         return DefaultMediaSourceFactory(dataSourceFactory).createMediaSource(mediaItem)
+    }
+
+    private fun buildDataSourceFactory(source: PlaybackSource? = null): OkHttpDataSource.Factory {
+        return OkHttpDataSource.Factory(okHttpClient)
+            .setUserAgent(source?.userAgent ?: userAgent)
+            .apply {
+                source?.requestProperties
+                    ?.takeIf(Map<String, String>::isNotEmpty)
+                    ?.let(::setDefaultRequestProperties)
+            }
     }
 
     private fun inferMimeType(url: String): String? {
@@ -724,10 +741,6 @@ class ExoPlayerEngine @Inject constructor(
             LiveLatencyMode.STABLE.name -> 8_000L
             else -> 5_000L
         }
-    }
-
-    private fun normalizePlaybackUrl(url: String): String {
-        return url.trim().removeSuffix(".")
     }
 
     private fun configurePlayerView(view: PlayerView) {

@@ -37,6 +37,15 @@ class PlaylistEpgUrlTest {
     }
 
     @Test
+    fun `stream headers do not block xtream xmltv discovery`() {
+        val epgUrl = buildXtreamEpgUrlFromStreamUrl(
+            "https://provider.example/live/user1/pass1/12345.ts|User-Agent=Example%20TV"
+        )
+
+        assertThat(epgUrl).isEqualTo("https://provider.example/xmltv.php?username=user1&password=pass1")
+    }
+
+    @Test
     fun `m3u epg urls include header playlist and stream candidates`() {
         val epgUrls = resolveM3uEpgUrls(
             epgUrls = listOf("epg/header.xml.gz"),
@@ -66,6 +75,17 @@ class PlaylistEpgUrlTest {
     fun `stream live url derives xtream credentials`() {
         val credentials = buildXtreamCredentialsFromStreamUrl(
             "https://provider.example/live/user1/pass1/12345.ts"
+        )
+
+        assertThat(credentials?.serverUrl).isEqualTo("https://provider.example")
+        assertThat(credentials?.username).isEqualTo("user1")
+        assertThat(credentials?.password).isEqualTo("pass1")
+    }
+
+    @Test
+    fun `stream headers do not block xtream credential discovery`() {
+        val credentials = buildXtreamCredentialsFromStreamUrl(
+            "https://provider.example/live/user1/pass1/12345.ts|Referer=https%3A%2F%2Fportal.example%2F"
         )
 
         assertThat(credentials?.serverUrl).isEqualTo("https://provider.example")

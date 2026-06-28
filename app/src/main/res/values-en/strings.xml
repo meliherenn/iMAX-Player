@@ -159,6 +159,9 @@
     <string name="settings_auto_enable_subtitles">Auto-enable Subtitles</string>
     <string name="settings_prefer_hw_decoding">Prefer Hardware Decoder</string>
     <string name="settings_allow_quality_fallback">Allow Quality Fallback</string>
+    <string name="settings_auto_player_fallback">Automatic Player Recovery</string>
+    <string name="copy_playback_diagnostics">Copy Diagnostics Report</string>
+    <string name="playback_diagnostics_copied">Diagnostics report copied</string>
     <string name="settings_live_latency">Live Stream Latency</string>
     <string name="settings_live_reconnect">Auto-reconnect on Error</string>
     <string name="settings_remember_channel">Remember Last Channel</string>

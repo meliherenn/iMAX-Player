@@ -3,6 +3,7 @@ package com.imax.player.ui.tv
 import android.app.Activity
 import android.view.KeyEvent as AndroidKeyEvent
 import android.view.WindowManager
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -41,6 +42,7 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Info
@@ -88,7 +90,9 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -109,6 +113,7 @@ import com.imax.player.core.model.ContentType
 import com.imax.player.core.model.Episode
 import com.imax.player.core.player.AspectRatioMode
 import com.imax.player.core.player.PlaybackState
+import com.imax.player.core.player.PlaybackDiagnostics
 import com.imax.player.core.player.PlayerState
 
 import com.imax.player.ui.components.rememberTvFocusVisualState
@@ -314,6 +319,7 @@ fun TvPlayerScreen(
     viewModel: PlayerViewModel = hiltViewModel()
 ) {
     val playerState by viewModel.state.collectAsStateWithLifecycle()
+    val diagnostics by viewModel.diagnostics.collectAsStateWithLifecycle()
     val playerReady by viewModel.playerReady.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val session by viewModel.session.collectAsStateWithLifecycle()
@@ -326,6 +332,7 @@ fun TvPlayerScreen(
 
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
     val activity = context as? Activity
     val insetsController = remember(activity) {
         activity?.window?.let { window ->
@@ -1090,6 +1097,7 @@ fun TvPlayerScreen(
                 modifier = Modifier.fillMaxSize(),
                 activePanel = activePanel,
                 playerState = playerState,
+                diagnostics = diagnostics,
                 channels = channelPanelChannels,
                 channelGroups = session.liveGroups,
                 selectedChannelGroup = channelPanelGroup,
@@ -1140,6 +1148,14 @@ fun TvPlayerScreen(
                 onRetry = {
                     viewModel.retryCurrent()
                     closePanel()
+                },
+                onCopyDiagnostics = {
+                    clipboardManager.setText(AnnotatedString(viewModel.buildDiagnosticsReport()))
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.playback_diagnostics_copied),
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
             )
         }
@@ -1575,6 +1591,7 @@ private fun TvPlayerPanelHost(
     modifier: Modifier,
     activePanel: TvPlayerPanel,
     playerState: PlayerState,
+    diagnostics: PlaybackDiagnostics,
     channels: List<Channel>,
     channelGroups: List<String>,
     selectedChannelGroup: String?,
@@ -1595,7 +1612,8 @@ private fun TvPlayerPanelHost(
     onOpenSubtitlePanel: () -> Unit,
     onOpenSpeedPanel: () -> Unit,
     onOpenStreamInfoPanel: () -> Unit,
-    onRetry: () -> Unit
+    onRetry: () -> Unit,
+    onCopyDiagnostics: () -> Unit
 ) {
     Box(
         modifier = modifier
@@ -1836,12 +1854,22 @@ private fun TvPlayerPanelHost(
                 TvInfoPanel(
                     title = stringResource(R.string.setting_stream_info),
                     rows = listOf(
+                        "Engine" to diagnostics.engineName,
+                        "Playback" to playerState.playbackState.name,
+                        "Confirmed" to if (playerState.isPlaybackConfirmed) "Yes" else "No",
                         "Resolution" to playerState.currentVideoResolution.ifBlank { "—" },
                         "Bitrate" to playerState.currentVideoBitrate.ifBlank { "—" },
                         "Codec" to playerState.currentVideoCodec.ifBlank { "—" },
                         "FPS" to playerState.currentVideoFps.ifBlank { "—" },
-                        "Display" to playerState.aspectRatioMode.label
+                        "Buffer" to "${(playerState.bufferedPosition - playerState.currentPosition).coerceAtLeast(0L)} ms",
+                        "Source" to "${diagnostics.streamProtocol}:${diagnostics.streamHost}",
+                        "Recovery" to when {
+                            diagnostics.recovery.isRecovering -> "In progress"
+                            diagnostics.recovery.automaticFallbackUsed -> "VLC fallback used"
+                            else -> "Not used"
+                        }
                     ),
+                    onCopy = onCopyDiagnostics,
                     onClose = onDismiss
                 )
             }
@@ -1964,6 +1992,7 @@ private fun TvOptionPanel(
 private fun TvInfoPanel(
     title: String,
     rows: List<Pair<String, String>>,
+    onCopy: () -> Unit,
     onClose: () -> Unit
 ) {
     val closeRequester = remember { FocusRequester() }
@@ -1976,7 +2005,7 @@ private fun TvInfoPanel(
         modifier = Modifier
             .padding(horizontal = 54.dp, vertical = 44.dp)
             .width(460.dp)
-            .fillMaxHeight(0.58f),
+            .fillMaxHeight(0.82f),
         shape = RoundedCornerShape(26.dp),
         color = ImaxColors.Surface.copy(alpha = 0.98f),
         tonalElevation = 8.dp,
@@ -2002,6 +2031,12 @@ private fun TvInfoPanel(
                     focusRequester = closeRequester,
                     onFocused = {},
                     onClick = onClose
+                )
+                TvActionChip(
+                    icon = Icons.Filled.ContentCopy,
+                    label = stringResource(R.string.copy_playback_diagnostics),
+                    onFocused = {},
+                    onClick = onCopy
                 )
                 rows.forEach { (label, value) ->
                     Row(
