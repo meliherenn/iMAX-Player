@@ -1,10 +1,9 @@
 package com.imax.player.core.catchup
 
 import com.imax.player.core.model.Channel
-import java.net.URLEncoder
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -26,7 +25,8 @@ class CatchupUrlResolver @Inject constructor() {
 
     companion object {
         private const val CATCHUP_EXT = "ts"
-        private val DATE_FMT = SimpleDateFormat("yyyy-MM-dd:HH-mm", Locale.US)
+        private val DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd:HH-mm")
+            .withZone(ZoneOffset.UTC)
     }
 
     /**
@@ -81,7 +81,7 @@ class CatchupUrlResolver @Inject constructor() {
             .replace("{utc}", utcSecs.toString())
             .replace("{utcend}", utcEnd.toString())
             .replace("{duration}", durationMins.toString())
-            .replace("{start}", DATE_FMT.format(Date(startMs)))
+            .replace("{start}", formatCatchupStart(startMs))
     }
 
     private fun buildXtreamTimeshiftUrl(
@@ -92,8 +92,11 @@ class CatchupUrlResolver @Inject constructor() {
         startMs: Long,
         durationMins: Int
     ): String {
-        val start = DATE_FMT.format(Date(startMs))
+        val start = formatCatchupStart(startMs)
         val base = serverUrl.trimEnd('/')
         return "$base/timeshift/$username/$password/$durationMins/$start/$streamId.$CATCHUP_EXT"
     }
+
+    private fun formatCatchupStart(startMs: Long): String =
+        DATE_FMT.format(Instant.ofEpochMilli(startMs))
 }

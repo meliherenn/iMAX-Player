@@ -8,6 +8,7 @@ import com.imax.player.data.repository.ContentRepository
 import com.imax.player.data.repository.PlaylistRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -45,6 +46,9 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun loadContent(playlistId: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            contentRepository.backfillMissingMovieArtwork(playlistId, limit = 12)
+        }
         viewModelScope.launch {
             contentRepository.getRecentMovies(playlistId).collect { movies ->
                 _state.update { it.copy(recentMovies = movies) }
@@ -98,4 +102,10 @@ class HomeViewModel @Inject constructor(
     }
 
     fun selectContent(content: Any?) = _state.update { it.copy(selectedContent = content) }
+
+    fun repairMovieArtwork(movieId: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            contentRepository.repairMovieArtwork(movieId)
+        }
+    }
 }

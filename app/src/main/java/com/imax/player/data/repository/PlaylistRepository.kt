@@ -147,7 +147,10 @@ class PlaylistRepository @Inject constructor(
         }
     }
 
-    suspend fun ensureEpgSynced(playlist: Playlist): Boolean = withContext(Dispatchers.IO) {
+    suspend fun ensureEpgSynced(
+        playlist: Playlist,
+        forceRefresh: Boolean = false
+    ): Boolean = withContext(Dispatchers.IO) {
         epgDiscoveryJobs[playlist.id]
             ?.takeIf(Job::isActive)
             ?.let { runningJob ->
@@ -158,7 +161,7 @@ class PlaylistRepository @Inject constructor(
             }
 
         val settings = settingsDataStore.settings.first()
-        if (settings.epgLastSync > 0L) {
+        if (!forceRefresh && settings.epgLastSync > 0L) {
             val channels = channelDao.getByPlaylistSnapshot(playlist.id).map { it.toModel() }
             val hasCurrentPrograms = channels.isNotEmpty() &&
                 epgRepository.getCurrentProgramsForChannels(channels).isNotEmpty()

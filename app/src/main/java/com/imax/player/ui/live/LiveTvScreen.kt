@@ -186,7 +186,7 @@ fun LiveTvScreen(
             else TvLiveTvContent(state, viewModel, onPlayChannel)
         }
     } else {
-        MobileLiveTvContent(state, viewModel, onPlayChannel)
+        MobileLiveTvContent(state, viewModel, onPlayChannel, onNavigate)
     }
 }
 
@@ -309,7 +309,8 @@ private fun TvLiveTvContent(
 private fun MobileLiveTvContent(
     state: LiveTvState,
     viewModel: LiveTvViewModel,
-    onPlayChannel: (String, String, Long, String?) -> Unit
+    onPlayChannel: (String, String, Long, String?) -> Unit,
+    onNavigate: (String) -> Unit
 ) {
     val dimens = LocalImaxDimens.current
     var showCategorySheet by remember { mutableStateOf(false) }
@@ -319,8 +320,22 @@ private fun MobileLiveTvContent(
     val mobileGroups = state.mobileGroups
 
     Column(modifier = Modifier.fillMaxSize().padding(top = dimens.screenPadding)) {
-        Text(stringResource(R.string.live_tv), style = MaterialTheme.typography.headlineMedium, color = ImaxColors.TextPrimary,
-            modifier = Modifier.padding(horizontal = dimens.screenPadding))
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = dimens.screenPadding),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                stringResource(R.string.live_tv),
+                style = MaterialTheme.typography.headlineMedium,
+                color = ImaxColors.TextPrimary,
+                modifier = Modifier.weight(1f)
+            )
+            OutlinedButton(onClick = { onNavigate(Routes.TV_GUIDE) }) {
+                Icon(Icons.Filled.DateRange, contentDescription = null)
+                Spacer(Modifier.width(6.dp))
+                Text(stringResource(R.string.tv_guide))
+            }
+        }
         Spacer(modifier = Modifier.height(12.dp))
 
         QuickCategoryBar(

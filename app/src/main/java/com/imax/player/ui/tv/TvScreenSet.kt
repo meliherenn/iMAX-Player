@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import com.imax.player.ui.components.ImaxDrawer
 import com.imax.player.ui.details.DetailScreen
 import com.imax.player.ui.home.HomeScreen
+import com.imax.player.ui.guide.TvGuideScreen
 import com.imax.player.ui.live.LiveTvScreen
 import com.imax.player.ui.movies.MoviesScreen
 import com.imax.player.ui.onboarding.OnboardingScreen
@@ -57,6 +58,18 @@ fun TvLiveTvScreen(
     onPlayChannel: (String, String, Long, String?) -> Unit
 ) {
     LiveTvScreen(
+        isTv = true,
+        onNavigate = onNavigate,
+        onPlayChannel = onPlayChannel
+    )
+}
+
+@Composable
+fun TvGuideRouteScreen(
+    onNavigate: (String) -> Unit,
+    onPlayChannel: (String, String, Long, String) -> Unit
+) {
+    TvGuideScreen(
         isTv = true,
         onNavigate = onNavigate,
         onPlayChannel = onPlayChannel

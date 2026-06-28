@@ -38,6 +38,7 @@ import coil.request.ImageRequest
 import com.imax.player.R
 import androidx.compose.ui.res.stringResource
 import com.imax.player.core.common.orderCategoryNames
+import com.imax.player.core.common.isUsableArtworkUrl
 import com.imax.player.core.designsystem.theme.ImaxColors
 import com.imax.player.core.designsystem.theme.LocalImaxDimens
 import java.util.Locale
@@ -91,6 +92,7 @@ fun ContentPosterCard(
     year: Int = 0,
     isTv: Boolean = false,
     cardWidth: Dp? = null,
+    onPosterError: () -> Unit = {},
     onClick: () -> Unit = {}
 ) {
     val dimens = LocalImaxDimens.current
@@ -184,6 +186,7 @@ fun ContentPosterCard(
             PosterImage(
                 url = posterUrl,
                 contentDescription = title,
+                onError = onPosterError,
                 modifier = Modifier.fillMaxSize()
             )
             if (focusTint.alpha > 0f) {
@@ -258,15 +261,17 @@ fun PosterImage(
     url: String,
     contentDescription: String,
     modifier: Modifier = Modifier,
-    contentScale: ContentScale = ContentScale.Crop
+    contentScale: ContentScale = ContentScale.Crop,
+    onError: () -> Unit = {}
 ) {
+    val safeUrl = url.takeIf(::isUsableArtworkUrl)
     var isLoading by remember { mutableStateOf(true) }
     var hasImageError by remember(url) { mutableStateOf(false) }
 
     Box(modifier = modifier) {
         AsyncImage(
             model = ImageRequest.Builder(LocalContext.current)
-                .data(url.ifBlank { null })
+                .data(safeUrl)
                 .crossfade(true)
                 .build(),
             contentDescription = contentDescription,
@@ -275,12 +280,13 @@ fun PosterImage(
             onState = { state ->
                 isLoading = state is AsyncImagePainter.State.Loading
                 hasImageError = state is AsyncImagePainter.State.Error
+                if (state is AsyncImagePainter.State.Error && safeUrl != null) onError()
             }
         )
 
         if (isLoading) {
             ShimmerBox(modifier = Modifier.fillMaxSize())
-        } else if (url.isBlank() || hasImageError) {
+        } else if (safeUrl == null || hasImageError) {
             PosterFallback(modifier = Modifier.fillMaxSize())
         }
     }

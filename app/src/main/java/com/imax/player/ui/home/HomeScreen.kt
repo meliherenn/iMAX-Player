@@ -64,14 +64,20 @@ fun HomeScreen(
                 state = state,
                 isLoading = state.isLoading,
                 onContentClick = onContentClick,
-                onPlayContent = onPlayContent
+                onPlayContent = onPlayContent,
+                onMoviePosterError = viewModel::repairMovieArtwork
             ) { viewModel.selectContent(it) }
         }
     } else {
         if (state.isLoading) {
             LoadingScreen()
         } else {
-            MobileHomeContent(state, onContentClick, onPlayContent) { viewModel.selectContent(it) }
+            MobileHomeContent(
+                state = state,
+                onContentClick = onContentClick,
+                onPlayContent = onPlayContent,
+                onMoviePosterError = viewModel::repairMovieArtwork
+            ) { viewModel.selectContent(it) }
         }
     }
 }
@@ -86,6 +92,7 @@ private fun TvHomeContent(
     isLoading: Boolean,
     onContentClick: (Long, String) -> Unit,
     onPlayContent: (String, String, Long, String, Long) -> Unit,
+    onMoviePosterError: (Long) -> Unit,
     onFocusChange: (Any?) -> Unit
 ) {
     val dimens = LocalImaxDimens.current
@@ -183,6 +190,7 @@ private fun TvHomeContent(
                     ContentRail(stringResource(R.string.section_latest_movies), dimens.screenPadding) {
                         items(latestMovies, key = { it.id }) { movie ->
                             ContentPosterCard(title = movie.name, posterUrl = movie.posterUrl, rating = movie.rating, year = movie.year, isTv = true,
+                                onPosterError = { onMoviePosterError(movie.id) },
                                 onClick = { onContentClick(movie.id, "MOVIE") })
                         }
                     }
@@ -214,6 +222,7 @@ private fun TvHomeContent(
                     ContentRail(stringResource(R.string.section_favorites), dimens.screenPadding) {
                         items(favoriteMovies, key = { it.id }) { movie ->
                             ContentPosterCard(title = movie.name, posterUrl = movie.posterUrl, rating = movie.rating, year = movie.year, isTv = true,
+                                onPosterError = { onMoviePosterError(movie.id) },
                                 onClick = { onContentClick(movie.id, "MOVIE") })
                         }
                     }
@@ -269,6 +278,7 @@ private fun MobileHomeContent(
     state: HomeState,
     onContentClick: (Long, String) -> Unit,
     onPlayContent: (String, String, Long, String, Long) -> Unit,
+    onMoviePosterError: (Long) -> Unit,
     onFocusChange: (Any?) -> Unit
 ) {
     val dimens = LocalImaxDimens.current
@@ -334,6 +344,7 @@ private fun MobileHomeContent(
                 ContentRail(stringResource(R.string.section_latest_movies), dimens.screenPadding) {
                     items(latestMovies) { movie ->
                         ContentPosterCard(title = movie.name, posterUrl = movie.posterUrl, rating = movie.rating, year = movie.year, isTv = false,
+                            onPosterError = { onMoviePosterError(movie.id) },
                             onClick = { onContentClick(movie.id, "MOVIE") })
                     }
                 }
@@ -343,6 +354,7 @@ private fun MobileHomeContent(
                 ContentRail(stringResource(R.string.section_favorites), dimens.screenPadding) {
                     items(state.favoriteMovies) { movie ->
                         ContentPosterCard(title = movie.name, posterUrl = movie.posterUrl, rating = movie.rating, year = movie.year, isTv = false,
+                            onPosterError = { onMoviePosterError(movie.id) },
                             onClick = { onContentClick(movie.id, "MOVIE") })
                     }
                 }

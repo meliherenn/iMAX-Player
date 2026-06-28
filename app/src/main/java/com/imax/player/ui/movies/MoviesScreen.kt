@@ -34,6 +34,7 @@ import com.imax.player.ui.navigation.Routes
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
 import javax.inject.Inject
 import androidx.compose.ui.res.stringResource
 import com.imax.player.R
@@ -57,6 +58,9 @@ class MoviesViewModel @Inject constructor(
         viewModelScope.launch {
             playlistRepository.getActivePlaylist().collectLatest { playlist ->
                 if (playlist != null) {
+                    launch(Dispatchers.IO) {
+                        contentRepository.backfillMissingMovieArtwork(playlist.id)
+                    }
                     launch {
                         contentRepository.getMovieCategories(playlist.id).collect { cats ->
                             _state.update { it.copy(categories = cats) }
@@ -74,6 +78,12 @@ class MoviesViewModel @Inject constructor(
 
     fun selectCategory(category: String?) {
         _state.update { it.copy(selectedCategory = category) }
+    }
+
+    fun repairArtwork(movieId: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            contentRepository.repairMovieArtwork(movieId)
+        }
     }
 }
 
@@ -186,6 +196,7 @@ private fun TvMoviesContent(
                         rating = movie.rating,
                         year = movie.year,
                         isTv = true,
+                        onPosterError = { viewModel.repairArtwork(movie.id) },
                         modifier = if (movie.id == displayMovies.firstOrNull()?.id) {
                             Modifier.focusRequester(firstMovieFocusRequester)
                         } else {
@@ -271,6 +282,7 @@ private fun MobileMoviesContent(
                         rating = movie.rating,
                         year = movie.year,
                         isTv = false,
+                        onPosterError = { viewModel.repairArtwork(movie.id) },
                         onClick = { onMovieClick(movie.id) }
                     )
                 }

@@ -76,7 +76,7 @@ class EpgSyncWorker @AssistedInject constructor(
 
             // Delete expired programs first
             val now = System.currentTimeMillis()
-            epgDao.deleteOld(now - TimeUnit.HOURS.toMillis(2)) // Keep 2h of past programs
+            epgDao.deleteOld(now - TimeUnit.DAYS.toMillis(7))
 
             // Insert in batches to avoid DB transaction timeouts
             programs.chunked(500).forEach { batch ->

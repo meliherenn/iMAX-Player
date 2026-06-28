@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import com.imax.player.core.designsystem.theme.ImaxColors
 import com.imax.player.ui.details.DetailScreen
 import com.imax.player.ui.home.HomeScreen
+import com.imax.player.ui.guide.TvGuideScreen
 import com.imax.player.ui.live.LiveTvScreen
 import com.imax.player.ui.movies.MoviesScreen
 import com.imax.player.ui.onboarding.OnboardingScreen
@@ -129,6 +130,18 @@ fun MobileLiveTvScreen(
             onPlayChannel = onPlayChannel
         )
     }
+}
+
+@Composable
+fun MobileTvGuideScreen(
+    onNavigate: (String) -> Unit,
+    onPlayChannel: (String, String, Long, String) -> Unit
+) {
+    TvGuideScreen(
+        isTv = false,
+        onNavigate = onNavigate,
+        onPlayChannel = onPlayChannel
+    )
 }
 
 

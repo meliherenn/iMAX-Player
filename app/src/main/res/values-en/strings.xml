@@ -104,6 +104,17 @@
     <string name="nav_home">Home</string>
     <string name="nav_search">Search</string>
     <string name="nav_live_tv">Live TV</string>
+    <string name="tv_guide">TV Guide</string>
+    <string name="guide_now">Now</string>
+    <string name="guide_catchup">Catch-up</string>
+    <string name="guide_previous_day">−1 day</string>
+    <string name="guide_previous_two_hours">−2 hours</string>
+    <string name="guide_next_two_hours">+2 hours</string>
+    <string name="guide_next_day">+1 day</string>
+    <string name="guide_program_not_started">This program has not started yet</string>
+    <string name="guide_catchup_unavailable">No catch-up address is available for this program</string>
+    <string name="guide_no_epg_match">No matching EPG data exists in this time range</string>
+    <string name="guide_no_channels">No channels are available</string>
     <string name="nav_movies">Movies</string>
     <string name="nav_series">Series</string>
     <string name="nav_continue_watching">Continue Watching</string>

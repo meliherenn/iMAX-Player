@@ -360,6 +360,13 @@ interface EpgDao {
         limit: Int = 10
     ): List<EpgProgramEntity>
 
+    @Query("SELECT * FROM epg_programs WHERE channelId IN (:channelIds) AND startTime < :windowEnd AND endTime > :windowStart ORDER BY startTime")
+    suspend fun getProgramsInWindowForIds(
+        channelIds: List<String>,
+        windowStart: Long,
+        windowEnd: Long
+    ): List<EpgProgramEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(programs: List<EpgProgramEntity>)
 

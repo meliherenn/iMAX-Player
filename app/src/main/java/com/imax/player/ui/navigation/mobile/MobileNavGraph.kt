@@ -14,6 +14,7 @@ import com.imax.player.ui.components.MobileScaffoldLayout
 import com.imax.player.ui.mobile.MobileDetailScreen
 import com.imax.player.ui.mobile.MobileHomeScreen
 import com.imax.player.ui.mobile.MobileLiveTvScreen
+import com.imax.player.ui.mobile.MobileTvGuideScreen
 import com.imax.player.ui.mobile.MobileMoviesScreen
 import com.imax.player.ui.mobile.MobilePlayerScreen
 import com.imax.player.ui.mobile.MobilePlaylistScreen
@@ -54,7 +55,7 @@ fun MobileNavGraph(
 
     if (showBottomNav) {
         MobileScaffoldLayout(
-            selectedRoute = currentRoute,
+            selectedRoute = if (currentRoute == Routes.TV_GUIDE) Routes.LIVE_TV else currentRoute,
             onNavigate = navigateToTopLevel
         ) { paddingValues ->
             MobileNavHostContent(
@@ -127,6 +128,17 @@ private fun MobileNavHostContent(
                             contentType = "LIVE",
                             group = group.orEmpty()
                         )
+                    )
+                }
+            )
+        }
+
+        composable(Routes.TV_GUIDE) {
+            MobileTvGuideScreen(
+                onNavigate = onNavigate,
+                onPlayChannel = { url, title, id, group ->
+                    navController.navigate(
+                        Routes.player(url, title, id, "LIVE", group = group)
                     )
                 }
             )

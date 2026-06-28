@@ -32,6 +32,7 @@ class EpgRepository @Inject constructor(
 ) {
     private companion object {
         private const val MAX_SQL_BIND_ARGS = 800
+        private const val EPG_HISTORY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000L
     }
 
     /**
@@ -117,7 +118,7 @@ class EpgRepository @Inject constructor(
                     )
                 }
                 if (programs.isNotEmpty()) {
-                    epgDao.deleteOld(System.currentTimeMillis() - 7_200_000L) // 2h past
+                    epgDao.deleteOld(System.currentTimeMillis() - EPG_HISTORY_RETENTION_MS)
                     programs.chunked(500).forEach { epgDao.insertAll(it) }
                 }
                 Timber.d("EpgRepository: saved ${programs.size} programs")
@@ -132,7 +133,7 @@ class EpgRepository @Inject constructor(
     suspend fun savePrograms(programs: List<EpgProgramEntity>): Int =
         withContext(Dispatchers.IO) {
             if (programs.isEmpty()) return@withContext 0
-            epgDao.deleteOld(System.currentTimeMillis() - 7_200_000L)
+            epgDao.deleteOld(System.currentTimeMillis() - EPG_HISTORY_RETENTION_MS)
             programs.chunked(500).forEach { epgDao.insertAll(it) }
             Timber.d("EpgRepository: saved ${programs.size} Xtream EPG programs")
             programs.size
@@ -157,10 +158,10 @@ class EpgRepository @Inject constructor(
     }
 
     /**
-     * Delete all EPG data older than 2 hours.
+     * Delete EPG data older than the catch-up/guide history window.
      */
     suspend fun pruneOld() {
-        epgDao.deleteOld(System.currentTimeMillis() - 7_200_000L)
+        epgDao.deleteOld(System.currentTimeMillis() - EPG_HISTORY_RETENTION_MS)
     }
 
     /**
@@ -195,6 +196,34 @@ class EpgRepository @Inject constructor(
         }.toMap()
     }
 
+    suspend fun getGuideProgramsForChannels(
+        channels: List<Channel>,
+        windowStart: Long,
+        windowEnd: Long
+    ): Map<Long, List<EpgProgram>> = withContext(Dispatchers.IO) {
+        if (channels.isEmpty() || windowEnd <= windowStart) return@withContext emptyMap()
+
+        val candidatesByChannelId = channels
+            .distinctBy(Channel::id)
+            .associate { channel -> channel.id to epgLookupKeysForChannel(channel) }
+            .filterValues(List<String>::isNotEmpty)
+        if (candidatesByChannelId.isEmpty()) return@withContext emptyMap()
+
+        val programsByLookupId = candidatesByChannelId.values
+            .flatten()
+            .distinct()
+            .chunked(MAX_SQL_BIND_ARGS)
+            .flatMap { ids ->
+                epgDao.getProgramsInWindowForIds(ids, windowStart, windowEnd)
+            }
+            .groupBy(EpgProgramEntity::channelId)
+
+        candidatesByChannelId.mapValues { (_, candidates) ->
+            selectGuideProgramsForCandidates(programsByLookupId, candidates)
+                .map(EpgProgramEntity::toUiModel)
+        }
+    }
+
     /**
      * M3U/Xtream channel id'lerini XMLTV channel id'leriyle eşleştiren map oluşturur.
      * Önce tam eşleşme, sonra normalize edilmiş fuzzy eşleşme dener.
@@ -225,6 +254,15 @@ class EpgRepository @Inject constructor(
             .flatMap { ids -> epgDao.getUpcomingProgramsForIds(ids, nowMs, limit) }
     }
 }
+
+internal fun selectGuideProgramsForCandidates(
+    programsByLookupId: Map<String, List<EpgProgramEntity>>,
+    candidates: List<String>
+): List<EpgProgramEntity> = candidates
+    .firstNotNullOfOrNull { candidate -> programsByLookupId[candidate]?.takeIf(List<EpgProgramEntity>::isNotEmpty) }
+    .orEmpty()
+    .distinctBy { program -> "${program.channelId}|${program.startTime}|${program.title}" }
+    .sortedBy(EpgProgramEntity::startTime)
 
 private fun List<EpgProgramEntity>.firstProgramForCandidates(
     candidates: List<String>

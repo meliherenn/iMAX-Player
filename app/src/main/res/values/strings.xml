@@ -105,6 +105,17 @@
     <string name="nav_home">Ana Sayfa</string>
     <string name="nav_search">Ara</string>
     <string name="nav_live_tv">Canlı TV</string>
+    <string name="tv_guide">TV Rehberi</string>
+    <string name="guide_now">Şimdi</string>
+    <string name="guide_catchup">Geri İzle</string>
+    <string name="guide_previous_day">−1 gün</string>
+    <string name="guide_previous_two_hours">−2 saat</string>
+    <string name="guide_next_two_hours">+2 saat</string>
+    <string name="guide_next_day">+1 gün</string>
+    <string name="guide_program_not_started">Bu program henüz başlamadı</string>
+    <string name="guide_catchup_unavailable">Bu yayın için tekrar izleme adresi bulunamadı</string>
+    <string name="guide_no_epg_match">Bu zaman aralığında eşleşen EPG verisi yok</string>
+    <string name="guide_no_channels">Gösterilecek kanal bulunamadı</string>
     <string name="nav_movies">Filmler</string>
     <string name="nav_series">Diziler</string>
     <string name="nav_continue_watching">İzlemeye Devam Et</string>

@@ -2,19 +2,28 @@ package com.imax.player.data.repository
 
 import com.imax.player.core.common.SearchMatcher
 import com.imax.player.core.common.StringUtils
+import com.imax.player.core.common.isUsableArtworkUrl
 import com.imax.player.core.common.orderCategoryNames
 import com.imax.player.core.database.*
 import com.imax.player.core.common.rethrowIfCancellation
 import com.imax.player.core.model.*
 import com.imax.player.data.parser.XtreamClient
+import com.imax.player.data.parser.XtreamVodMetadata
 import com.imax.player.metadata.MetadataProvider
 import com.imax.player.metadata.MetadataResult
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
+import java.util.concurrent.ConcurrentHashMap
 
 private const val SEARCH_CANDIDATE_LIMIT = 360
 private const val SEARCH_FULL_SCAN_FALLBACK_MIN_LENGTH = 3
@@ -37,6 +46,9 @@ class ContentRepository @Inject constructor(
     private val xtreamClient: XtreamClient,
     private val metadataProvider: MetadataProvider
 ) {
+    private val movieArtworkRepairMutex = Mutex()
+    private val movieArtworkRepairIds = ConcurrentHashMap.newKeySet<Long>()
+
     // Channels
     fun getChannels(playlistId: Long): Flow<List<Channel>> =
         channelDao.getByPlaylist(playlistId).map { list -> list.map { it.toModel() } }
@@ -95,6 +107,91 @@ class ContentRepository @Inject constructor(
 
     suspend fun updateMovieProgress(id: Long, position: Long, total: Long) =
         movieDao.updateProgress(id, position, total)
+
+    suspend fun backfillMissingMovieArtwork(
+        playlistId: Long,
+        limit: Int = 24
+    ): Int = withContext(Dispatchers.IO) {
+        if (!movieArtworkRepairMutex.tryLock()) return@withContext 0
+        try {
+            val playlist = playlistDao.getById(playlistId)?.toModel() ?: return@withContext 0
+            val candidates = movieDao.getByPlaylistSnapshot(playlistId)
+                .asSequence()
+                .filterNot { movie -> isUsableArtworkUrl(movie.posterUrl) }
+                .take(limit.coerceIn(1, 60))
+                .toList()
+            if (candidates.isEmpty()) return@withContext 0
+
+            val semaphore = Semaphore(3)
+            coroutineScope {
+                candidates.map { movie ->
+                    async {
+                        semaphore.withPermit {
+                            try {
+                                repairMovieArtwork(movie, playlist, replaceExistingArtwork = false)
+                            } catch (error: Exception) {
+                                error.rethrowIfCancellation()
+                                Timber.w("Movie artwork repair failed for id=%d: %s", movie.id, error.javaClass.simpleName)
+                                false
+                            }
+                        }
+                    }
+                }.awaitAll().count { repaired -> repaired }
+            }
+        } finally {
+            movieArtworkRepairMutex.unlock()
+        }
+    }
+
+    suspend fun repairMovieArtwork(movieId: Long): Boolean = withContext(Dispatchers.IO) {
+        val entity = movieDao.getById(movieId) ?: return@withContext false
+        val playlist = playlistDao.getById(entity.playlistId)?.toModel() ?: return@withContext false
+        repairMovieArtwork(entity, playlist, replaceExistingArtwork = true)
+    }
+
+    private suspend fun repairMovieArtwork(
+        entity: MovieEntity,
+        playlist: Playlist,
+        replaceExistingArtwork: Boolean
+    ): Boolean {
+        if (!movieArtworkRepairIds.add(entity.id)) return false
+        try {
+            val movie = entity.toModel()
+            val cached = metadataProvider.getCachedMetadata(movie.name, movie.year, ContentType.MOVIE)
+            if (cached != null && cached.hasReplacementPoster(movie.posterUrl, replaceExistingArtwork)) {
+                updateMovieWithMetadata(movie.id, cached, replaceExistingArtwork)
+                return true
+            }
+
+            if (playlist.type == PlaylistType.XTREAM_CODES && movie.streamId > 0) {
+                val providerMetadata = xtreamClient.loadVodMetadata(
+                    serverUrl = playlist.serverUrl,
+                    username = playlist.username,
+                    password = playlist.password,
+                    vodId = movie.streamId
+                )
+                if (providerMetadata != null) {
+                    val providerResult = providerMetadata.toMetadataResult()
+                    updateMovieWithMetadata(movie.id, providerResult, replaceExistingArtwork)
+                    if (providerResult.hasReplacementPoster(movie.posterUrl, replaceExistingArtwork)) return true
+                }
+            }
+
+            val fetched = metadataProvider.fetchMetadata(
+                title = movie.name,
+                year = movie.year,
+                contentType = ContentType.MOVIE,
+                tmdbId = movie.tmdbId
+            )
+            if (fetched != null && fetched.hasReplacementPoster(movie.posterUrl, replaceExistingArtwork)) {
+                updateMovieWithMetadata(movie.id, fetched, replaceExistingArtwork)
+                return true
+            }
+            return false
+        } finally {
+            movieArtworkRepairIds.remove(entity.id)
+        }
+    }
 
     // Series
     fun getSeries(playlistId: Long): Flow<List<Series>> =
@@ -243,7 +340,11 @@ class ContentRepository @Inject constructor(
      * Update a movie entity with enriched metadata from TMDB.
      * Prefers TMDB data when provider data is empty/generic.
      */
-    suspend fun updateMovieWithMetadata(movieId: Long, metadata: MetadataResult) {
+    suspend fun updateMovieWithMetadata(
+        movieId: Long,
+        metadata: MetadataResult,
+        replaceExistingArtwork: Boolean = false
+    ) {
         withContext(Dispatchers.IO) {
             val entity = movieDao.getById(movieId) ?: return@withContext
             val updated = entity.copy(
@@ -253,8 +354,14 @@ class ContentRepository @Inject constructor(
                 genre = metadata.genre.ifBlank { entity.genre },
                 rating = if (entity.rating == 0.0 && metadata.rating > 0) metadata.rating else entity.rating,
                 year = if (entity.year == 0 && metadata.year > 0) metadata.year else entity.year,
-                posterUrl = if (entity.posterUrl.isBlank() && metadata.posterUrl.isNotBlank()) metadata.posterUrl else entity.posterUrl,
-                backdropUrl = if (entity.backdropUrl.isBlank() && metadata.backdropUrl.isNotBlank()) metadata.backdropUrl else entity.backdropUrl,
+                posterUrl = if (
+                    isUsableArtworkUrl(metadata.posterUrl) &&
+                    (replaceExistingArtwork || !isUsableArtworkUrl(entity.posterUrl))
+                ) metadata.posterUrl else entity.posterUrl,
+                backdropUrl = if (
+                    isUsableArtworkUrl(metadata.backdropUrl) &&
+                    (replaceExistingArtwork || !isUsableArtworkUrl(entity.backdropUrl))
+                ) metadata.backdropUrl else entity.backdropUrl,
                 tmdbId = if (entity.tmdbId == 0 && metadata.tmdbId > 0) metadata.tmdbId else entity.tmdbId,
                 imdbId = if (entity.imdbId.isBlank() && metadata.imdbId.isNotBlank()) metadata.imdbId else entity.imdbId,
                 duration = if (entity.duration == 0 && metadata.runtime > 0) metadata.runtime else entity.duration
@@ -276,8 +383,8 @@ class ContentRepository @Inject constructor(
                 genre = metadata.genre.ifBlank { entity.genre },
                 rating = if (entity.rating == 0.0 && metadata.rating > 0) metadata.rating else entity.rating,
                 year = if (entity.year == 0 && metadata.year > 0) metadata.year else entity.year,
-                posterUrl = if (entity.posterUrl.isBlank() && metadata.posterUrl.isNotBlank()) metadata.posterUrl else entity.posterUrl,
-                backdropUrl = if (entity.backdropUrl.isBlank() && metadata.backdropUrl.isNotBlank()) metadata.backdropUrl else entity.backdropUrl,
+                posterUrl = if (!isUsableArtworkUrl(entity.posterUrl) && isUsableArtworkUrl(metadata.posterUrl)) metadata.posterUrl else entity.posterUrl,
+                backdropUrl = if (!isUsableArtworkUrl(entity.backdropUrl) && isUsableArtworkUrl(metadata.backdropUrl)) metadata.backdropUrl else entity.backdropUrl,
                 tmdbId = if (entity.tmdbId == 0 && metadata.tmdbId > 0) metadata.tmdbId else entity.tmdbId,
                 imdbId = if (entity.imdbId.isBlank() && metadata.imdbId.isNotBlank()) metadata.imdbId else entity.imdbId
             )
@@ -551,3 +658,23 @@ class ContentRepository @Inject constructor(
         )
     }
 }
+
+private fun XtreamVodMetadata.toMetadataResult(): MetadataResult = MetadataResult(
+    tmdbId = tmdbId,
+    posterUrl = posterUrl,
+    backdropUrl = backdropUrl,
+    overview = plot,
+    genre = genre,
+    cast = cast,
+    director = director,
+    runtime = duration,
+    rating = rating,
+    year = StringUtils.extractYear(releaseDate) ?: 0,
+    confidence = 100.0
+)
+
+private fun MetadataResult.hasReplacementPoster(
+    currentPosterUrl: String,
+    replaceExistingArtwork: Boolean
+): Boolean = isUsableArtworkUrl(posterUrl) &&
+    (!replaceExistingArtwork || !posterUrl.equals(currentPosterUrl, ignoreCase = true))

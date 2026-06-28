@@ -42,6 +42,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
 import com.imax.player.core.designsystem.theme.ImaxColors
+import com.imax.player.core.common.isUsableArtworkUrl
 import com.imax.player.core.designsystem.theme.LocalImaxDimens
 import com.imax.player.core.model.*
 import com.imax.player.data.repository.ContentRepository
@@ -149,7 +150,8 @@ class DetailViewModel @Inject constructor(
     }
 
     private fun needsMetadataEnrichment(movie: Movie): Boolean {
-        return movie.plot.isBlank() ||
+        return !isUsableArtworkUrl(movie.posterUrl) ||
+            movie.plot.isBlank() ||
             movie.cast.isBlank() ||
             movie.backdropUrl.isBlank() ||
             movie.genre.isBlank() ||
@@ -158,7 +160,8 @@ class DetailViewModel @Inject constructor(
     }
 
     private fun needsSeriesMetadataEnrichment(series: Series): Boolean {
-        return series.plot.isBlank() ||
+        return !isUsableArtworkUrl(series.posterUrl) ||
+            series.plot.isBlank() ||
             series.cast.isBlank() ||
             series.backdropUrl.isBlank() ||
             series.genre.isBlank() ||
@@ -1279,8 +1282,8 @@ private fun Movie.mergeWith(metadata: MetadataResult?): Movie {
     metadata ?: return this
 
     return copy(
-        posterUrl = if (posterUrl.isBlank() && metadata.posterUrl.isNotBlank()) metadata.posterUrl else posterUrl,
-        backdropUrl = if (backdropUrl.isBlank() && metadata.backdropUrl.isNotBlank()) metadata.backdropUrl else backdropUrl,
+        posterUrl = if (!isUsableArtworkUrl(posterUrl) && isUsableArtworkUrl(metadata.posterUrl)) metadata.posterUrl else posterUrl,
+        backdropUrl = if (!isUsableArtworkUrl(backdropUrl) && isUsableArtworkUrl(metadata.backdropUrl)) metadata.backdropUrl else backdropUrl,
         genre = metadata.genre.ifBlank { genre },
         plot = metadata.overview.ifBlank { plot },
         cast = metadata.cast.ifBlank { cast },
@@ -1297,8 +1300,8 @@ private fun Series.mergeWith(metadata: MetadataResult?): Series {
     metadata ?: return this
 
     return copy(
-        posterUrl = if (posterUrl.isBlank() && metadata.posterUrl.isNotBlank()) metadata.posterUrl else posterUrl,
-        backdropUrl = if (backdropUrl.isBlank() && metadata.backdropUrl.isNotBlank()) metadata.backdropUrl else backdropUrl,
+        posterUrl = if (!isUsableArtworkUrl(posterUrl) && isUsableArtworkUrl(metadata.posterUrl)) metadata.posterUrl else posterUrl,
+        backdropUrl = if (!isUsableArtworkUrl(backdropUrl) && isUsableArtworkUrl(metadata.backdropUrl)) metadata.backdropUrl else backdropUrl,
         genre = metadata.genre.ifBlank { genre },
         plot = metadata.overview.ifBlank { plot },
         cast = metadata.cast.ifBlank { cast },

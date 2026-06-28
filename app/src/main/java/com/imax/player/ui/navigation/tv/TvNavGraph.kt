@@ -56,6 +56,7 @@ import com.imax.player.ui.tv.TvDetailScreen
 import com.imax.player.ui.tv.TvFavoritesScreen
 import com.imax.player.ui.tv.TvHomeScreen
 import com.imax.player.ui.tv.TvLiveTvScreen
+import com.imax.player.ui.tv.TvGuideRouteScreen
 import com.imax.player.ui.tv.TvMoviesScreen
 import com.imax.player.ui.tv.TvPlayerScreen
 import com.imax.player.ui.tv.TvPlaylistsScreen
@@ -159,6 +160,17 @@ fun TvNavGraph(
                             contentType = "LIVE",
                             group = group.orEmpty()
                         )
+                    )
+                }
+            )
+        }
+
+        composable(Routes.TV_GUIDE) {
+            TvGuideRouteScreen(
+                onNavigate = navigateToTopLevel,
+                onPlayChannel = { url, title, id, group ->
+                    navController.navigate(
+                        Routes.player(url, title, id, "LIVE", group = group)
                     )
                 }
             )

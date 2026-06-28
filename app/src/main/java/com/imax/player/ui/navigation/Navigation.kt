@@ -17,6 +17,7 @@ object Routes {
     const val ONBOARDING = PLAYLISTS
     const val HOME = "home"
     const val LIVE_TV = "live_tv"
+    const val TV_GUIDE = "tv_guide"
     const val MOVIES = "movies"
     const val SERIES = "series"
     const val SEARCH = "search"
@@ -43,11 +44,12 @@ object Routes {
 
     fun detail(contentId: Long, contentType: String): String = "detail/$contentId/$contentType"
 
-    val MOBILE_MAIN_TABS = setOf(HOME, SEARCH, LIVE_TV, MOVIES, SERIES, SETTINGS)
+    val MOBILE_MAIN_TABS = setOf(HOME, SEARCH, LIVE_TV, TV_GUIDE, MOVIES, SERIES, SETTINGS)
     val TV_TOP_LEVEL_DESTINATIONS = setOf(
         HOME,
         SEARCH,
         LIVE_TV,
+        TV_GUIDE,
         MOVIES,
         SERIES,
         CONTINUE_WATCHING,
