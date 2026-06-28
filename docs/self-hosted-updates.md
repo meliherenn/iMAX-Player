@@ -1,6 +1,10 @@
 # Self-hosted APK updates
 
-The app checks this stable manifest URL by default:
+Self-hosted updates are available only in the `selfHostedRelease` build type. Normal `debug` and
+Play-oriented `release` artifacts do not contain `REQUEST_INSTALL_PACKAGES`, an APK `FileProvider`,
+or active update checks. Never upload `selfHostedRelease` to Google Play.
+
+The direct-distribution build checks the configured manifest URL. The default is:
 
 ```text
 https://github.com/meliherenn/iMAX-Player/releases/latest/download/latest.json
@@ -21,13 +25,13 @@ the same keystore or Android will reject it as a different app.
 ## Build the first install APK
 
 ```bash
-./gradlew assembleRelease
+./gradlew :app:assembleSelfHostedRelease
 ```
 
 Send this APK to users for the first installation:
 
 ```text
-app/build/outputs/apk/release/app-release.apk
+app/build/outputs/apk/selfHostedRelease/app-selfHostedRelease.apk
 ```
 
 ## Publish a new update
@@ -49,6 +53,9 @@ scripts/upload_github_update_release.sh 1.0.2 notes.txt
 
 The app will read the latest release's `latest.json`, compare `versionCode`, download the APK,
 verify `sha256`, and open Android's installer.
+
+The updater rejects non-HTTPS APK URLs, missing/invalid SHA-256 values, checksum mismatches, and
+downloads larger than 500 MB.
 
 ## Generated manifest shape
 

@@ -1,251 +1,176 @@
 <div align="center">
-  <img src="iMAX%20logo.png" width="200" alt="iMAX Player Logo">
-  <h1>🎬 iMAX Player</h1>
-  <p><b>Premium Media Player for Android TV & Mobile</b></p>
-  <p><i>A production-grade IPTV client featuring a dual-navigation Compose UI, high-performance hybrid playback pipelines, encrypted parental controls, and smart title metadata enrichment.</i></p>
-
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.0.21-7F52FF.svg?logo=kotlin&logoColor=white)](https://kotlinlang.org)
-[![Jetpack Compose](https://img.shields.io/badge/Jetpack_Compose-2024.02.00-4285F4.svg?logo=android&logoColor=white)](https://developer.android.com/jetpack/compose)
-[![API](https://img.shields.io/badge/API-26%2B-brightgreen.svg?style=flat)](https://android-arsenal.com/api?level=26)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+  <img src="iMAX%20logo.png" width="180" alt="iMAX Player logo">
+  <h1>iMAX Player</h1>
+  <p>Android mobile and Android TV player for user-provided IPTV playlists and streams.</p>
 </div>
 
----
+## Project status
 
-## ✨ Features
+iMAX Player is a Kotlin/Jetpack Compose portfolio project with separate mobile and TV navigation,
+M3U/M3U8 and Xtream input, XMLTV EPG support, Media3 playback, and LibVLC fallback.
 
-### 📺 Dual-Platform Unified Interface
-* **Android Mobile**: Touch-optimized gestures, responsive layouts, portrait/landscape orientation management, and Picture-in-Picture (PiP) support.
-* **Android TV**: 10-foot user experience (10ft UI), full D-pad remote navigation, visible focus indicators, stable item scaling, and persistent focus memory.
+The repository does not bundle channels, playlists, provider directories, stream URLs, accounts, or
+copyrighted media. Users are responsible for supplying content they are authorized to access.
 
-### 🎬 Advanced Content Hub
-* **Multi-Format Playlists**: Supports M3U/M3U8 URLs, Xtream Codes credentials, and local file imports.
-* **Live TV**: Category-based channels browsing, favorite channels list, and interactive Electronic Program Guide (EPG).
-* **Movies & VOD**: Category grid navigation, high-quality posters, rating tags, cast listings, and storyline summaries.
-* **TV Series**: Structured season-by-season and episode-by-episode browsing with continuation support.
-* **Continue Watching**: Persistent playback progress bars to quickly resume movies and episodes.
+Current app version: `1.0.13` (`versionCode` 17). Android configuration: min SDK 26, compile/target
+SDK 35, Java 17.
 
-### 🎮 Adaptive Hybrid Player Engine
-* **Double Playback Engine**: Uses Media3 / ExoPlayer as the primary high-performance engine, with a native LibVLC fallback engine to handle legacy IPTV formats or codec edge cases.
-* **Seamless Settings Control**: Switch the active player engine at runtime instantly from Settings without restarting the application.
-* **Advanced Player Customization**: Audio track selection, subtitle track toggling, aspect ratio scaling (Fit, Fill, Zoom, 16:9, 4:3), and playback speed control (0.5x to 2x).
+## Features
 
-### 🎨 Premium Aesthetics
-* **Neo-Dark Theme**: Sleek UI palette utilizing modern neon red and blue gradients.
-* **Glassmorphic Elements**: Elegant semi-transparent cards and overlays on hero banners.
-* **Micro-Animations**: Custom shimmer loading effects, focus borders, and glow halo highlights designed for TV D-pad actions.
+- User-provided M3U/M3U8 URLs, local playlist documents, and Xtream credentials.
+- Live channels, movies, series, favorites, watch history, search, and continue watching.
+- XMLTV parsing, EPG channel matching, and network-constrained WorkManager synchronization.
+- Media3/ExoPlayer primary engine with LibVLC fallback.
+- Audio/subtitle track selection, playback speed, quality policy, and aspect ratio controls.
+- Mobile gestures, edge-to-edge player UI, orientation handling, and Picture-in-Picture.
+- Android TV launcher, D-pad navigation, explicit focus treatment, and TV player overlays.
+- PBKDF2-hashed parental PIN with encrypted local preference storage and lockout behavior.
+- Optional TMDB metadata enrichment when a developer supplies an API key.
+- Optional self-hosted update and TV remote-setup integrations, disabled in normal builds unless
+  explicitly configured.
 
----
+## Architecture
 
-## 🏗️ Architecture & Module Layering
+The app is a single Gradle module (`:app`) organized around MVVM and repository boundaries:
 
-iMAX Player is built as a single-module Gradle project (`:app`) implementing **Clean Architecture** combined with **MVVM (Model-View-ViewModel)**. The codebase separates concerns into isolated layers, maintaining a strict dependency boundary.
-
-```
-com.imax.player/
-├── core/                         # Domain models, database layer, shared services
-│   ├── common/                   # Constants, Coil setups, Search & Category helpers
-│   ├── database/                 # Room entities, DAOs, mappers, and migrations
-│   ├── datastore/                # DataStore Preferences for settings configuration
-│   ├── designsystem/             # App theme (colors, typography, shape tokens)
-│   ├── model/                    # Plain domain model representations
-│   ├── network/                  # DTOs, Retrofit APIs (Xtream & TMDB clients)
-│   ├── player/                   # Playback engine interfaces, ExoPlayer and VLC modules
-│   ├── security/                 # parental control locks and hashing operations
-│   ├── service/                  # PlaybackService for media session integrations
-│   └── worker/                   # Background WorkManager tasks and sync orchestration
-├── data/                         # Parser implementations and repository orchestration
-│   ├── parser/                   # SAX-based XMLTV parser, M3U and Xtream clients
-│   └── repository/               # Content repositories coordinating cache and network APIs
-├── di/                           # App-level dependency injection (Hilt modules)
-├── metadata/                     # Title enrichment and TMDB metadata management
-└── ui/                           # UI elements and ViewModels (separated by feature)
-    ├── components/               # Shared Composables (TV focus effects, sliders, tabs)
-    ├── navigation/               # NavHostGraphs (separate graphs for TV vs Mobile)
-    └── screens/                  # Home, Onboarding, Live, Movies, Series, Settings...
+```text
+com.imax.player
+├── core/common       Shared utilities and privacy-safe logging
+├── core/model        UI-independent domain models
+├── core/database     Room entities, DAOs, migrations, and mappers
+├── core/datastore    Preferences DataStore settings
+├── core/network      Retrofit APIs and DTOs
+├── core/player       Player contract, Media3, LibVLC, retry, and timers
+├── core/worker       Hilt WorkManager jobs
+├── data/parser       M3U, XMLTV, Xtream, and EPG matching
+├── data/repository   Data orchestration and persistence
+├── metadata          Optional TMDB lookup/cache
+├── di                Hilt configuration
+└── ui                Compose screens, ViewModels, mobile/TV navigation
 ```
 
-### Clean Architecture Rules
-1. **Separation of Logic**: ViewModels manage UI state using StateFlow. Composables remain purely presentation-oriented and do not access DAOs, parsers, or network clients directly.
-2. **Hilt Dependency Injection**: Constructor injection is preferred everywhere. Provider modules are reserved for configuring third-party libraries (Room, Retrofit, OkHttp).
-3. **Threading Isolation**: Database insertions, playlist downloads, and file parsing are explicitly directed to background threads (using Coroutines `Dispatchers.IO`).
+Composables render ViewModel state and emit callbacks. Network, parsing, persistence, playback
+selection, and synchronization remain outside the UI layer. `PlayerManager` owns player engines;
+Composables only attach the active engine to a surface.
 
----
+## Technology
 
-## ⚙️ Technical Implementation Deep-Dives
+| Area | Version / implementation |
+|---|---|
+| Kotlin | 2.0.21 |
+| Android Gradle Plugin / Gradle | 8.7.3 / 8.9 |
+| Jetpack Compose BOM | 2024.09.03 |
+| Hilt | 2.51.1 |
+| Room | 2.6.1 |
+| DataStore | 1.1.1 |
+| Retrofit / OkHttp | 2.11.0 / 4.12.0 |
+| Media3 | 1.5.0 |
+| LibVLC | 3.6.0 |
+| Coroutines | 1.9.0 |
 
-### 📺 Dynamic Device Mode Detection
-On startup, [DeviceUtils](file:///home/meliheeren/iMAX%20Player/app/src/main/java/com/imax/player/core/common/DeviceUtils.kt) resolves the device configuration. The app queries `UiModeManager` for television mode and checks the package manager for `FEATURE_LEANBACK` or `FEATURE_TELEVISION`.
-Based on this resolution, [ImaxNavHost](file:///home/meliheeren/iMAX%20Player/app/src/main/java/com/imax/player/ui/navigation/Navigation.kt) dynamically loads either the touch-gestures [MobileNavGraph](file:///home/meliheeren/iMAX%20Player/app/src/main/java/com/imax/player/ui/navigation/mobile/MobileNavGraph.kt) or the remote-optimized [TvNavGraph](file:///home/meliheeren/iMAX%20Player/app/src/main/java/com/imax/player/ui/navigation/tv/TvNavGraph.kt).
+## Setup
 
-### 🎮 The Dynamic Player Engine Pipeline
-Both playback engines are isolated behind the [PlayerEngine](file:///home/meliheeren/iMAX%20Player/app/src/main/java/com/imax/player/core/player/PlayerEngine.kt) interface:
-* **ExoPlayerEngine**: Leverages Google's modern Media3 player, supplying custom hardware decoding flags via `ImaxRenderersFactory`.
-* **VlcPlayerEngine**: Integrates LibVLC natively to playback streams containing legacy audio/video codecs that fail on standard Media3.
+Prerequisites:
 
-The lifecycle, runtime switching, settings application, and playback commands are handled centrally by the [PlayerManager](file:///home/meliheeren/iMAX%20Player/app/src/main/java/com/imax/player/core/player/PlayerManager.kt). The engine can switch mid-stream while maintaining the current VOD playback position.
+- Android Studio with Android SDK 35 and build tools installed.
+- JDK 17.
+- Android SDK path in an untracked `local.properties` file.
 
-```mermaid
-graph TD
-    UI[PlayerScreen / Compose UI] -->|Commands/State| PM[PlayerManager]
-    PM -->|Controls| PE[PlayerEngine Interface]
-    PE -->|Impl 1| Exo[ExoPlayerEngine]
-    PE -->|Impl 2| VLC[VlcPlayerEngine]
-    PM -->|Listens Settings| DS[SettingsDataStore]
+Copy the documented settings and replace only what is needed:
+
+```bash
+cp local.properties.example local.properties
 ```
 
-### 🔁 Exponential Backoff & Connectivity Retry
-Network drops are managed by the [StreamRetryManager](file:///home/meliheeren/iMAX%20Player/app/src/main/java/com/imax/player/core/player/StreamRetryManager.kt). When a playback error occurs:
-1. The error message is classified to isolate device connection drop (`NO_INTERNET`) from stream dead states (`STREAM_OFFLINE`).
-2. An exponential backoff cycle initiates, scheduling retries at **2s**, **4s**, and **8s** delays, displaying a countdown on the player overlay.
-3. If no internet is detected, it registers a `ConnectivityManager.NetworkCallback` to suspend until connection validation is restored before retrying the player connection.
+At minimum, set:
 
-### ⏰ Sleep Timer
-The [SleepTimerManager](file:///home/meliheeren/iMAX%20Player/app/src/main/java/com/imax/player/core/player/SleepTimerManager.kt) offers duration options (15, 30, 45, 60, 90 mins). During the final minute, the manager toggles the `isLastMinute` flag, allowing the UI to trigger a soft audio/video fade-out warning before playback termination.
+```properties
+sdk.dir=/absolute/path/to/Android/Sdk
+```
 
-### 🛡️ Secure Parental Control Lockouts
-The [ParentalControlManager](file:///home/meliheeren/iMAX%20Player/app/src/main/java/com/imax/player/core/security/ParentalControlManager.kt) restricts child-safety access:
-* **Storage Encryption**: The 4-digit PIN hash is stored in `EncryptedSharedPreferences` backed by the hardware-backed **Android KeyStore**.
-* **PBKDF2 Hashing**: PIN verification uses salted PBKDF2 hashing via [PinHasher](file:///home/meliheeren/iMAX%20Player/app/src/main/java/com/imax/player/core/security/PinHasher.kt) to prevent unauthorized decryption.
-* **Brute-Force Lockout**: 5 failed PIN attempts results in a **30-second lockout** where the verification API is temporarily suspended.
-* **Category Whitelists**: Restrict categories on a fine-grained level. Content from non-whitelisted categories is hidden from menus during Child Lock active state.
+`TMDB_API_KEY` is optional. It is compiled into the APK and must not be treated as a server-side
+secret; use a backend proxy if the key needs stronger protection.
 
-### 📡 Automated WorkManager Scheduling
-Background updates are scheduled to conserve battery and data footprint:
-* **EPG Syncing**: [EpgSyncWorker](file:///home/meliheeren/iMAX%20Player/app/src/main/java/com/imax/player/core/worker/EpgSyncWorker.kt) runs daily to download XMLTV feeds, purge expired programs, and batch insert fresh schedules in chunks of 500 to prevent database transaction timeouts.
-* **Playlist Refresher**: [PlaylistRefreshWorker](file:///home/meliheeren/iMAX%20Player/app/src/main/java/com/imax/player/core/worker/PlaylistRefreshWorker.kt) updates M3U lists silently at user-specified intervals (6h, 12h, 24h).
-* **Post-Sync Stream Health Verification**: [StreamHealthCheckWorker](file:///home/meliheeren/iMAX%20Player/app/src/main/java/com/imax/player/core/worker/StreamHealthCheckWorker.kt) queries channel stream links using lightweight HTTP HEAD requests. Channels are processed in batches of 10 with 200ms inter-batch delays to prevent provider rate limiting. Offline streams are flagged in the DB (`isOnline = false`).
+## Build and verification
 
-### 🔍 Smart Search Matching & Cleaning
-The title search engine optimizes query accuracy by bypassing standard substring containment limitations:
-* **Query Normalization**: [SearchMatcher](file:///home/meliheeren/iMAX%20Player/app/src/main/java/com/imax/player/core/common/SearchMatcher.kt) strips special characters and transliterates regional alphabets (e.g. Turkish `İ/ı` to `I/i` via [StringUtils](file:///home/meliheeren/iMAX%20Player/app/src/main/java/com/imax/player/core/common/StringUtils.kt)).
-* **Acronym & Coverage Matching**: Search supports token matching, acronym matching (matching `GOT` to `Game of Thrones`), and strips noise terms such as `4K`, `FHD`, `UHD`, `Dublaj`, or `Altyazı`.
-* **Fuzzy Scoring**: Utilizes the **Jaro-Winkler similarity** metric to score and rank matches above custom-scaled thresholds.
+```bash
+./gradlew clean
+./gradlew :app:assembleDebug
+./gradlew :app:testDebugUnitTest
+./gradlew :app:lintDebug
+./gradlew :app:assembleRelease
+```
 
-### 🎬 Local TMDB Metadata Lookup & Cache
-The app enriches playlist title metadata by looking up information from The Movie Database (TMDB) dynamically:
-* **Fuzzy Title Clean**: [MetadataProvider](file:///home/meliheeren/iMAX%20Player/app/src/main/java/com/imax/player/metadata/MetadataProvider.kt) strips codec, year, and translation markers to formulate clean queries.
-* **Jaro-Winkler Verification**: Calculates similarity scores between the playlist item and TMDB search candidates, rejecting results below 35% similarity (or 50% for titles ≤ 3 characters) to eliminate incorrect matching.
-* **Fallback Translation Pipeline**: Searches are performed prioritizing (1) Turkish locale, (2) Content original language, and (3) English fallback, preventing blank description layouts.
-* **Database Caching**: Resolved records are cached with a **7-day Time-to-Live (TTL)** in Room to reduce API requests.
+The default `release` variant is Play-oriented: it does not contain
+`REQUEST_INSTALL_PACKAGES`, the APK installer `FileProvider`, or the in-app APK update UI.
+Without local signing configuration, Gradle produces an unsigned release artifact.
 
-### 🛡️ Credential-Safe Redacted Logging
-To safeguard user privacy, [SensitiveLog](file:///home/meliheeren/iMAX%20Player/app/src/main/java/com/imax/player/core/common/SensitiveLog.kt) automatically sanitizes URLs:
-It parses URLs into structured URIs, stripping sensitive Xtream Codes parameters, path folders, username details, and passwords, replacing them with a safe `[redacted]` indicator before publishing details to the system logger.
+For a Play upload bundle:
 
-### ⏪ Timeshift / IPTV Catch-up Resolver
-[CatchupUrlResolver](file:///home/meliheeren/iMAX%20Player/app/src/main/java/com/imax/player/core/catchup/CatchupUrlResolver.kt) resolves URL formatting for catchup streams:
-* Automatically detects Xtream standard timeshift URL rules (`/timeshift/{username}/{password}/{duration}/{start}/{stream_id}.ts`).
-* Interpolates custom template channels containing placeholders like `{utc}`, `{utcend}`, `{duration}`, and `{start}` (formatted in `yyyy-MM-dd:HH-mm` UTC).
+```bash
+./gradlew :app:bundleRelease
+```
 
----
+## Release variants
 
-## 🛠️ Tech Stack & Versioning
+- `debug`: `.debug` application ID suffix, debug logging, no APK self-update permission.
+- `release`: minified Play-oriented release; no self-hosted updater.
+- `selfHostedRelease`: minified direct-distribution APK with explicit APK update support and
+  `REQUEST_INSTALL_PACKAGES`. Do not upload this variant to Google Play.
 
-| Component | Library / Framework | Version |
-| :--- | :--- | :--- |
-| **Language** | Kotlin | `2.0.21` |
-| **UI Framework** | Jetpack Compose (BOM) | `2024.02.00` |
-| **TV Extensions** | Compose for TV / TV Material | `1.0.0-alpha10` |
-| **Navigation** | Navigation Compose | `2.7.7` |
-| **DI Engine** | Hilt Android | `2.51` |
-| **Local Database**| Room Database | `2.6.1` |
-| **Preferences** | Preference DataStore | `1.0.9` |
-| **Network Client**| Retrofit + OkHttp | `2.9.0` / `4.12.0` |
-| **Serialization** | Kotlinx Serialization | `1.6.3` |
-| **Image Loading** | Coil Compose | `2.6.0` |
-| **Video Engine** | Media3 ExoPlayer | `1.3.0` |
-| **VOD Fallback** | LibVLC Android SDK | `3.6.0-eap17` |
-| **Concurrency** | Coroutines / Flows | `1.8.0` |
-| **Diagnostic** | Timber | `5.0.1` |
+Self-hosted update instructions are in [docs/self-hosted-updates.md](docs/self-hosted-updates.md).
 
----
+## TV remote setup
 
-## 🚀 Installation & Setup
+Remote setup is opt-in and disabled unless both HTTPS settings are supplied:
 
-### Prerequisites
-* **Android Studio Ladybug** (2024.1.3+) or newer.
-* **JDK 17** configured in your compilation path.
-* **Android SDK 35** (compileSdk/targetSdk).
-* Minimum target SDK: **API Level 26** (Android 8.0+).
+```properties
+REMOTE_SETUP_API_BASE_URL=https://setup-api.example.com
+REMOTE_SETUP_WEB_BASE_URL=https://setup.example.com
+```
 
-### Building & Running
+No backend account, endpoint, or key is committed. The required short-lived pairing API contract
+and privacy controls are documented in
+[web/remote-setup/README.md](web/remote-setup/README.md). The QR image is generated locally.
 
-1. **Clone the Repository**
-   ```bash
-   git clone https://github.com/meliherenn/iMAX-Player.git
-   cd iMAX-Player
-   ```
+## Security and privacy notes
 
-2. **Configure your API Keys & Directories**
-   Create a `local.properties` file in the root directory (or modify the existing one):
-   ```properties
-   sdk.dir=/path/to/your/Android/Sdk
+- Android backup and device transfer are disabled because the database can contain playlist URLs
+  and Xtream credentials.
+- Release builds do not plant a Timber log tree. Sensitive URL logs retain only scheme, host, and
+  port; Xtream network exceptions are not printed with credential-bearing request data.
+- Cleartext HTTP is intentionally permitted for user-supplied legacy IPTV endpoints. HTTPS should
+  be preferred; the app cannot safely restrict unknown user domains in a static network policy.
+- Room migrations 1 through 6 are registered and schema 6 is exported. There is no destructive
+  migration fallback.
+- The direct APK updater requires HTTPS, a valid SHA-256 digest, and a bounded download size.
 
-   # Optional TMDB Key to enable posters, trailers, and overview summaries
-   TMDB_API_KEY=your_tmdb_api_key_here
-   ```
+See [PRIVACY.md](PRIVACY.md) before publishing a store listing or hosting optional integrations.
 
-3. **Install Debug APK**
-   ```bash
-   # Build and install on connected device (Mobile or Android TV)
-   ./gradlew installDebug
-   ```
+## Quality and release documentation
 
-4. **Running Tests**
-   ```bash
-   # Run all local JVM Unit Tests
-   ./gradlew testDebugUnitTest
-   ```
+- [Manual QA checklist](docs/MANUAL_QA.md)
+- [Release checklist](docs/RELEASE_CHECKLIST.md)
+- [Self-hosted update guide](docs/self-hosted-updates.md)
 
----
+No emulator or physical-device results are claimed by this repository audit. Phone, TV, playback,
+PiP, focus, and installer behavior still require the linked device checklist.
 
-## 📱 User Interaction & Controls
+## Known limitations
 
-The player maps touch gestures on mobile devices and standard D-pad keys on Android TV remotes for responsive media navigation.
+- Stream and codec compatibility depends on the device decoder, provider, and network.
+- Android TV focus and 10-foot layout require verification on real TV hardware or an emulator.
+- TV remote setup needs a separately operated secure backend; it is off by default.
+- Playlist/Xtream credentials are stored in the app-private Room database. Backups are disabled,
+  but this is not equivalent to a SQLCipher-encrypted database on a compromised device.
+- Dependency and target-SDK policy must be reviewed again before each Play submission.
 
-### TV Remote D-pad Mapping
-| Remote Key | Player View Action | Settings / Browsing Menu |
-| :--- | :--- | :--- |
-| **Center / OK** | Toggle Play or Pause | Select highlighted card / settings option |
-| **Left / Right** | Seek backward / forward | Scroll categories or channel lists |
-| **Up / Down** | Open playback control overlays | Scroll vertically through channel grids |
-| **Back** | Exit player / close overlay | Go back to previous menu |
-| **Media Play/Pause** | Toggle playback | - |
-| **Media FF / RW** | Trigger fast seeking | - |
+## Legal notice
 
-### Mobile Touch Gestures
-* **Single Tap**: Display controls, quality selection overlays, and audio track buttons.
-* **Double Tap (Left / Right)**: Fast seek backward / forward by 10 seconds.
-* **Vertical Slide (Left Screen)**: Adjust player screen brightness.
-* **Vertical Slide (Right Screen)**: Adjust player sound volume.
+iMAX Player is a media player only. It does not provide, sell, recommend, index, or redistribute
+media services or content. Do not use it to access material without permission. The project has no
+affiliation with playlist providers, broadcasters, or channel operators.
 
----
+## License
 
-## 🛡️ Legal Notice & Disclaimer
-
-> [!WARNING]
-> **iMAX Player DOES NOT PROVIDE, host, or pre-bundle any digital media content.** 
-> The application serves strictly as an IPTV client tool to parse and display media streams from files, M3U playlists, XMLTV feeds, or Xtream Codes servers configured by the user.
-
-* **User Content Ownership**: Users are solely responsible for obtaining authorization, subscriptions, and rights to play any media stream or playlist URLs added to this player.
-* **Zero Affiliation**: iMAX Player has no associations with IPTV streaming providers, channel operators, or media list suppliers.
-* **Liability Boundaries**: The developers of iMAX Player do not condone, facilitate, or promote unauthorized streaming of copyrighted digital content. Any actions contrary to digital rights laws are the sole responsibility of the user.
-
----
-
-## 🤝 Contributing
-
-We welcome community contributions! Please review the guidelines below to submit improvements:
-
-1. **Fork the Repository** on GitHub.
-2. **Create a Feature Branch** (`git checkout -b feature/AmazingFeature`).
-3. **Commit your modifications** following local repository styling rules (`git commit -m 'Add some AmazingFeature'`).
-4. **Push to your fork** (`git push origin feature/AmazingFeature`).
-5. **Open a Pull Request** describing your additions, verifying that all tests pass (`./gradlew testDebugUnitTest`).
-
----
-
-## 📄 License
-
-This project is licensed under the **MIT License**. For details, review the [LICENSE](LICENSE) file.
+Licensed under the [MIT License](LICENSE).
