@@ -11,6 +11,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.decodeFromJsonElement
 import timber.log.Timber
 import javax.inject.Inject
@@ -44,11 +45,19 @@ class XtreamClient @Inject constructor(
             ?.trim()
             ?.trimStart('.')
             ?.takeIf { it.isNotBlank() }
+        val normalizedStreamId = streamId.trim()
 
-        return if (normalizedExtension != null) {
-            "$base/$pathSegment/$username/$password/$streamId.$normalizedExtension"
+        if (normalizedStreamId.isHttpStreamUrl()) {
+            return normalizedStreamId
+        }
+
+        return if (
+            normalizedExtension != null &&
+            !normalizedStreamId.endsWith(".$normalizedExtension", ignoreCase = true)
+        ) {
+            "$base/$pathSegment/$username/$password/$normalizedStreamId.$normalizedExtension"
         } else {
-            "$base/$pathSegment/$username/$password/$streamId"
+            "$base/$pathSegment/$username/$password/$normalizedStreamId"
         }
     }
 
@@ -224,6 +233,17 @@ class XtreamClient @Inject constructor(
                 episodeList.forEachIndexed { index, episode ->
                     val streamId = episode.id.ifBlank { episode.episodeNum.toString() }
                     val episodeNumber = episode.episodeNum.takeIf { it > 0 } ?: (index + 1)
+                    val streamUrl = episode.directSource
+                        .trim()
+                        .takeIf { it.isHttpStreamUrl() }
+                        ?: buildStreamUrl(
+                            serverUrl = serverUrl,
+                            pathSegment = "series",
+                            username = username,
+                            password = password,
+                            streamId = streamId,
+                            extension = episode.containerExtension
+                        )
                     episodes.add(
                         EpisodeEntity(
                             seriesId = dbSeriesId,
@@ -232,14 +252,7 @@ class XtreamClient @Inject constructor(
                             name = episode.title.ifBlank { "Episode $episodeNumber" },
                             plot = episode.info?.plot ?: "",
                             posterUrl = episode.info?.movieImage ?: "",
-                            streamUrl = buildStreamUrl(
-                                serverUrl = serverUrl,
-                                pathSegment = "series",
-                                username = username,
-                                password = password,
-                                streamId = streamId,
-                                extension = episode.containerExtension
-                            ),
+                            streamUrl = streamUrl,
                             duration = episode.info?.durationSecs ?: 0,
                             rating = episode.info?.rating ?: 0.0,
                             containerExtension = episode.containerExtension
@@ -345,15 +358,72 @@ class XtreamClient @Inject constructor(
     }
 
     private fun decodeEpisode(element: JsonElement): XtreamEpisode? {
-        return runCatching {
+        val decodedEpisode = runCatching {
             json.decodeFromJsonElement<XtreamEpisode>(element)
-        }.getOrNull()?.takeIf { episode ->
-            episode.id.isNotBlank() ||
-                episode.title.isNotBlank() ||
-                episode.episodeNum > 0 ||
-                episode.containerExtension.isNotBlank()
+        }.getOrNull()
+        val flexibleEpisode = (element as? JsonObject)?.toFlexibleXtreamEpisode()
+        val episode = when {
+            decodedEpisode == null -> flexibleEpisode
+            flexibleEpisode == null -> decodedEpisode
+            else -> decodedEpisode.withFallback(flexibleEpisode)
+        }
+
+        return episode?.takeIf {
+            it.id.isNotBlank() ||
+                it.episodeNum > 0 ||
+                it.directSource.isNotBlank()
         }
     }
+
+    private fun XtreamEpisode.withFallback(fallback: XtreamEpisode): XtreamEpisode = copy(
+        id = id.ifBlank { fallback.id },
+        episodeNum = episodeNum.takeIf { it > 0 } ?: fallback.episodeNum,
+        title = title.ifBlank { fallback.title },
+        containerExtension = containerExtension.ifBlank { fallback.containerExtension },
+        directSource = directSource.ifBlank { fallback.directSource },
+        info = info ?: fallback.info
+    )
+
+    private fun JsonObject.toFlexibleXtreamEpisode(): XtreamEpisode {
+        val infoObject = this["info"] as? JsonObject
+        return XtreamEpisode(
+            id = textValue("id", "stream_id"),
+            episodeNum = intValue("episode_num", "episode", "episode_number"),
+            title = textValue("title", "name"),
+            containerExtension = textValue("container_extension", "extension"),
+            directSource = textValue("direct_source", "stream_url"),
+            info = infoObject?.let {
+                XtreamEpisodeInfo(
+                    plot = it.textValue("plot", "description"),
+                    durationSecs = it.intValue("duration_secs", "duration_seconds"),
+                    duration = it.textValue("duration"),
+                    movieImage = it.textValue("movie_image", "cover", "poster"),
+                    rating = it.doubleValue("rating")
+                )
+            }
+        )
+    }
+
+    private fun JsonObject.textValue(vararg keys: String): String {
+        keys.forEach { key ->
+            val value = runCatching { (this[key] as? JsonPrimitive)?.content }
+                .getOrNull()
+                ?.trim()
+            if (!value.isNullOrBlank() && !value.equals("null", ignoreCase = true)) {
+                return value
+            }
+        }
+        return ""
+    }
+
+    private fun JsonObject.intValue(vararg keys: String): Int =
+        textValue(*keys).toIntOrNull() ?: 0
+
+    private fun JsonObject.doubleValue(vararg keys: String): Double =
+        textValue(*keys).toDoubleOrNull() ?: 0.0
+
+    private fun String.isHttpStreamUrl(): Boolean =
+        startsWith("https://", ignoreCase = true) || startsWith("http://", ignoreCase = true)
 
     private fun logRequestFailure(operation: String, error: Throwable) {
         // Retrofit exceptions may retain a request URL containing Xtream credentials.

@@ -123,6 +123,9 @@ class PlayerViewModel @Inject constructor(
     private var isInitialized = false
     private var enableTvPlaybackWorkarounds = false
     private var currentPlaybackCandidates: List<String> = emptyList()
+    private var currentPlaybackCandidateIndex = 0
+    private var currentStartPosition = 0L
+    private var hasConfirmedCurrentContent = false
     private var liveChannelSwitchJob: kotlinx.coroutines.Job? = null
     private var pendingLiveChannel: Channel? = null
     private var liveEpgAutoDiscoveryPlaylistId: Long? = null
@@ -159,6 +162,10 @@ class PlayerViewModel @Inject constructor(
                 .distinctUntilChanged()
                 .collect { recovery ->
                     if (recovery.playbackState == PlaybackState.ERROR && !retryManager.state.value.isRetrying) {
+                        if (tryNextSeriesPlaybackCandidate()) {
+                            return@collect
+                        }
+
                         val errorMessage = recovery.errorMessage
                         val isHttpError = errorMessage?.contains("503") == true ||
                             errorMessage?.contains("HTTP_STATUS") == true ||
@@ -204,6 +211,7 @@ class PlayerViewModel @Inject constructor(
                             }
                         }
                     } else if (recovery.isPlaybackConfirmed) {
+                        hasConfirmedCurrentContent = true
                         httpRetryCount = 0
                         retryManager.onPlaybackSuccess()
                     }
@@ -389,6 +397,9 @@ class PlayerViewModel @Inject constructor(
         currentOriginalUrl = url
         currentUrl = resolvedUrl
         currentPlaybackCandidates = playbackCandidates
+        currentPlaybackCandidateIndex = 0
+        currentStartPosition = startPos.coerceAtLeast(0L)
+        hasConfirmedCurrentContent = false
         currentTitle = title
         currentContentId = contentId
         currentContentType = contentType
@@ -636,9 +647,14 @@ class PlayerViewModel @Inject constructor(
             saveProgressInternal()
         }
 
-        val resolvedUrl = resolvePlaybackUrl(url, contentType)
+        val playbackCandidates = resolvePlaybackCandidates(url, contentType)
+        val resolvedUrl = playbackCandidates.firstOrNull().orEmpty()
         currentOriginalUrl = url
         currentUrl = resolvedUrl
+        currentPlaybackCandidates = playbackCandidates
+        currentPlaybackCandidateIndex = 0
+        currentStartPosition = startPosition.coerceAtLeast(0L)
+        hasConfirmedCurrentContent = false
         currentTitle = title
         currentContentId = contentId
         currentContentType = contentType
@@ -684,6 +700,9 @@ class PlayerViewModel @Inject constructor(
                 currentOriginalUrl = channel.streamUrl
                 currentUrl = playbackCandidates.firstOrNull().orEmpty()
                 currentPlaybackCandidates = playbackCandidates
+                currentPlaybackCandidateIndex = 0
+                currentStartPosition = 0L
+                hasConfirmedCurrentContent = false
                 currentTitle = channel.name
                 currentContentId = channel.id
                 currentContentType = ContentType.LIVE.name
@@ -975,6 +994,10 @@ class PlayerViewModel @Inject constructor(
         val trimmedUrl = url.trim().removeSuffix(".")
         val defaultResolvedUrl = resolvePlaybackUrl(trimmedUrl, contentType)
 
+        if (contentType.equals(ContentType.SERIES.name, ignoreCase = true)) {
+            return seriesPlaybackCandidates(defaultResolvedUrl)
+        }
+
         if (!contentType.equals(ContentType.LIVE.name, ignoreCase = true)) {
             return listOf(defaultResolvedUrl)
         }
@@ -999,6 +1022,36 @@ class PlayerViewModel @Inject constructor(
         }.map(String::trim)
             .filter(String::isNotBlank)
             .distinct()
+    }
+
+    private fun tryNextSeriesPlaybackCandidate(): Boolean {
+        if (hasConfirmedCurrentContent ||
+            !currentContentType.equals(ContentType.SERIES.name, ignoreCase = true)
+        ) {
+            return false
+        }
+
+        val nextIndex = currentPlaybackCandidateIndex + 1
+        val nextCandidate = currentPlaybackCandidates.getOrNull(nextIndex) ?: return false
+        currentPlaybackCandidateIndex = nextIndex
+        currentUrl = nextCandidate
+        httpRetryCount = 0
+
+        Timber.w(
+            "Series playback candidate failed; trying fallback %d/%d: %s",
+            nextIndex + 1,
+            currentPlaybackCandidates.size,
+            SensitiveLog.redactUrl(nextCandidate)
+        )
+        viewModelScope.launch {
+            resetPlaybackAttempt()
+            playerManager.play(
+                url = nextCandidate,
+                startPosition = currentStartPosition,
+                profile = PlaybackProfile.VOD
+            )
+        }
+        return true
     }
 
     private fun buildPlaybackFailureMessage(title: String): String {
@@ -1214,4 +1267,30 @@ class PlayerViewModel @Inject constructor(
             prefix
         }
     }
+}
+
+internal fun seriesPlaybackCandidates(url: String): List<String> {
+    val trimmedUrl = url.trim().removeSuffix(".")
+    if (trimmedUrl.isBlank() || !trimmedUrl.contains("/series/", ignoreCase = true)) {
+        return listOf(trimmedUrl).filter(String::isNotBlank)
+    }
+
+    val suffixIndex = sequenceOf(trimmedUrl.indexOf('?'), trimmedUrl.indexOf('#'))
+        .filter { it >= 0 }
+        .minOrNull()
+        ?: trimmedUrl.length
+    val baseUrl = trimmedUrl.substring(0, suffixIndex)
+    val suffix = trimmedUrl.substring(suffixIndex)
+    val streamId = baseUrl.substringAfterLast('/')
+
+    if (streamId.contains('.')) {
+        return listOf(trimmedUrl)
+    }
+
+    return buildList {
+        add(trimmedUrl)
+        listOf("mkv", "mp4", "ts").forEach { extension ->
+            add("$baseUrl.$extension$suffix")
+        }
+    }.distinct()
 }

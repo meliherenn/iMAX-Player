@@ -133,6 +133,7 @@ data class XtreamEpisode(
     @SerialName("episode_num") val episodeNum: Int = 0,
     @SerialName("title") val title: String = "",
     @SerialName("container_extension") val containerExtension: String = "",
+    @SerialName("direct_source") val directSource: String = "",
     @SerialName("info") val info: XtreamEpisodeInfo? = null
 )
 
