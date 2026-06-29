@@ -1,6 +1,7 @@
-1.0.17 — Görsel Detay Düzeltmesi
+1.1.0 — Connected iMAX
 
-- Detay ekranında geçersiz poster/backdrop adresleri artık boş üst alan veya bozuk görsel gibi gösterilmiyor.
-- Film detayında poster/backdrop yüklenemezse Xtream VOD/TMDB görsel onarımı da tetikleniyor.
-- Poster gerçekten yoksa kart içinde küçük film simgesi ve başlık gösterilerek içerik oynatılabilir halde net kalıyor.
-- Backdrop yokken mobil detay ekranı gereksiz büyük boşluk bırakmıyor.
+- TV’de QR kodla 8 karakterlik Connected iMAX eşleştirme oturumu açılabiliyor.
+- Xtream, M3U URL ve M3U dosya kaynakları telefondaki companion formundan TV’ye aktarılabiliyor.
+- Gelen paketler playlist tipi, URL, EPG, dosya boyutu ve eşleştirme kodu açısından uygulama içinde doğrulanıyor.
+- Connected iMAX ayarları UI dışına taşındı; kayıt, dosya yazma ve başlangıç/EPG tercihleri repository katmanında uygulanıyor.
+- Companion web formu tam 8 karakterli kod, 5 MB dosya limiti ve yeni `connected-imax` payload sözleşmesiyle uyumlu hale getirildi.

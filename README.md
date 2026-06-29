@@ -12,7 +12,7 @@ M3U/M3U8 and Xtream input, XMLTV EPG support, Media3 playback, and LibVLC fallba
 The repository does not bundle channels, playlists, provider directories, stream URLs, accounts, or
 copyrighted media. Users are responsible for supplying content they are authorized to access.
 
-Current app version: `1.0.17` (`versionCode` 21). Android configuration: min SDK 26, compile/target
+Current app version: `1.1.0` (`versionCode` 22). Android configuration: min SDK 26, compile/target
 SDK 35, Java 17.
 
 ## Features
@@ -29,7 +29,7 @@ SDK 35, Java 17.
 - Android TV launcher, D-pad navigation, explicit focus treatment, and TV player overlays.
 - PBKDF2-hashed parental PIN with encrypted local preference storage and lockout behavior.
 - Optional TMDB metadata enrichment when a developer supplies an API key.
-- Optional self-hosted update and TV remote-setup integrations, disabled in normal builds unless
+- Optional self-hosted update and Connected iMAX TV setup integrations, disabled in normal builds unless
   explicitly configured.
 
 ## Architecture
@@ -123,18 +123,18 @@ For a Play upload bundle:
 
 Self-hosted update instructions are in [docs/self-hosted-updates.md](docs/self-hosted-updates.md).
 
-## TV remote setup
+## Connected iMAX TV setup
 
-Remote setup is opt-in and disabled unless both HTTPS settings are supplied:
+Connected iMAX is an opt-in TV setup flow and stays disabled unless both HTTPS settings are supplied:
 
 ```properties
 REMOTE_SETUP_API_BASE_URL=https://setup-api.example.com
 REMOTE_SETUP_WEB_BASE_URL=https://setup.example.com
 ```
 
-No backend account, endpoint, or key is committed. The required short-lived pairing API contract
-and privacy controls are documented in
-[web/remote-setup/README.md](web/remote-setup/README.md). The QR image is generated locally.
+No backend account, endpoint, or key is committed. The required short-lived 8-character pairing API
+contract and privacy controls are documented in [web/remote-setup/README.md](web/remote-setup/README.md).
+The QR image is generated locally.
 
 ## Security and privacy notes
 
@@ -163,7 +163,7 @@ PiP, focus, and installer behavior still require the linked device checklist.
 
 - Stream and codec compatibility depends on the device decoder, provider, and network.
 - Android TV focus and 10-foot layout require verification on real TV hardware or an emulator.
-- TV remote setup needs a separately operated secure backend; it is off by default.
+- Connected iMAX needs a separately operated secure backend; it is off by default.
 - Playlist/Xtream credentials are stored in the app-private Room database. Backups are disabled,
   but this is not equivalent to a SQLCipher-encrypted database on a compromised device.
 - Dependency and target-SDK policy must be reviewed again before each Play submission.

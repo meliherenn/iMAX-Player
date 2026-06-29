@@ -90,13 +90,18 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
-import com.imax.player.BuildConfig
 import com.imax.player.core.common.Resource
 import com.imax.player.core.common.rethrowIfCancellation
 import com.imax.player.core.designsystem.theme.ImaxColors
 import com.imax.player.core.designsystem.theme.LocalImaxDimens
 import com.imax.player.core.model.Playlist
 import com.imax.player.core.model.PlaylistType
+import com.imax.player.data.repository.ConnectedSetupRepository
+import com.imax.player.data.repository.ConnectedSetupRepository.Companion.PAIRING_POLL_INTERVAL_MS
+import com.imax.player.data.repository.ConnectedSetupRepository.Companion.PAIRING_STATUS_COMPLETED
+import com.imax.player.data.repository.ConnectedSetupRepository.Companion.PAIRING_STATUS_ERROR
+import com.imax.player.data.repository.ConnectedSetupRepository.Companion.PAIRING_STATUS_EXPIRED
+import com.imax.player.data.repository.ConnectedSetupRepository.Companion.PAIRING_STATUS_PENDING
 import com.imax.player.data.repository.PlaylistRepository
 import com.imax.player.ui.components.GradientButton
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -104,25 +109,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
-import android.content.Context
-import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withContext
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.decodeFromJsonElement
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import java.io.File
-import java.security.SecureRandom
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.MultiFormatWriter
@@ -130,40 +121,6 @@ import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 
 private const val TV_ONBOARDING_LOG_TAG = "TvOnboarding"
-
-private const val REMOTE_PAIRING_CODE_LENGTH = 8
-private const val MAX_REMOTE_PLAYLIST_BYTES = 5L * 1024L * 1024L
-private const val PAIRING_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-
-@Serializable
-data class RemotePairingResponse(
-    val status: String,
-    val payload: JsonObject? = null
-)
-
-@Serializable
-data class RemoteSetupPayload(
-    val version: Int,
-    val source: String,
-    val pairingCode: String,
-    val playlist: RemotePlaylistInfo
-)
-
-@Serializable
-data class RemotePlaylistInfo(
-    val name: String,
-    val type: String,
-    val epgUrl: String = "",
-    val rememberOnStart: Boolean = true,
-    val epgAutoSync: Boolean = true,
-    val serverUrl: String = "",
-    val username: String = "",
-    val password: String = "",
-    val url: String = "",
-    val fileName: String = "",
-    val fileSize: Long = 0,
-    val fileContent: String = ""
-)
 
 data class OnboardingState(
     val playlists: List<Playlist> = emptyList(),
@@ -173,29 +130,25 @@ data class OnboardingState(
     val syncMessage: String = "",
     val syncError: String? = null,
     val pairingCode: String? = null,
+    val pairingUrl: String? = null,
+    val pairingWebBaseUrl: String? = null,
+    val pairingExpiresAtMs: Long = 0L,
     val pairingStatus: String? = null,
     val pairingErrorMessage: String? = null,
-    val isRemoteSetupAvailable: Boolean = BuildConfig.REMOTE_SETUP_ENABLED
+    val isRemoteSetupAvailable: Boolean = false
 )
 
 @HiltViewModel
 class OnboardingViewModel @Inject constructor(
     private val playlistRepository: PlaylistRepository,
-    @ApplicationContext private val context: Context,
-    private val okHttpClient: OkHttpClient
+    private val connectedSetupRepository: ConnectedSetupRepository
 ) : ViewModel() {
-    private val _state = MutableStateFlow(OnboardingState())
+    private val _state = MutableStateFlow(
+        OnboardingState(isRemoteSetupAvailable = connectedSetupRepository.isEnabled)
+    )
     val state: StateFlow<OnboardingState> = _state.asStateFlow()
 
     private var pairingJob: Job? = null
-    private val secureRandom = SecureRandom()
-
-    private val json = Json {
-        ignoreUnknownKeys = true
-        coerceInputValues = true
-        isLenient = true
-        explicitNulls = false
-    }
 
     init {
         viewModelScope.launch {
@@ -213,71 +166,116 @@ class OnboardingViewModel @Inject constructor(
     }
 
     fun startQrPairing(onPlaylistSelected: () -> Unit) {
-        if (!BuildConfig.REMOTE_SETUP_ENABLED) {
+        if (!connectedSetupRepository.isEnabled) {
             _state.update {
-                it.copy(pairingErrorMessage = "Uzaktan kurulum bu build için yapılandırılmamış.")
+                it.copy(pairingErrorMessage = "Connected iMAX bu build için yapılandırılmamış.")
             }
             return
         }
         pairingJob?.cancel()
-        val code = buildString(REMOTE_PAIRING_CODE_LENGTH) {
-            repeat(REMOTE_PAIRING_CODE_LENGTH) {
-                append(PAIRING_ALPHABET[secureRandom.nextInt(PAIRING_ALPHABET.length)])
+
+        val session = runCatching { connectedSetupRepository.createPairingSession() }
+            .getOrElse { error ->
+                error.rethrowIfCancellation()
+                Timber.w("Connected iMAX pairing session could not be created: %s", error.javaClass.simpleName)
+                _state.update {
+                    it.copy(
+                        pairingStatus = PAIRING_STATUS_ERROR,
+                        pairingErrorMessage = "Connected iMAX bağlantı adresleri doğrulanamadı."
+                    )
+                }
+                return
             }
-        }
+
         _state.update {
             it.copy(
-                pairingCode = code,
-                pairingStatus = "pending",
+                pairingCode = session.code,
+                pairingUrl = session.url,
+                pairingWebBaseUrl = session.webBaseUrl,
+                pairingExpiresAtMs = session.expiresAtMs,
+                pairingStatus = PAIRING_STATUS_PENDING,
                 pairingErrorMessage = null
             )
         }
 
         pairingJob = viewModelScope.launch {
-            val isInserted = insertPairingCode(code)
-            if (!isInserted) {
+            if (!connectedSetupRepository.openPairing(session.code)) {
                 _state.update {
                     it.copy(
-                        pairingStatus = "error",
-                        pairingErrorMessage = "Sunucu bağlantısı kurulamadı."
+                        pairingStatus = PAIRING_STATUS_ERROR,
+                        pairingErrorMessage = "Connected iMAX sunucusuna bağlanılamadı."
                     )
                 }
                 return@launch
             }
 
-            val startTime = System.currentTimeMillis()
-            val timeout = 10 * 60 * 1000 // 10 minutes
             var isCompleted = false
+            while (System.currentTimeMillis() < session.expiresAtMs) {
+                delay(PAIRING_POLL_INTERVAL_MS)
+                val response = connectedSetupRepository.pollPairing(session.code) ?: continue
 
-            while (System.currentTimeMillis() - startTime < timeout) {
-                delay(2000)
-                val response = checkPairingStatus(code)
-                if (response != null && response.status == "completed") {
-                    isCompleted = true
-                    if (response.payload != null) {
-                        _state.update {
-                            it.copy(
-                                pairingStatus = "completed",
-                                pairingCode = null
-                            )
+                when (response.status) {
+                    PAIRING_STATUS_COMPLETED -> {
+                        isCompleted = true
+                        val payload = response.payload
+                        if (payload == null) {
+                            _state.update {
+                                it.copy(
+                                    pairingStatus = PAIRING_STATUS_ERROR,
+                                    pairingErrorMessage = "Sunucudan boş Connected iMAX paketi döndü."
+                                )
+                            }
+                            break
                         }
-                        saveAndActivateRemotePlaylist(code, response.payload, onPlaylistSelected)
-                    } else {
-                        _state.update {
-                            it.copy(
-                                pairingStatus = "error",
-                                pairingErrorMessage = "Sunucudan boş paket döndü."
-                            )
+
+                        _state.update { it.copy(pairingStatus = PAIRING_STATUS_COMPLETED) }
+                        try {
+                            val playlist = connectedSetupRepository.saveConnectedPlaylist(session.code, payload)
+                            _state.update {
+                                it.copy(
+                                    pairingCode = null,
+                                    pairingUrl = null,
+                                    pairingWebBaseUrl = null,
+                                    pairingExpiresAtMs = 0L,
+                                    pairingStatus = PAIRING_STATUS_COMPLETED,
+                                    pairingErrorMessage = null
+                                )
+                            }
+                            selectPlaylist(playlist, onPlaylistSelected)
+                        } catch (error: Exception) {
+                            error.rethrowIfCancellation()
+                            Timber.e("Failed to save Connected iMAX playlist: %s", error.javaClass.simpleName)
+                            _state.update {
+                                it.copy(
+                                    pairingStatus = PAIRING_STATUS_ERROR,
+                                    pairingErrorMessage = "Playlist kaydedilemedi: ${error.localizedMessage ?: "Geçersiz paket."}"
+                                )
+                            }
                         }
+                        break
                     }
-                    break
+
+                    PAIRING_STATUS_ERROR, PAIRING_STATUS_EXPIRED -> {
+                        isCompleted = true
+                        _state.update {
+                            it.copy(
+                                pairingStatus = PAIRING_STATUS_ERROR,
+                                pairingErrorMessage = if (response.status == PAIRING_STATUS_EXPIRED) {
+                                    "Eşleşme süresi doldu."
+                                } else {
+                                    "Connected iMAX oturumu hata döndürdü."
+                                }
+                            )
+                        }
+                        break
+                    }
                 }
             }
 
-            if (!isCompleted && _state.value.pairingStatus == "pending") {
+            if (!isCompleted && _state.value.pairingStatus == PAIRING_STATUS_PENDING) {
                 _state.update {
                     it.copy(
-                        pairingStatus = "error",
+                        pairingStatus = PAIRING_STATUS_ERROR,
                         pairingErrorMessage = "Eşleşme süresi doldu."
                     )
                 }
@@ -291,128 +289,14 @@ class OnboardingViewModel @Inject constructor(
         _state.update {
             it.copy(
                 pairingCode = null,
+                pairingUrl = null,
+                pairingWebBaseUrl = null,
+                pairingExpiresAtMs = 0L,
                 pairingStatus = "idle",
                 pairingErrorMessage = null
             )
         }
     }
-
-    private suspend fun insertPairingCode(code: String): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val jsonBody = """
-                {
-                    "pairingCode": "$code",
-                    "status": "pending",
-                    "payload": {}
-                }
-            """.trimIndent()
-            val body = jsonBody.toRequestBody("application/json".toMediaType())
-            val request = Request.Builder()
-                .url("${BuildConfig.REMOTE_SETUP_API_BASE_URL}/api/pairings")
-                .post(body)
-                .addHeader("Content-Type", "application/json")
-                .build()
-
-            okHttpClient.newCall(request).execute().use { response ->
-                response.isSuccessful
-            }
-        } catch (e: Exception) {
-            e.rethrowIfCancellation()
-            Timber.e("Failed to insert pairing code: %s", e.javaClass.simpleName)
-            false
-        }
-    }
-
-    private suspend fun checkPairingStatus(code: String): RemotePairingResponse? = withContext(Dispatchers.IO) {
-        try {
-            val request = Request.Builder()
-                .url("${BuildConfig.REMOTE_SETUP_API_BASE_URL}/api/pairings/$code")
-                .get()
-                .build()
-
-            okHttpClient.newCall(request).execute().use { response ->
-                if (response.isSuccessful) {
-                    val bodyString = response.body?.string() ?: return@use null
-                    json.decodeFromString<RemotePairingResponse>(bodyString)
-                } else {
-                    null
-                }
-            }
-        } catch (e: Exception) {
-            e.rethrowIfCancellation()
-            Timber.e("Failed to check pairing status: %s", e.javaClass.simpleName)
-            null
-        }
-    }
-
-    private fun saveAndActivateRemotePlaylist(
-        expectedPairingCode: String,
-        payloadJson: JsonObject,
-        onPlaylistSelected: () -> Unit
-    ) {
-        viewModelScope.launch {
-            try {
-                val payload = json.decodeFromJsonElement<RemoteSetupPayload>(payloadJson)
-                require(payload.pairingCode.equals(expectedPairingCode, ignoreCase = true)) {
-                    "Eşleştirme kodu doğrulanamadı."
-                }
-                val remotePlaylist = payload.playlist
-
-                val type = when (remotePlaylist.type) {
-                    "xtream" -> PlaylistType.XTREAM_CODES
-                    "m3u" -> PlaylistType.M3U_URL
-                    "file" -> PlaylistType.M3U_FILE
-                    else -> PlaylistType.M3U_URL
-                }
-
-                var filePath = ""
-                if (type == PlaylistType.M3U_FILE && remotePlaylist.fileContent.isNotEmpty()) {
-                    filePath = writeRemotePlaylistFile(remotePlaylist)
-                }
-
-                val playlist = Playlist(
-                    name = remotePlaylist.name,
-                    type = type,
-                    url = if (type == PlaylistType.M3U_URL) remotePlaylist.url else "",
-                    filePath = filePath,
-                    epgUrl = remotePlaylist.epgUrl,
-                    serverUrl = if (type == PlaylistType.XTREAM_CODES) remotePlaylist.serverUrl else "",
-                    username = if (type == PlaylistType.XTREAM_CODES) remotePlaylist.username else "",
-                    password = if (type == PlaylistType.XTREAM_CODES) remotePlaylist.password else ""
-                )
-
-                val id = playlistRepository.savePlaylist(playlist)
-                val savedPlaylist = playlist.copy(id = id)
-
-                selectPlaylist(savedPlaylist, onPlaylistSelected)
-            } catch (e: Exception) {
-                e.rethrowIfCancellation()
-                Timber.e("Failed to save remote playlist: %s", e.javaClass.simpleName)
-                _state.update {
-                    it.copy(
-                        pairingStatus = "error",
-                        pairingErrorMessage = "Playlist kaydedilemedi: ${e.localizedMessage}"
-                    )
-                }
-            }
-        }
-    }
-
-    private suspend fun writeRemotePlaylistFile(remotePlaylist: RemotePlaylistInfo): String =
-        withContext(Dispatchers.IO) {
-            val contentBytes = remotePlaylist.fileContent.toByteArray(Charsets.UTF_8)
-            require(contentBytes.size <= MAX_REMOTE_PLAYLIST_BYTES) {
-                "Uzaktan gönderilen playlist dosyası 5 MB sınırını aşıyor."
-            }
-
-            val safeName = File(remotePlaylist.fileName).name
-                .replace(Regex("[^A-Za-z0-9._-]"), "_")
-                .take(96)
-                .takeIf { it.isNotBlank() && it != "." && it != ".." }
-                ?: "remote_${System.currentTimeMillis()}.m3u"
-            val directory = File(context.filesDir, "playlists").apply { mkdirs() }
-            File(directory, safeName).apply { writeBytes(contentBytes) }.absolutePath
-        }
 
     fun showAddDialog() = _state.update { it.copy(showAddDialog = true, syncError = null) }
     fun hideAddDialog() = _state.update { it.copy(showAddDialog = false) }
@@ -846,13 +730,13 @@ private fun TvOnboardingContent(
             )
         }
 
-        if (state.pairingCode != null) {
+        if (state.pairingCode != null && state.pairingUrl != null && state.pairingWebBaseUrl != null) {
             TvQrPairingDialog(
                 pairingCode = state.pairingCode,
+                pairingUrl = state.pairingUrl,
+                pairingWebBaseUrl = state.pairingWebBaseUrl,
                 pairingStatus = state.pairingStatus ?: "pending",
                 errorMessage = state.pairingErrorMessage,
-                apiBaseUrl = BuildConfig.REMOTE_SETUP_API_BASE_URL,
-                webBaseUrl = BuildConfig.REMOTE_SETUP_WEB_BASE_URL,
                 onDismiss = { viewModel.cancelPairing() }
             )
         }
@@ -2923,17 +2807,12 @@ private fun TvQrPairingCard(
 @Composable
 private fun TvQrPairingDialog(
     pairingCode: String,
+    pairingUrl: String,
+    pairingWebBaseUrl: String,
     pairingStatus: String,
     errorMessage: String?,
-    apiBaseUrl: String,
-    webBaseUrl: String,
     onDismiss: () -> Unit
 ) {
-    val pairingUrl = remember(pairingCode, apiBaseUrl, webBaseUrl) {
-        val encodedCode = java.net.URLEncoder.encode(pairingCode, "UTF-8")
-        val encodedApiUrl = java.net.URLEncoder.encode(apiBaseUrl, "UTF-8")
-        "$webBaseUrl/?code=$encodedCode&api=$encodedApiUrl"
-    }
     val qrCode = remember(pairingUrl) { createPairingQrCode(pairingUrl) }
 
     val closeFocusRequester = remember { FocusRequester() }
@@ -2966,12 +2845,12 @@ private fun TvQrPairingDialog(
                 // Header
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Uzaktan Kurulum (Remote Setup)",
+                        text = "Connected iMAX",
                         style = MaterialTheme.typography.displaySmall,
                         color = ImaxColors.TextPrimary
                     )
                     Text(
-                        text = "Kumandayla uzun listeleri yazmak yerine QR kodu telefonunuzdan taratarak hızlıca kurulumu tamamlayın.",
+                        text = "Kumandayla uzun liste bilgilerini yazmadan telefonunuzdan güvenli bir eşleştirme oturumu açın.",
                         style = MaterialTheme.typography.bodyLarge,
                         color = ImaxColors.TextSecondary
                     )
@@ -2995,7 +2874,7 @@ private fun TvQrPairingDialog(
                         qrCode?.let { bitmap ->
                             Image(
                                 bitmap = bitmap.asImageBitmap(),
-                                contentDescription = "Pairing QR Code",
+                                contentDescription = "Connected iMAX eşleştirme QR kodu",
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .padding(16.dp)
@@ -3034,7 +2913,7 @@ private fun TvQrPairingDialog(
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = webBaseUrl,
+                                text = pairingWebBaseUrl,
                                 style = MaterialTheme.typography.bodyLarge,
                                 color = ImaxColors.TextSecondary
                             )
@@ -3075,7 +2954,7 @@ private fun TvQrPairingDialog(
                                     text = when (pairingStatus) {
                                         "completed" -> "Eşleşme başarılı! Listeniz TV'ye aktarılıyor..."
                                         "error" -> errorMessage ?: "Eşleşme sırasında bir hata oluştu."
-                                        else -> "Oturum açık. Web formundan listeyi TV'ye gönderin."
+                                        else -> "Oturum açık. Connected iMAX formundan listeyi TV'ye gönderin."
                                     },
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = when (pairingStatus) {

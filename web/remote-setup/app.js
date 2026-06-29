@@ -1,4 +1,8 @@
-// app.js - iMAX Player Remote Setup Web Controller
+// app.js - Connected iMAX web controller
+
+const PAIRING_CODE_LENGTH = 8;
+const PAIRING_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const MAX_PLAYLIST_BYTES = 5 * 1024 * 1024;
 
 const params = new URLSearchParams(window.location.search);
 const apiBaseUrl = normalizeApiBaseUrl(params.get("api") || "");
@@ -24,9 +28,9 @@ const setup = {
 const codeFromUrl = params.get("code") || params.get("pair") || "";
 
 if (codeFromUrl) {
-  pairingCode.value = codeFromUrl.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
+  pairingCode.value = normalizePairingCode(codeFromUrl);
   updatePairingState();
-  if (apiBaseUrl && pairingCode.value.length >= 6) {
+  if (apiBaseUrl && isPairingCodeReady(pairingCode.value)) {
     checkPairingStatusDb();
   }
 }
@@ -38,11 +42,11 @@ tabs.forEach((tab) => {
 let pairingCheckTimeout = null;
 
 pairingCode.addEventListener("input", () => {
-  pairingCode.value = pairingCode.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
+  pairingCode.value = normalizePairingCode(pairingCode.value);
   updatePairingState();
 
   clearTimeout(pairingCheckTimeout);
-  if (apiBaseUrl && pairingCode.value.length >= 6) {
+  if (apiBaseUrl && isPairingCodeReady(pairingCode.value)) {
     pairingCheckTimeout = setTimeout(checkPairingStatusDb, 500);
   }
 });
@@ -56,10 +60,17 @@ fileInput.addEventListener("change", async () => {
     return;
   }
 
-  const text = await file.text();
-  if (new Blob([text]).size > 5 * 1024 * 1024) {
+  if (file.size > MAX_PLAYLIST_BYTES) {
     fileInput.value = "";
-    throw new Error("M3U dosyası 5 MB sınırını aşıyor.");
+    setResult("Dosya çok büyük", "M3U dosyası 5 MB sınırını aşıyor.", "error");
+    return;
+  }
+
+  const text = await file.text();
+  if (new Blob([text]).size > MAX_PLAYLIST_BYTES) {
+    fileInput.value = "";
+    setResult("Dosya çok büyük", "M3U dosyası UTF-8 olarak 5 MB sınırını aşıyor.", "error");
+    return;
   }
   setup.file = {
     name: file.name,
@@ -97,7 +108,7 @@ form.addEventListener("submit", async (event) => {
     validatePayload(payload);
 
     if (!apiBaseUrl) {
-      throw new Error("Güvenli remote setup API adresi yapılandırılmamış.");
+      throw new Error("Güvenli Connected iMAX API adresi yapılandırılmamış.");
     }
 
     setResult("Gönderiliyor...", "Kurulum paketi TV'ye gönderiliyor...", "loading");
@@ -134,15 +145,15 @@ function setMode(mode) {
 }
 
 function updatePairingState() {
-  const ready = pairingCode.value.trim().length >= 4;
+  const ready = isPairingCodeReady(pairingCode.value);
   pairingState.textContent = ready ? "Hazır" : "Bekliyor";
   pairingState.className = "status-chip";
   if (ready) pairingState.classList.add("ready");
 }
 
 async function checkPairingStatusDb() {
-  const code = pairingCode.value.trim().toUpperCase();
-  if (!apiBaseUrl || code.length < 4) {
+  const code = normalizePairingCode(pairingCode.value);
+  if (!apiBaseUrl || !isPairingCodeReady(code)) {
     updatePairingState();
     return;
   }
@@ -162,6 +173,9 @@ async function checkPairingStatusDb() {
       } else if (data.status === "completed") {
         pairingState.textContent = "Gönderildi";
         pairingState.className = "status-chip ready";
+      } else if (data.status === "expired" || data.status === "error") {
+        pairingState.textContent = "Süre Doldu";
+        pairingState.className = "status-chip error";
       }
     } else if (response.status === 404) {
       pairingState.textContent = "Kod Bulunamadı";
@@ -190,11 +204,11 @@ function normalizeApiBaseUrl(value) {
 function buildPayload(data) {
   const name = String(data.get("name") || "").trim();
   const epgUrl = String(data.get("epgUrl") || "").trim();
-  const pairing = pairingCode.value.trim();
+  const pairing = normalizePairingCode(pairingCode.value);
 
   const payload = {
     version: 1,
-    source: "imax-remote-setup",
+    source: "connected-imax",
     pairingCode: pairing,
     playlist: {
       name,
@@ -225,8 +239,8 @@ function buildPayload(data) {
 }
 
 function validatePayload(payload) {
-  if (!payload.pairingCode || payload.pairingCode.length < 4) {
-    throw new Error("TV kodu en az 4 karakter olmalı.");
+  if (!isPairingCodeReady(payload.pairingCode)) {
+    throw new Error("TV kodu 8 karakter olmalı.");
   }
 
   if (!payload.playlist.name) {
@@ -247,9 +261,27 @@ function validatePayload(payload) {
     throw new Error("M3U URL gerekli.");
   }
 
-  if (payload.playlist.type === "file" && !payload.playlist.fileContent) {
-    throw new Error("M3U dosyası seçilmeli.");
+  if (payload.playlist.type === "file") {
+    if (!payload.playlist.fileContent) {
+      throw new Error("M3U dosyası seçilmeli.");
+    }
+    if (payload.playlist.fileSize > MAX_PLAYLIST_BYTES) {
+      throw new Error("M3U dosyası 5 MB sınırını aşıyor.");
+    }
   }
+}
+
+function normalizePairingCode(value) {
+  return String(value || "")
+    .toUpperCase()
+    .split("")
+    .filter((character) => PAIRING_ALPHABET.includes(character))
+    .join("")
+    .slice(0, PAIRING_CODE_LENGTH);
+}
+
+function isPairingCodeReady(value) {
+  return normalizePairingCode(value).length === PAIRING_CODE_LENGTH;
 }
 
 function isUrlLike(value) {
