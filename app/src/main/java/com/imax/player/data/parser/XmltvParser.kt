@@ -10,7 +10,7 @@ import timber.log.Timber
 import java.io.InputStream
 import java.time.LocalDateTime
 import java.time.OffsetDateTime
-import java.time.ZoneOffset
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import javax.inject.Inject
@@ -27,11 +27,6 @@ import javax.xml.parsers.SAXParserFactory
  */
 @Singleton
 class XmltvParser @Inject constructor() {
-
-    // XMLTV standard time format: YYYYMMDDHHmmss +ZZZZ
-    private val xmltvFormatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss Z")
-    // Also try without timezone
-    private val xmltvFormatterNoTz = DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
 
     /**
      * Parse XMLTV stream and return a list of [EpgProgramEntity].
@@ -91,8 +86,8 @@ class XmltvParser @Inject constructor() {
 
                     "programme" -> {
                         val channelXmlId = attributes.getValue("channel").orEmpty()
-                        val startMs = parseXmltvTime(attributes.getValue("start").orEmpty())
-                        val stopMs = parseXmltvTime(attributes.getValue("stop").orEmpty())
+                        val startMs = parseXmltvTimeToEpochMillis(attributes.getValue("start").orEmpty())
+                        val stopMs = parseXmltvTimeToEpochMillis(attributes.getValue("stop").orEmpty())
 
                         currentProgram = if (
                             channelXmlId.isNotBlank() &&
@@ -169,37 +164,6 @@ class XmltvParser @Inject constructor() {
 
         Timber.d("XMLTV parsed ${programs.size} programs")
         return programs
-    }
-
-    /**
-     * Parse XMLTV time string to UTC milliseconds.
-     * Format: "20240419120000 +0300" or "20240419120000"
-     */
-    private fun parseXmltvTime(timeStr: String): Long {
-        val cleaned = timeStr.trim()
-        if (cleaned.isBlank()) return -1L
-
-        return try {
-            OffsetDateTime.parse(normalizeXmltvTime(cleaned), xmltvFormatter)
-                .toInstant()
-                .toEpochMilli()
-        } catch (e: DateTimeParseException) {
-            try {
-                LocalDateTime.parse(cleaned.take(14), xmltvFormatterNoTz)
-                    .toInstant(ZoneOffset.UTC)
-                    .toEpochMilli()
-            } catch (e2: DateTimeParseException) {
-                Timber.w("Cannot parse XMLTV time: $cleaned")
-                -1L
-            }
-        }
-    }
-
-    private fun normalizeXmltvTime(timeStr: String): String {
-        if (timeStr.length <= 14) return timeStr
-        val date = timeStr.take(14)
-        val timezone = timeStr.drop(14).trim()
-        return "$date $timezone"
     }
 
     private fun SAXParserFactory.disableFeature(feature: String) {
@@ -296,3 +260,51 @@ fun EpgProgramEntity.toUiModel() = EpgProgram(
     posterUrl = posterUrl,
     genre = genre
 )
+
+// XMLTV standard time format: "YYYYMMDDHHmmss +ZZZZ"
+private val XMLTV_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmss Z")
+// Fallback when the timestamp carries no offset.
+private val XMLTV_FORMATTER_NO_TZ = DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
+
+/**
+ * Parse an XMLTV time string to epoch milliseconds.
+ *
+ * Format: "20240419120000 +0300" (with offset) or "20240419120000" (no offset).
+ *
+ * When the string carries no timezone offset, XMLTV convention treats it as local time,
+ * so it is interpreted in [fallbackZone] (the device zone by default). This matches
+ * [parseXtreamDateMs] in XtreamEpgParser; interpreting it as UTC would shift "now playing"
+ * by the device's UTC offset.
+ *
+ * @return epoch millis, or -1L if the string is blank/unparseable.
+ */
+internal fun parseXmltvTimeToEpochMillis(
+    timeStr: String,
+    fallbackZone: ZoneId = ZoneId.systemDefault()
+): Long {
+    val cleaned = timeStr.trim()
+    if (cleaned.isBlank()) return -1L
+
+    return try {
+        OffsetDateTime.parse(normalizeXmltvTime(cleaned), XMLTV_FORMATTER)
+            .toInstant()
+            .toEpochMilli()
+    } catch (e: DateTimeParseException) {
+        try {
+            LocalDateTime.parse(cleaned.take(14), XMLTV_FORMATTER_NO_TZ)
+                .atZone(fallbackZone)
+                .toInstant()
+                .toEpochMilli()
+        } catch (e2: DateTimeParseException) {
+            Timber.w("Cannot parse XMLTV time: $cleaned")
+            -1L
+        }
+    }
+}
+
+private fun normalizeXmltvTime(timeStr: String): String {
+    if (timeStr.length <= 14) return timeStr
+    val date = timeStr.take(14)
+    val timezone = timeStr.drop(14).trim()
+    return "$date $timezone"
+}
