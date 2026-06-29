@@ -26,4 +26,8 @@ agents.md
 AGENTS.md
 .codex/
 .antigravity/
+supabase/.temp/
 adb_logcat_full.txt
+
+# Local Netlify folder
+.netlify

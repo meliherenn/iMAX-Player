@@ -1,0 +1,4 @@
+project_id = "imax-player"
+
+[functions.imax-remote-setup]
+verify_jwt = false

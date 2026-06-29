@@ -132,9 +132,10 @@ REMOTE_SETUP_API_BASE_URL=https://setup-api.example.com
 REMOTE_SETUP_WEB_BASE_URL=https://setup.example.com
 ```
 
-No backend account, endpoint, or key is committed. The required short-lived 8-character pairing API
-contract and privacy controls are documented in [web/remote-setup/README.md](web/remote-setup/README.md).
-The QR image is generated locally.
+No backend account, endpoint, or key is committed. A Supabase Edge Function scaffold is included for
+the short-lived 8-character pairing API; deploy and configure it before building an APK with QR
+setup enabled. See [docs/connected-imax-supabase.md](docs/connected-imax-supabase.md) and
+[web/remote-setup/README.md](web/remote-setup/README.md). The QR image is generated locally.
 
 ## Security and privacy notes
 
@@ -163,7 +164,8 @@ PiP, focus, and installer behavior still require the linked device checklist.
 
 - Stream and codec compatibility depends on the device decoder, provider, and network.
 - Android TV focus and 10-foot layout require verification on real TV hardware or an emulator.
-- Connected iMAX needs a separately operated secure backend; it is off by default.
+- Connected iMAX needs the included Supabase backend, or an equivalent API, to be deployed
+  separately; it is off by default.
 - Playlist/Xtream credentials are stored in the app-private Room database. Backups are disabled,
   but this is not equivalent to a SQLCipher-encrypted database on a compromised device.
 - Dependency and target-SDK policy must be reviewed again before each Play submission.

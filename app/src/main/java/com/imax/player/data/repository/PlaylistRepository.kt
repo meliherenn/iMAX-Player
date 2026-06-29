@@ -24,6 +24,7 @@ import okhttp3.OkHttpClient
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import timber.log.Timber
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -294,7 +295,11 @@ class PlaylistRepository @Inject constructor(
             Timber.d("No EPG URL discovered for playlist ${playlist.id}")
         }
 
-        return syncXtreamApiEpg(playlist, channels)
+        if (syncXtreamApiEpg(playlist, channels)) {
+            return true
+        }
+
+        return syncTurkishPublicEpgFallback(playlist, channels)
     }
 
     private fun syncDiscoveredEpgInBackground(
@@ -397,6 +402,41 @@ class PlaylistRepository @Inject constructor(
         settingsDataStore.updateEpgLastSync(System.currentTimeMillis())
         Timber.d("Xtream API EPG sync completed for playlist ${playlist.id}: $savedProgramCount programs")
         return true
+    }
+
+    private suspend fun syncTurkishPublicEpgFallback(
+        playlist: Playlist,
+        channels: List<Channel>
+    ): Boolean {
+        if (!shouldUseTurkishPublicEpgFallback(channels)) {
+            return false
+        }
+
+        val channelIdMap = epgRepository.buildChannelIdMap(channels)
+        var savedProgramCount = 0
+
+        TURKISH_PUBLIC_EPG_URLS.forEach { epgUrl ->
+            val result = epgRepository.fetchAndSave(epgUrl, channelIdMap)
+            val count = result.getOrNull() ?: 0
+            if (result.isFailure || count <= 0) {
+                result.exceptionOrNull()?.let { error ->
+                    Timber.w(error, "Turkish public EPG fallback failed for playlist ${playlist.id}")
+                }
+                return@forEach
+            }
+
+            savedProgramCount += count
+            if (hasCurrentEpgMatches(channels)) {
+                settingsDataStore.updateEpgLastSync(System.currentTimeMillis())
+                Timber.d("Turkish public EPG fallback completed for playlist ${playlist.id}: $savedProgramCount programs")
+                return true
+            }
+        }
+
+        if (savedProgramCount > 0) {
+            Timber.w("Turkish public EPG fallback parsed programs but matched no current channels for playlist ${playlist.id}")
+        }
+        return false
     }
 
     private suspend fun hasCurrentEpgMatches(channels: List<Channel>): Boolean =
@@ -573,6 +613,62 @@ internal fun resolveM3uEpgUrls(
         .map(String::trim)
         .filter(String::isNotBlank)
         .distinct()
+
+internal val TURKISH_PUBLIC_EPG_URLS = listOf(
+    "https://www.open-epg.com/files/turkey1.xml",
+    "https://www.open-epg.com/files/turkey2.xml",
+    "https://www.open-epg.com/files/turkey3.xml",
+    "https://www.open-epg.com/files/turkey4.xml",
+    "https://www.open-epg.com/files/turkey5.xml",
+    "https://epgshare01.online/epgshare01/epg_ripper_TR1.xml.gz",
+    "https://epgshare01.online/epgshare01/epg_ripper_TR3.xml.gz"
+)
+
+internal fun shouldUseTurkishPublicEpgFallback(channels: List<Channel>): Boolean {
+    if (channels.isEmpty()) return false
+
+    val strongMatch = channels.any { channel ->
+        val fields = listOf(channel.name, channel.groupTitle, channel.epgChannelId)
+            .map { it.trim().lowercase(Locale.ROOT) }
+        fields.any { value ->
+            value.startsWith("tr ") ||
+                value.startsWith("tr.") ||
+                value.startsWith("tr-") ||
+                value.contains(" tr ") ||
+                value.endsWith(".tr") ||
+                value.endsWith("-tr") ||
+                value.contains("turkey") ||
+                value.contains("turkiye") ||
+                value.contains("türkiye")
+        }
+    }
+    if (strongMatch) return true
+
+    val knownTurkishChannelMatches = channels.count { channel ->
+        val normalized = listOf(channel.name, channel.groupTitle, channel.epgChannelId)
+            .joinToString(" ")
+            .lowercase(Locale.ROOT)
+        knownTurkishChannelTokens.any { token -> normalized.contains(token) }
+    }
+    return knownTurkishChannelMatches >= 3
+}
+
+private val knownTurkishChannelTokens = listOf(
+    "trt",
+    "kanal d",
+    "show tv",
+    "show hd",
+    "atv",
+    "star tv",
+    "now tv",
+    "tv8",
+    "a haber",
+    "haberturk",
+    "haber turk",
+    "kanal 7",
+    "beyaz tv",
+    "teve2"
+)
 
 private fun String.splitEpgSourceUrls(): List<String> =
     lineSequence()
