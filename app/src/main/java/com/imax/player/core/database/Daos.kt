@@ -308,6 +308,9 @@ interface EpisodeDao {
     @Query("SELECT * FROM episodes WHERE id = :id")
     suspend fun getById(id: Long): EpisodeEntity?
 
+    @Query("SELECT * FROM episodes WHERE seriesId IN (SELECT id FROM series WHERE playlistId = :playlistId)")
+    suspend fun getByPlaylistSnapshot(playlistId: Long): List<EpisodeEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(episodes: List<EpisodeEntity>)
 

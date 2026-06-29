@@ -24,7 +24,6 @@ import okhttp3.OkHttpClient
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import timber.log.Timber
-import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -246,10 +245,21 @@ class PlaylistRepository @Inject constructor(
         existingContent: ExistingContentState,
         syncTime: Long
     ) {
-        insertChunked(result.channels) { channelDao.insertAll(it) }
-        insertChunked(result.movies.withMovieAddedAt(existingContent.movieAddedAtByKey, syncTime)) { movieDao.insertAll(it) }
-        insertChunked(result.series.withSeriesAddedAt(existingContent.seriesAddedAtByKey, syncTime)) { seriesDao.insertAll(it) }
+        insertChunked(result.channels.withPreservedChannelState(existingContent.channelByKey)) { channelDao.insertAll(it) }
+        insertChunked(result.movies.withPreservedMovieState(existingContent.movieByKey, syncTime)) { movieDao.insertAll(it) }
+        val series = result.series.withPreservedSeriesState(existingContent.seriesByKey, syncTime)
+        insertChunked(series) { seriesDao.insertAll(it) }
         insertChunked(result.categories) { categoryDao.insertAll(it) }
+
+        // Xtream episodes are synced on demand (not part of this result) and were just
+        // deleted by replacePlaylistContent. Series ids are preserved above, so re-insert
+        // the previous episode rows that still belong to a surviving series; this keeps
+        // series continue-watching/favorites intact across a refresh.
+        val preservedSeriesIds = series.mapNotNull { it.id.takeIf { id -> id > 0L } }.toSet()
+        val preservedEpisodes = existingContent.episodes.filter { it.seriesId in preservedSeriesIds }
+        if (preservedEpisodes.isNotEmpty()) {
+            insertChunked(preservedEpisodes) { episodeDao.insertAll(it) }
+        }
     }
 
     private suspend fun syncDiscoveredEpg(
@@ -397,10 +407,10 @@ class PlaylistRepository @Inject constructor(
         existingContent: ExistingContentState,
         syncTime: Long
     ) {
-        insertChunked(result.channels) { channelDao.insertAll(it) }
-        insertChunked(result.movies.withMovieAddedAt(existingContent.movieAddedAtByKey, syncTime)) { movieDao.insertAll(it) }
+        insertChunked(result.channels.withPreservedChannelState(existingContent.channelByKey)) { channelDao.insertAll(it) }
+        insertChunked(result.movies.withPreservedMovieState(existingContent.movieByKey, syncTime)) { movieDao.insertAll(it) }
 
-        val series = result.series.withSeriesAddedAt(existingContent.seriesAddedAtByKey, syncTime)
+        val series = result.series.withPreservedSeriesState(existingContent.seriesByKey, syncTime)
         if (series.isEmpty()) return
 
         insertChunked(series) { seriesDao.insertAll(it) }
@@ -412,6 +422,7 @@ class PlaylistRepository @Inject constructor(
 
         val storedSeries = seriesDao.getByPlaylistSnapshot(playlistId).associateBy { it.name }
         val episodeEntities = buildM3uEpisodes(result.seriesEpisodes, storedSeries)
+            .withPreservedEpisodeState(existingContent.episodeByKey)
 
         if (episodeEntities.isNotEmpty()) {
             insertChunked(episodeEntities) { episodeDao.insertAll(it) }
@@ -433,27 +444,18 @@ class PlaylistRepository @Inject constructor(
     }
 
     private suspend fun loadExistingContentState(playlistId: Long): ExistingContentState {
+        val channels = channelDao.getByPlaylistSnapshot(playlistId)
         val movies = movieDao.getByPlaylistSnapshot(playlistId)
         val series = seriesDao.getByPlaylistSnapshot(playlistId)
+        val episodes = episodeDao.getByPlaylistSnapshot(playlistId)
 
         return ExistingContentState(
-            movieAddedAtByKey = movies.associate { it.stableContentKey() to it.addedAt },
-            seriesAddedAtByKey = series.associate { it.stableContentKey() to it.addedAt }
+            channelByKey = channels.associateBy { it.stableContentKey() },
+            movieByKey = movies.associateBy { it.stableContentKey() },
+            seriesByKey = series.associateBy { it.stableContentKey() },
+            episodeByKey = episodes.associateBy { it.stableContentKey() },
+            episodes = episodes
         )
-    }
-
-    private fun List<MovieEntity>.withMovieAddedAt(
-        existingAddedAtByKey: Map<String, Long>,
-        syncTime: Long
-    ): List<MovieEntity> = map { movie ->
-        movie.copy(addedAt = existingAddedAtByKey[movie.stableContentKey()] ?: syncTime)
-    }
-
-    private fun List<SeriesEntity>.withSeriesAddedAt(
-        existingAddedAtByKey: Map<String, Long>,
-        syncTime: Long
-    ): List<SeriesEntity> = map { series ->
-        series.copy(addedAt = existingAddedAtByKey[series.stableContentKey()] ?: syncTime)
     }
 
     private suspend fun <T> insertChunked(items: List<T>, insert: suspend (List<T>) -> Unit) {
@@ -462,27 +464,12 @@ class PlaylistRepository @Inject constructor(
         }
     }
 
-    private fun MovieEntity.stableContentKey(): String {
-        return when {
-            streamId > 0 -> "stream:$streamId"
-            streamUrl.isNotBlank() -> "url:${parsePlaybackSource(streamUrl).url}"
-            else -> "name:${name.normalizedKeyPart()}:${categoryName.normalizedKeyPart()}"
-        }
-    }
-
-    private fun SeriesEntity.stableContentKey(): String {
-        return when {
-            seriesId > 0 -> "series:$seriesId"
-            else -> "name:${name.normalizedKeyPart()}:${categoryName.normalizedKeyPart()}"
-        }
-    }
-
-    private fun String.normalizedKeyPart(): String =
-        trim().lowercase(Locale.ROOT)
-
     private data class ExistingContentState(
-        val movieAddedAtByKey: Map<String, Long>,
-        val seriesAddedAtByKey: Map<String, Long>
+        val channelByKey: Map<String, ChannelEntity>,
+        val movieByKey: Map<String, MovieEntity>,
+        val seriesByKey: Map<String, SeriesEntity>,
+        val episodeByKey: Map<String, EpisodeEntity>,
+        val episodes: List<EpisodeEntity>
     )
 
     private fun buildM3uEpisodes(
