@@ -20,6 +20,13 @@ import java.util.concurrent.TimeUnit
  * - Requires network
  * - Silently refreshes active playlist in background
  * - Input: PLAYLIST_ID (Long), INTERVAL_HOURS (Int)
+ *
+ * NOTE (wiring status): neither [schedule] (periodic) nor [runNow] (manual) is currently
+ * invoked from production code — this worker is not yet wired into the app. Refreshing a
+ * playlist is now data-safe (favorites and watch progress are preserved by
+ * [com.imax.player.data.repository.PlaylistRepository]'s stable-key merge), so this can be
+ * wired up later. Periodic auto-refresh must remain an explicit user opt-in (e.g. a settings
+ * toggle + interval) rather than being enabled by default.
  */
 @HiltWorker
 class PlaylistRefreshWorker @AssistedInject constructor(
