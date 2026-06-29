@@ -1,7 +1,7 @@
-1.1.0 — Connected iMAX
+1.1.1 — Playlist ve EPG Güvenilirliği
 
-- TV’de QR kodla 8 karakterlik Connected iMAX eşleştirme oturumu açılabiliyor.
-- Xtream, M3U URL ve M3U dosya kaynakları telefondaki companion formundan TV’ye aktarılabiliyor.
-- Gelen paketler playlist tipi, URL, EPG, dosya boyutu ve eşleştirme kodu açısından uygulama içinde doğrulanıyor.
-- Connected iMAX ayarları UI dışına taşındı; kayıt, dosya yazma ve başlangıç/EPG tercihleri repository katmanında uygulanıyor.
-- Companion web formu tam 8 karakterli kod, 5 MB dosya limiti ve yeni `connected-imax` payload sözleşmesiyle uyumlu hale getirildi.
+- Playlist yenileme artık favorileri ve izleme geçmişi/devam et verilerini silmeden içerik eşleştiriyor.
+- Stream health worker çalışan yayınları yanlışlıkla offline işaretlememek için ranged GET ve tri-state sınıflandırma kullanıyor.
+- Worker wiring durumu kod içinde belgelendi; otomatik refresh kullanıcı kararı olmadan etkinleştirilmedi.
+- XMLTV içinde timezone olmayan zamanlar artık yerel saat diliminde yorumlanıyor.
+- Room migration test altyapısı eklendi ve mevcut migration zinciri minimal pre-state senaryolarıyla testleniyor.
