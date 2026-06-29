@@ -287,23 +287,47 @@ fun PosterImage(
         if (isLoading) {
             ShimmerBox(modifier = Modifier.fillMaxSize())
         } else if (safeUrl == null || hasImageError) {
-            PosterFallback(modifier = Modifier.fillMaxSize())
+            PosterFallback(
+                title = contentDescription.takeIf { it.isNotBlank() && !it.equals("Backdrop", ignoreCase = true) },
+                modifier = Modifier.fillMaxSize()
+            )
         }
     }
 }
 
 @Composable
-private fun PosterFallback(modifier: Modifier = Modifier) {
+private fun PosterFallback(title: String?, modifier: Modifier = Modifier) {
     Box(
-        modifier = modifier.background(ImaxColors.SurfaceElevated),
+        modifier = modifier
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        ImaxColors.SurfaceElevated,
+                        ImaxColors.SurfaceVariant.copy(alpha = 0.72f)
+                    )
+                )
+            )
+            .padding(10.dp),
         contentAlignment = Alignment.Center
     ) {
-        Icon(
-            imageVector = Icons.Filled.Image,
-            contentDescription = null,
-            tint = ImaxColors.TextTertiary.copy(alpha = 0.7f),
-            modifier = Modifier.size(28.dp)
-        )
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(
+                imageVector = Icons.Filled.Movie,
+                contentDescription = null,
+                tint = ImaxColors.TextTertiary.copy(alpha = 0.75f),
+                modifier = Modifier.size(28.dp)
+            )
+            if (!title.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = ImaxColors.TextSecondary,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
     }
 }
 

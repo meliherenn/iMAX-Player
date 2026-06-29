@@ -158,7 +158,7 @@ class ContentRepository @Inject constructor(
         try {
             val movie = entity.toModel()
             val cached = metadataProvider.getCachedMetadata(movie.name, movie.year, ContentType.MOVIE)
-            if (cached != null && cached.hasReplacementPoster(movie.posterUrl, replaceExistingArtwork)) {
+            if (cached != null && cached.hasReplacementArtwork(movie, replaceExistingArtwork)) {
                 updateMovieWithMetadata(movie.id, cached, replaceExistingArtwork)
                 return true
             }
@@ -173,7 +173,7 @@ class ContentRepository @Inject constructor(
                 if (providerMetadata != null) {
                     val providerResult = providerMetadata.toMetadataResult()
                     updateMovieWithMetadata(movie.id, providerResult, replaceExistingArtwork)
-                    if (providerResult.hasReplacementPoster(movie.posterUrl, replaceExistingArtwork)) return true
+                    if (providerResult.hasReplacementArtwork(movie, replaceExistingArtwork)) return true
                 }
             }
 
@@ -183,7 +183,7 @@ class ContentRepository @Inject constructor(
                 contentType = ContentType.MOVIE,
                 tmdbId = movie.tmdbId
             )
-            if (fetched != null && fetched.hasReplacementPoster(movie.posterUrl, replaceExistingArtwork)) {
+            if (fetched != null && fetched.hasReplacementArtwork(movie, replaceExistingArtwork)) {
                 updateMovieWithMetadata(movie.id, fetched, replaceExistingArtwork)
                 return true
             }
@@ -673,8 +673,15 @@ private fun XtreamVodMetadata.toMetadataResult(): MetadataResult = MetadataResul
     confidence = 100.0
 )
 
-private fun MetadataResult.hasReplacementPoster(
-    currentPosterUrl: String,
+private fun MetadataResult.hasReplacementArtwork(
+    movie: Movie,
     replaceExistingArtwork: Boolean
-): Boolean = isUsableArtworkUrl(posterUrl) &&
-    (!replaceExistingArtwork || !posterUrl.equals(currentPosterUrl, ignoreCase = true))
+): Boolean {
+    fun isReplacement(candidateUrl: String, currentUrl: String): Boolean =
+        isUsableArtworkUrl(candidateUrl) &&
+            (!isUsableArtworkUrl(currentUrl) ||
+                (replaceExistingArtwork && !candidateUrl.equals(currentUrl, ignoreCase = true)))
+
+    return isReplacement(posterUrl, movie.posterUrl) ||
+        isReplacement(backdropUrl, movie.backdropUrl)
+}

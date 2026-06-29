@@ -1,8 +1,6 @@
-1.0.16 — TV Rehberi
+1.0.17 — Görsel Detay Düzeltmesi
 
-- Mobil ve Android TV için kanal grubu filtreli, zaman çizelgeli TV Rehberi eklendi.
-- Şimdi, iki saat ve bir gün ileri/geri gezinme ile gerçek EPG yenileme desteği eklendi.
-- Geçmiş EPG verisi yedi gün korunuyor; destekleyen kanallarda geçmiş programdan geri izleme açılabiliyor.
-- Xtream geri izleme başlangıç saatleri UTC olarak ve iş parçacığı güvenli biçimde üretiliyor.
-- Eksik veya bozuk film görselleri Xtream VOD bilgisinden, ardından yapılandırılmışsa TMDB'den sınırlı biçimde tamamlanıyor.
-- Göreli, protokolsüz ve kaçışlı sağlayıcı görsel adresleri normalize ediliyor; yüklenemeyen posterler yeniden deneniyor.
+- Detay ekranında geçersiz poster/backdrop adresleri artık boş üst alan veya bozuk görsel gibi gösterilmiyor.
+- Film detayında poster/backdrop yüklenemezse Xtream VOD/TMDB görsel onarımı da tetikleniyor.
+- Poster gerçekten yoksa kart içinde küçük film simgesi ve başlık gösterilerek içerik oynatılabilir halde net kalıyor.
+- Backdrop yokken mobil detay ekranı gereksiz büyük boşluk bırakmıyor.

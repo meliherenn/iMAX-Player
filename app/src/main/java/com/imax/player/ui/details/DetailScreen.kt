@@ -111,6 +111,9 @@ class DetailViewModel @Inject constructor(
         if (cachedMetadata == null || needsMetadataEnrichment(hydratedMovie)) {
             enrichMovieMetadata(movie)
         }
+        if (!hasUsableMovieArtwork(hydratedMovie)) {
+            repairMovieArtwork(movie.id)
+        }
     }
 
     private suspend fun loadSeries(id: Long) {
@@ -153,7 +156,7 @@ class DetailViewModel @Inject constructor(
         return !isUsableArtworkUrl(movie.posterUrl) ||
             movie.plot.isBlank() ||
             movie.cast.isBlank() ||
-            movie.backdropUrl.isBlank() ||
+            !isUsableArtworkUrl(movie.backdropUrl) ||
             movie.genre.isBlank() ||
             movie.duration == 0 ||
             movie.tmdbId == 0
@@ -163,10 +166,13 @@ class DetailViewModel @Inject constructor(
         return !isUsableArtworkUrl(series.posterUrl) ||
             series.plot.isBlank() ||
             series.cast.isBlank() ||
-            series.backdropUrl.isBlank() ||
+            !isUsableArtworkUrl(series.backdropUrl) ||
             series.genre.isBlank() ||
             series.tmdbId == 0
     }
+
+    private fun hasUsableMovieArtwork(movie: Movie): Boolean =
+        isUsableArtworkUrl(movie.posterUrl) && isUsableArtworkUrl(movie.backdropUrl)
 
     private fun enrichMovieMetadata(movie: Movie) {
         viewModelScope.launch {
@@ -186,6 +192,33 @@ class DetailViewModel @Inject constructor(
                 }
             } else {
                 _state.update { it.copy(isEnrichingMetadata = false) }
+            }
+        }
+    }
+
+    fun repairMovieArtwork(movieId: Long) {
+        viewModelScope.launch {
+            _state.update { it.copy(isEnrichingMetadata = true) }
+            val repaired = contentRepository.repairMovieArtwork(movieId)
+            val updatedMovie = contentRepository.getMovie(movieId)
+            if (updatedMovie == null) {
+                _state.update { it.copy(isEnrichingMetadata = false) }
+                return@launch
+            }
+
+            val cachedMetadata = contentRepository.getCachedMetadata(
+                updatedMovie.name,
+                updatedMovie.year,
+                ContentType.MOVIE
+            )
+            _state.update {
+                it.copy(
+                    movie = updatedMovie.mergeWith(cachedMetadata),
+                    isEnrichingMetadata = false,
+                    metadataEnriched = it.metadataEnriched || repaired,
+                    tagline = cachedMetadata?.tagline ?: it.tagline,
+                    trailerUrl = cachedMetadata?.trailerUrl ?: it.trailerUrl
+                )
             }
         }
     }
@@ -320,14 +353,21 @@ private fun TvDetailContent(
     val genre = movie?.genre ?: series?.genre ?: ""
     val cast = movie?.cast ?: series?.cast ?: ""
     val director = movie?.director ?: series?.director ?: ""
+    val hasBackdrop = isUsableArtworkUrl(backdropUrl)
+    val onArtworkError: () -> Unit = { movie?.id?.let(viewModel::repairMovieArtwork) }
     val dimens = LocalImaxDimens.current
     val scrollState = rememberScrollState()
 
     Box(modifier = Modifier.fillMaxSize()) {
         // Backdrop
-        if (backdropUrl.isNotBlank()) {
-            PosterImage(url = backdropUrl, contentDescription = title, contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxWidth().height(400.dp))
+        if (hasBackdrop) {
+            PosterImage(
+                url = backdropUrl,
+                contentDescription = title,
+                contentScale = ContentScale.Crop,
+                onError = onArtworkError,
+                modifier = Modifier.fillMaxWidth().height(400.dp)
+            )
             Box(modifier = Modifier.fillMaxWidth().height(400.dp)
                 .background(Brush.verticalGradient(listOf(ImaxColors.OverlayDark, ImaxColors.Background))))
         }
@@ -340,8 +380,12 @@ private fun TvDetailContent(
             Spacer(modifier = Modifier.height(8.dp))
 
             Row(modifier = Modifier.fillMaxWidth()) {
-                PosterImage(url = posterUrl, contentDescription = title,
-                    modifier = Modifier.width(dimens.posterWidth).aspectRatio(2f / 3f).clip(RoundedCornerShape(16.dp)))
+                PosterImage(
+                    url = posterUrl,
+                    contentDescription = title,
+                    onError = onArtworkError,
+                    modifier = Modifier.width(dimens.posterWidth).aspectRatio(2f / 3f).clip(RoundedCornerShape(16.dp))
+                )
                 Spacer(modifier = Modifier.width(24.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(title, style = MaterialTheme.typography.displaySmall, color = ImaxColors.TextPrimary)
@@ -434,6 +478,8 @@ private fun MobileDetailContent(
     val director = movie?.director ?: series?.director ?: ""
     val tagline = state.tagline
     val trailerUrl = state.trailerUrl
+    val hasBackdrop = isUsableArtworkUrl(backdropUrl)
+    val onArtworkError: () -> Unit = { movie?.id?.let(viewModel::repairMovieArtwork) }
     val dimens = LocalImaxDimens.current
     val scrollState = rememberScrollState()
     val config = LocalConfiguration.current
@@ -441,11 +487,12 @@ private fun MobileDetailContent(
 
     Box(modifier = Modifier.fillMaxSize()) {
         // ─── Backdrop with multi-stop gradient ───
-        if (backdropUrl.isNotBlank()) {
+        if (hasBackdrop) {
             PosterImage(
                 url = backdropUrl, 
                 contentDescription = title, 
                 contentScale = ContentScale.Crop,
+                onError = onArtworkError,
                 modifier = Modifier.fillMaxWidth().height(320.dp)
             )
             Box(
@@ -480,8 +527,12 @@ private fun MobileDetailContent(
             if (isLandscape) {
                 // ─── Landscape: poster + info side by side ───
                 Row(modifier = Modifier.fillMaxWidth().padding(horizontal = dimens.screenPadding)) {
-                    PosterImage(url = posterUrl, contentDescription = title,
-                        modifier = Modifier.width(160.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp)))
+                    PosterImage(
+                        url = posterUrl,
+                        contentDescription = title,
+                        onError = onArtworkError,
+                        modifier = Modifier.width(160.dp).aspectRatio(2f / 3f).clip(RoundedCornerShape(12.dp))
+                    )
                     Spacer(modifier = Modifier.width(16.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(title, style = MaterialTheme.typography.headlineMedium, color = ImaxColors.TextPrimary)
@@ -507,7 +558,7 @@ private fun MobileDetailContent(
                 }
             } else {
                 // ─── Portrait: hero header ───
-                Spacer(modifier = Modifier.height(if (backdropUrl.isNotBlank()) 160.dp else 8.dp))
+                Spacer(modifier = Modifier.height(if (hasBackdrop) 160.dp else 8.dp))
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -517,6 +568,7 @@ private fun MobileDetailContent(
                     PosterImage(
                         url = posterUrl, 
                         contentDescription = title,
+                        onError = onArtworkError,
                         modifier = Modifier
                             .width(120.dp)
                             .aspectRatio(2f / 3f)
