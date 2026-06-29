@@ -117,6 +117,20 @@ android {
         buildConfig = true
     }
 
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            isReturnDefaultValues = true
+            all { test ->
+                // Force an invariant locale for the test JVM. On a Turkish-locale machine,
+                // conscrypt (pulled in by Robolectric) lowercases "LINUX" to "lınux" (dotless ı)
+                // when resolving its bundled native lib, which then fails to load.
+                test.systemProperty("user.language", "en")
+                test.systemProperty("user.country", "US")
+            }
+        }
+    }
+
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
@@ -251,6 +265,9 @@ dependencies {
     testImplementation(libs.turbine)
     testImplementation(libs.truth)
     testImplementation(libs.coroutines.test)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.room.testing)
+    testImplementation(libs.test.core.ktx)
     androidTestImplementation(libs.test.runner)
     androidTestImplementation(libs.test.ext)
     androidTestImplementation(composeBom)

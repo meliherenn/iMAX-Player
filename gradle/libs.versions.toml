@@ -33,6 +33,8 @@ turbine = "1.2.0"
 truth = "1.4.4"
 test-runner = "1.6.2"
 test-ext = "1.2.1"
+test-core = "1.6.1"
+robolectric = "4.13"
 
 [libraries]
 # Compose BOM
@@ -117,6 +119,9 @@ test-runner = { group = "androidx.test", name = "runner", version.ref = "test-ru
 test-ext = { group = "androidx.test.ext", name = "junit", version.ref = "test-ext" }
 compose-ui-test = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
+room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
+test-core-ktx = { group = "androidx.test", name = "core-ktx", version.ref = "test-core" }
+robolectric = { group = "org.robolectric", name = "robolectric", version.ref = "robolectric" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
