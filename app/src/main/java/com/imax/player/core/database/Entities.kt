@@ -155,7 +155,11 @@ data class CategoryEntity(
     indices = [
         Index(value = ["channelId"]),
         Index(value = ["channelId", "endTime"]),
-        Index(value = ["channelId", "startTime"]),
+        // A channel airs exactly one programme at a given start time, so this is the
+        // natural key. Making it unique lets EpgDao.insertAll (OnConflictStrategy.REPLACE)
+        // overwrite the previous copy of a slot on every sync instead of accumulating
+        // duplicate rows (the auto-generated id never collides, so REPLACE was a no-op).
+        Index(value = ["channelId", "startTime"], unique = true),
         Index(value = ["endTime"])
     ]
 )

@@ -41,10 +41,24 @@ jobs:
           :app:lintDebug
           --stacktrace
 
+      # Compile the R8/minify/resource-shrink release pipeline so proguard-rules
+      # regressions surface in CI rather than at release-cut time. The build is
+      # unsigned here (no signing secrets in CI), which still exercises R8.
+      - name: Assemble release (unsigned, verifies minify/proguard)
+        run: ./gradlew :app:assembleRelease --stacktrace
+
       - name: Upload lint report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: lint-report
           path: app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+
+      - name: Upload unit test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-report
+          path: app/build/reports/tests/testDebugUnitTest/**
           if-no-files-found: ignore

@@ -118,6 +118,50 @@ class ImaxDatabaseMigrationTest {
     }
 
     @Test
+    fun migration_6_7_dedupes_programs_and_enforces_unique_slot() {
+        val db = newInMemoryDb()
+        // Pre-v7 shape: auto-increment id, no unique constraint on the natural key.
+        db.execSQL(
+            "CREATE TABLE epg_programs (" +
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, channelId TEXT NOT NULL, " +
+                "title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '', " +
+                "startTime INTEGER NOT NULL, endTime INTEGER NOT NULL, " +
+                "posterUrl TEXT NOT NULL DEFAULT '', genre TEXT NOT NULL DEFAULT '')"
+        )
+        db.execSQL("CREATE INDEX index_epg_programs_channelId_startTime ON epg_programs (channelId, startTime)")
+        // Two duplicate rows for the same slot (a stale sync then a fresher one) plus an unrelated slot.
+        db.execSQL(
+            "INSERT INTO epg_programs (id, channelId, title, startTime, endTime) VALUES " +
+                "(1, 'bbc1', 'Old News', 1000, 2000), " +
+                "(2, 'bbc1', 'Fresh News', 1000, 2000), " +
+                "(3, 'bbc1', 'Later Show', 2000, 3000)"
+        )
+
+        ImaxDatabase.MIGRATION_6_7.migrate(db)
+
+        // The duplicate slot collapses to the newest inserted copy (MAX(id)).
+        db.query("SELECT title FROM epg_programs WHERE channelId = 'bbc1' AND startTime = 1000").use { c ->
+            assertThat(c.count).isEqualTo(1)
+            assertThat(c.moveToFirst()).isTrue()
+            assertThat(c.getString(0)).isEqualTo("Fresh News")
+        }
+        // The unrelated slot is untouched.
+        db.query("SELECT COUNT(*) FROM epg_programs").use { c ->
+            assertThat(c.moveToFirst()).isTrue()
+            assertThat(c.getInt(0)).isEqualTo(2)
+        }
+        // The unique index now rejects a second row for an existing slot.
+        db.execSQL("INSERT OR REPLACE INTO epg_programs (channelId, title, startTime, endTime) VALUES ('bbc1', 'Replaced', 1000, 2500)")
+        db.query("SELECT title, endTime FROM epg_programs WHERE channelId = 'bbc1' AND startTime = 1000").use { c ->
+            assertThat(c.count).isEqualTo(1)
+            assertThat(c.moveToFirst()).isTrue()
+            assertThat(c.getString(0)).isEqualTo("Replaced")
+            assertThat(c.getLong(1)).isEqualTo(2500L)
+        }
+        db.close()
+    }
+
+    @Test
     fun database_opens_at_current_version_and_supports_favorites_round_trip() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val db = Room.inMemoryDatabaseBuilder(context, ImaxDatabase::class.java)
@@ -126,7 +170,8 @@ class ImaxDatabaseMigrationTest {
                 ImaxDatabase.MIGRATION_2_3,
                 ImaxDatabase.MIGRATION_3_4,
                 ImaxDatabase.MIGRATION_4_5,
-                ImaxDatabase.MIGRATION_5_6
+                ImaxDatabase.MIGRATION_5_6,
+                ImaxDatabase.MIGRATION_6_7
             )
             .allowMainThreadQueries()
             .build()
@@ -160,6 +205,19 @@ class ImaxDatabaseMigrationTest {
             assertThat(db.channelDao().getById(1)).isNotNull()
             assertThat(db.favoriteDao().isFavorite(1, "LIVE").first()).isTrue()
             assertThat(db.watchHistoryDao().getByContent(1, "LIVE")).isNotNull()
+
+            // Re-syncing the same slot must overwrite in place, not duplicate. This is the
+            // behavioural guarantee behind the unique (channelId, startTime) index.
+            val now = 1_500L
+            db.epgDao().insertAll(
+                listOf(EpgProgramEntity(channelId = "1", title = "First", startTime = 1_000, endTime = 2_000))
+            )
+            db.epgDao().insertAll(
+                listOf(EpgProgramEntity(channelId = "1", title = "Second", startTime = 1_000, endTime = 2_000))
+            )
+            val current = db.epgDao().getCurrentProgramsForIds(listOf("1"), now)
+            assertThat(current).hasSize(1)
+            assertThat(current.single().title).isEqualTo("Second")
         }
         db.close()
     }

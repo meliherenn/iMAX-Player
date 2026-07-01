@@ -139,6 +139,108 @@ class ConnectedSetupRepositoryTest {
         assertThat(error).hasMessageThat().contains("HTTPS")
     }
 
+    @Test
+    fun `legacy remote-setup source is still accepted`() {
+        val draft = validateConnectedSetupPayload(
+            expectedPairingCode = "A7K9Q2BC",
+            payload = validM3uPayload().copy(source = "imax-remote-setup")
+        )
+        assertThat(draft.playlist.type).isEqualTo(PlaylistType.M3U_URL)
+    }
+
+    @Test
+    fun `unsupported payload version is rejected`() {
+        val error = kotlin.runCatching {
+            validateConnectedSetupPayload(
+                expectedPairingCode = "A7K9Q2BC",
+                payload = validM3uPayload().copy(version = 99)
+            )
+        }.exceptionOrNull()
+
+        assertThat(error).isInstanceOf(IllegalArgumentException::class.java)
+        assertThat(error).hasMessageThat().contains("sürüm")
+    }
+
+    @Test
+    fun `unknown source is rejected`() {
+        val error = kotlin.runCatching {
+            validateConnectedSetupPayload(
+                expectedPairingCode = "A7K9Q2BC",
+                payload = validM3uPayload().copy(source = "evil-source")
+            )
+        }.exceptionOrNull()
+
+        assertThat(error).isInstanceOf(IllegalArgumentException::class.java)
+        assertThat(error).hasMessageThat().contains("kaynak")
+    }
+
+    @Test
+    fun `non http epg url is rejected`() {
+        val error = kotlin.runCatching {
+            validateConnectedSetupPayload(
+                expectedPairingCode = "A7K9Q2BC",
+                payload = validM3uPayload().let {
+                    it.copy(playlist = it.playlist.copy(epgUrl = "ftp://provider.example/epg.xml"))
+                }
+            )
+        }.exceptionOrNull()
+
+        assertThat(error).isInstanceOf(IllegalArgumentException::class.java)
+        assertThat(error).hasMessageThat().contains("EPG URL")
+    }
+
+    @Test
+    fun `xtream payload without password is rejected`() {
+        val error = kotlin.runCatching {
+            validateConnectedSetupPayload(
+                expectedPairingCode = "A7K9Q2BC",
+                payload = ConnectedSetupPayload(
+                    version = CONNECTED_IMAX_PAYLOAD_VERSION,
+                    source = CONNECTED_IMAX_PAYLOAD_SOURCE,
+                    pairingCode = "A7K9Q2BC",
+                    playlist = ConnectedPlaylistInfo(
+                        name = "Portal",
+                        type = "xtream",
+                        serverUrl = "https://portal.example.com/player_api.php",
+                        username = "user1",
+                        password = ""
+                    )
+                )
+            )
+        }.exceptionOrNull()
+
+        assertThat(error).isInstanceOf(IllegalArgumentException::class.java)
+        assertThat(error).hasMessageThat().contains("şifre")
+    }
+
+    @Test
+    fun `m3u payload with non http url is rejected`() {
+        val error = kotlin.runCatching {
+            validateConnectedSetupPayload(
+                expectedPairingCode = "A7K9Q2BC",
+                payload = validM3uPayload().let {
+                    it.copy(playlist = it.playlist.copy(url = "file:///etc/passwd"))
+                }
+            )
+        }.exceptionOrNull()
+
+        assertThat(error).isInstanceOf(IllegalArgumentException::class.java)
+        assertThat(error).hasMessageThat().contains("M3U URL")
+    }
+
+    @Test
+    fun `short expected pairing code is rejected`() {
+        val error = kotlin.runCatching {
+            validateConnectedSetupPayload(
+                expectedPairingCode = "A7K9",
+                payload = validM3uPayload()
+            )
+        }.exceptionOrNull()
+
+        assertThat(error).isInstanceOf(IllegalArgumentException::class.java)
+        assertThat(error).hasMessageThat().contains("Eşleştirme kodu")
+    }
+
     private fun validM3uPayload(
         pairingCode: String = "A7K9Q2BC",
         type: String = "m3u"

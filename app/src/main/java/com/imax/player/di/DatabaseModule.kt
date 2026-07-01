@@ -27,7 +27,8 @@ object DatabaseModule {
                 ImaxDatabase.MIGRATION_2_3,
                 ImaxDatabase.MIGRATION_3_4,
                 ImaxDatabase.MIGRATION_4_5,
-                ImaxDatabase.MIGRATION_5_6
+                ImaxDatabase.MIGRATION_5_6,
+                ImaxDatabase.MIGRATION_6_7
             )
             .build()
     }

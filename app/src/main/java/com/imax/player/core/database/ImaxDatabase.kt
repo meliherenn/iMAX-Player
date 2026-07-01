@@ -18,7 +18,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         FavoriteEntity::class,
         MetadataCacheEntity::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = true
 )
 abstract class ImaxDatabase : RoomDatabase() {
@@ -76,6 +76,25 @@ abstract class ImaxDatabase : RoomDatabase() {
         val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE playlists ADD COLUMN epgUrl TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Historically epg_programs had an auto-generated primary key and no unique
+                // constraint, so every EPG sync appended fresh duplicate rows for the same
+                // (channelId, startTime) slot. Collapse existing duplicates keeping the most
+                // recently inserted copy, then enforce the natural key with a unique index so
+                // future OnConflictStrategy.REPLACE inserts actually overwrite in place.
+                db.execSQL(
+                    "DELETE FROM epg_programs WHERE id NOT IN (" +
+                        "SELECT MAX(id) FROM epg_programs GROUP BY channelId, startTime)"
+                )
+                db.execSQL("DROP INDEX IF EXISTS index_epg_programs_channelId_startTime")
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS index_epg_programs_channelId_startTime " +
+                        "ON epg_programs (channelId, startTime)"
+                )
             }
         }
     }
